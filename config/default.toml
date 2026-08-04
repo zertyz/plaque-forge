@@ -1,0 +1,39 @@
+# Plaque Forge 0.3 defaults.
+# The production source is expected to contain a text-free plaque cavity.
+
+[analysis]
+candidate_samples = 24
+extraction_samples = 72
+motion_model = "adaptive"
+anchor_interval = 24
+tracking_inertia = 0.35
+local_refinement_radius = 12
+occlusion_sensitivity = 1.0
+minimum_analysis_confidence = 0.70
+allow_low_confidence = false
+loop_closure = "auto"
+
+[render]
+fit = "maximize"
+supersampling = 4
+target_fill = 0.82 # used only by fit = "balanced"
+max_lines = 3
+padding = 0.05
+line_height = 1.16
+stroke_width = 0.0
+text_color = "#EBFFFFFF"
+stroke_color = "#03181ED2"
+glow_color = "#69F2FA48"
+glow_radius = 4
+text_align = "center"
+vertical_align = "center"
+
+[verify]
+minimum_score = 0.95
+tracking_lock = 0.95
+scene_integrity = 0.995
+typography_fit = 0.98
+typography_validity = 1.0
+temporal_stability = 0.95
+occlusion_restore = 0.95
+loop_seam = 0.98
