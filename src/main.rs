@@ -9,6 +9,8 @@ mod cli;
 mod color;
 mod geometry;
 mod image_io;
+mod metadata;
+mod metadata_commands;
 mod model;
 mod progress;
 mod render;
@@ -35,7 +37,9 @@ fn main() -> ExitCode {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Command::Init(args) => metadata_commands::init(args),
         Command::Analyze(args) => analyze::run(args),
+        Command::ExportTrack(args) => metadata_commands::export_track(args),
         Command::Render(args) => render::run(args),
         Command::Verify(args) => verify::run(args),
         Command::Replace(args) => {
@@ -43,9 +47,23 @@ fn run() -> Result<()> {
                 .analysis
                 .clone()
                 .unwrap_or_else(|| args.output.with_extension("titlepack"));
+            let current_human_inputs = metadata::current_human_input_provenance(
+                &args.input,
+                args.metadata.as_deref(),
+                args.plaque.as_deref(),
+                args.plaque_hint,
+                args.plaque_frame,
+                args.motion_track.as_deref(),
+                args.track_csv.as_deref(),
+            )?;
             let reusable_for_input = if titlepack::is_titlepack(&pack) && args.input.is_file() {
                 let cached = titlepack::TitlePack::open(&pack)?;
                 cached.manifest.source.sha256 == video::sha256(&args.input)?
+                    && match (&cached.manifest.human_inputs, &current_human_inputs) {
+                        (None, None) => true,
+                        (Some(cached), Some(current)) => cached.content_matches(current),
+                        _ => false,
+                    }
             } else {
                 false
             };

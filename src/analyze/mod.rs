@@ -1,14 +1,21 @@
-mod candidate;
+pub(crate) mod candidate;
 pub(crate) mod extraction;
 mod occlusion;
 mod tracking;
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 
 use crate::{
     cli::AnalyzeArgs,
+    metadata::{
+        HumanInputProvenance, HumanMotionTrack, find_source_metadata, resolve_relative,
+        semantic_provenance,
+    },
     model::AnalysisConfidence,
     progress::ProgressReporter,
     titlepack::{
@@ -17,7 +24,20 @@ use crate::{
     video,
 };
 
-pub fn run(args: AnalyzeArgs) -> Result<()> {
+struct HumanAnalysisInputs {
+    motion_track: Option<HumanMotionTrack>,
+    provenance: Option<HumanInputProvenance>,
+}
+
+impl HumanAnalysisInputs {
+    fn has_dense_locked_track(&self, frame_count: usize) -> bool {
+        self.motion_track
+            .as_ref()
+            .is_some_and(|track| track.is_dense_locked(frame_count))
+    }
+}
+
+pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     if !(0.0..=1.0).contains(&args.minimum_analysis_confidence) {
         bail!("--minimum-analysis-confidence must be between 0 and 1");
     }
@@ -36,6 +56,9 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
             "variable-frame-rate input is outside the 0.3 source contract; transcode it to a constant frame rate before analysis"
         );
     }
+    let source_sha256 = video::sha256(&args.input)
+        .with_context(|| format!("failed to hash source {}", args.input.display()))?;
+    let human_inputs = resolve_human_inputs(&mut args, &info, &source_sha256)?;
     progress.finish(format!(
         "{}x{}, {:.3} fps, {} frames",
         info.width, info.height, info.fps, info.frames
@@ -98,8 +121,20 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
         let mut track = if args.track_csv.is_some() {
             tracking::load_supervised(&args, &info, candidate.rect, &diagnostics, &mut progress)
                 .context("supervised plaque tracking failed")?
+        } else if let Some(human_track) = &human_inputs.motion_track
+            && human_track.is_dense_locked(info.frames)
+        {
+            tracking::load_dense_human(
+                &args,
+                &info,
+                candidate.rect,
+                human_track,
+                &diagnostics,
+                &mut progress,
+            )
+            .context("failed to load authoritative human plaque track")?
         } else {
-            tracking::track(
+            let mut track = tracking::track(
                 &args,
                 &info,
                 candidate.rect,
@@ -107,7 +142,17 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
                 &diagnostics,
                 &mut progress,
             )
-            .context("adaptive scene and plaque tracking failed")?
+            .context("adaptive scene and plaque tracking failed")?;
+            if let Some(human_track) = &human_inputs.motion_track {
+                tracking::apply_human_track(
+                    &mut track,
+                    human_track,
+                    candidate.rect,
+                    args.loop_closure,
+                )
+                .context("failed to apply human motion constraints")?;
+            }
+            track
         };
 
         let extraction = extraction::recover(
@@ -120,7 +165,8 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
             &diagnostics,
             args.extraction_samples,
             args.local_refinement_radius,
-            args.track_csv.is_none(),
+            args.track_csv.is_none() && !human_inputs.has_dense_locked_track(info.frames),
+            human_inputs.motion_track.as_ref(),
             track.reference_frame,
             args.tracking_inertia,
             track.loop_closed,
@@ -147,10 +193,17 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
                 &diagnostics,
                 args.occlusion_sensitivity,
                 track.loop_closed,
+                human_inputs.motion_track.as_ref(),
                 &mut progress,
             )
             .context("foreground occlusion extraction failed")?
         };
+        if args.disable_occlusion
+            && let Some(human_track) = &human_inputs.motion_track
+        {
+            tracking::apply_human_visibility_constraints(&mut track.samples, human_track)
+                .context("failed to apply human plaque visibility constraints")?;
+        }
         progress.finish(format!(
             "occluder {}, confidence {:.3}",
             if occlusion.has_occluder {
@@ -235,8 +288,7 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
             analyzer_build: crate::build_info::SOURCE_FINGERPRINT.to_string(),
             source: SourceInfo {
                 path: args.input.canonicalize().unwrap_or(args.input.clone()),
-                sha256: video::sha256(&args.input)
-                    .with_context(|| format!("failed to hash source {}", args.input.display()))?,
+                sha256: source_sha256.clone(),
                 width: info.width,
                 height: info.height,
                 fps: info.fps,
@@ -250,6 +302,7 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
             motion_model: track.model_name,
             loop_closed: track.loop_closed,
             has_occluder: occlusion.has_occluder,
+            human_inputs: human_inputs.provenance.clone(),
             analysis_gate_passed,
             confidence: AnalysisConfidence {
                 plaque_detection: candidate.confidence,
@@ -288,6 +341,182 @@ pub fn run(args: AnalyzeArgs) -> Result<()> {
         pack.manifest.confidence.overall
     );
     Ok(())
+}
+
+fn resolve_human_inputs(
+    args: &mut AnalyzeArgs,
+    info: &video::VideoInfo,
+    source_sha256: &str,
+) -> Result<HumanAnalysisInputs> {
+    let explicit_plaque_hint = args.plaque_hint;
+    let explicit_plaque_frame = args.plaque_frame;
+    let loaded = find_source_metadata(&args.input, args.metadata.as_deref())?;
+    let mut identity = HumanInputProvenance::default();
+    if let Some(bounds) = explicit_plaque_hint {
+        identity.plaque_hint = Some(bounds);
+        identity.plaque_frame = Some(explicit_plaque_frame.unwrap_or(0));
+    }
+    if let Some(path) = &args.track_csv {
+        identity.track_csv = Some(crate::metadata::provenance(path)?);
+    }
+    let mut selected_id = None;
+    let mut referenced_track = None;
+
+    if let Some(loaded) = &loaded {
+        let declared_source = resolve_relative(&loaded.path, &loaded.document.source);
+        same_file(&declared_source, &args.input).with_context(|| {
+            format!(
+                "metadata {} declares source {}, not input {}",
+                loaded.path.display(),
+                declared_source.display(),
+                args.input.display()
+            )
+        })?;
+        let selected = loaded.document.select_plaque(args.plaque.as_deref())?;
+        selected_id = Some(selected.id.clone());
+        identity.metadata = Some(semantic_provenance(&loaded.path, &loaded.document)?);
+        identity.plaque_id = Some(selected.id.clone());
+
+        if args.plaque_hint.is_none()
+            && let Some(bounds) = selected.bounds
+        {
+            args.plaque_hint = Some(bounds);
+            args.plaque_frame = selected.reference_frame;
+        }
+        if let Some(frame) = selected.reference_frame
+            && frame >= info.frames
+        {
+            bail!(
+                "plaque {:?} reference_frame {} is outside the {}-frame source",
+                selected.id,
+                frame,
+                info.frames
+            );
+        }
+        for prompt in &selected.prompts {
+            if prompt.frame >= info.frames {
+                bail!(
+                    "plaque {:?} prompt frame {} is outside the {}-frame source",
+                    selected.id,
+                    prompt.frame,
+                    info.frames
+                );
+            }
+        }
+        referenced_track = selected
+            .motion_track
+            .as_ref()
+            .map(|path| resolve_relative(&loaded.path, path));
+    } else if let Some(id) = &args.plaque {
+        bail!("--plaque {id:?} requires a metadata sidecar");
+    }
+
+    let track_path = if args.track_csv.is_some() {
+        None
+    } else {
+        args.motion_track.clone().or(referenced_track)
+    };
+    let motion_track = if let Some(path) = track_path {
+        let track = HumanMotionTrack::load(&path)?;
+        if let Some(selected_id) = &selected_id
+            && track.plaque != *selected_id
+        {
+            bail!(
+                "motion track describes plaque {:?}, but metadata selected {:?}",
+                track.plaque,
+                selected_id
+            );
+        }
+        if let Some(expected) = &track.source_sha256
+            && !expected.eq_ignore_ascii_case(source_sha256)
+        {
+            bail!(
+                "motion track source hash does not match {}; export or review the track against this source",
+                args.input.display()
+            );
+        }
+        for keyframe in &track.keyframes {
+            if keyframe.frame >= info.frames {
+                bail!(
+                    "motion keyframe {} is outside the {}-frame source",
+                    keyframe.frame,
+                    info.frames
+                );
+            }
+        }
+        if args.plaque_hint.is_none() {
+            let first = track.sorted_keyframes()[0];
+            args.plaque_hint = Some(quad_bounds(first.quad));
+            args.plaque_frame = Some(first.frame);
+        }
+        identity.plaque_id = Some(track.plaque.clone());
+        identity.motion_track = Some(semantic_provenance(&path, &track)?);
+        identity.locked_keyframes = track.locked_keyframes();
+        identity.guide_keyframes = track.guide_keyframes();
+        Some(track)
+    } else {
+        None
+    };
+
+    if let Some([x, y, width, height]) = args.plaque_hint {
+        if ![x, y, width, height].iter().all(|value| value.is_finite())
+            || width <= 0.0
+            || height <= 0.0
+        {
+            bail!("plaque bounds must be finite with positive width and height");
+        }
+        let frame = args.plaque_frame.unwrap_or(0);
+        if frame >= info.frames {
+            bail!(
+                "plaque bounds reference frame {} is outside the {}-frame source",
+                frame,
+                info.frames
+            );
+        }
+    }
+
+    let provenance = if identity == HumanInputProvenance::default() {
+        None
+    } else {
+        Some(identity)
+    };
+    Ok(HumanAnalysisInputs {
+        motion_track,
+        provenance,
+    })
+}
+
+fn same_file(a: &Path, b: &Path) -> Result<()> {
+    let a = a
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", a.display()))?;
+    let b = b
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", b.display()))?;
+    if a != b {
+        bail!("resolved paths differ: {} != {}", a.display(), b.display());
+    }
+    Ok(())
+}
+
+fn quad_bounds(quad: [[f64; 2]; 4]) -> [f64; 4] {
+    let min_x = quad
+        .iter()
+        .map(|point| point[0])
+        .fold(f64::INFINITY, f64::min);
+    let min_y = quad
+        .iter()
+        .map(|point| point[1])
+        .fold(f64::INFINITY, f64::min);
+    let max_x = quad
+        .iter()
+        .map(|point| point[0])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let max_y = quad
+        .iter()
+        .map(|point| point[1])
+        .fold(f64::NEG_INFINITY, f64::max);
+    [min_x, min_y, max_x - min_x, max_y - min_y]
 }
 
 fn partial_path(output: &std::path::Path) -> PathBuf {

@@ -1,3 +1,13 @@
+# Status update (2026-08-09)
+
+The human-owned metadata and motion-track workflow is now implemented and
+validated. A fresh `init` sidecar drove automatic, guided, mixed, and dense locked
+analysis of the static reference. Authored visibility survived occlusion analysis,
+locked geometry round-tripped exactly, comment-only edits reused the cache, and
+explicit bounds invalidated it. The dense TOML production gate passed at `1.000`
+overall with all 240 packets preserved. Current artifacts are under
+`/tmp/plaque-forge-metadata-final.8PtmYs/`; schema and workflow details are in
+[`METADATA.md`](METADATA.md).
 
 # Status update (2026-08-02)
 

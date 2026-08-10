@@ -373,14 +373,24 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let supervised_track = pack
         .manifest
         .motion_model
-        .starts_with("supervised-quad-csv-");
+        .starts_with("supervised-quad-csv-")
+        || pack
+            .manifest
+            .motion_model
+            .starts_with("authoritative-human-quad-track-");
     let tracking_measurement_valid = maximum_tracking_correction.is_finite();
     let tracking_lock = if supervised_track {
         1.0
     } else {
         measured_tracking_lock
     };
-    let tracking_lock_basis = if supervised_track {
+    let tracking_lock_basis = if pack
+        .manifest
+        .motion_model
+        .starts_with("authoritative-human-quad-track-")
+    {
+        "authoritative-human-quad-track"
+    } else if supervised_track {
         "authoritative-supervised-quad-track"
     } else {
         "automatic-structural-registration-and-edge-alignment"

@@ -5,11 +5,14 @@ use image::{GrayImage, ImageBuffer, Luma, RgbaImage};
 
 use crate::{
     geometry::{Point, Quad, homography},
+    metadata::HumanMotionTrack,
     model::{Mat3, MotionSample, RectF},
     progress::ProgressReporter,
     surface::Surface,
     video::{Decoder, VideoInfo},
 };
+
+use super::tracking;
 
 pub struct ExtractionResult {
     /// Robust canonical plaque observation used for diagnostics and structural locking.
@@ -35,6 +38,7 @@ pub fn recover(
     sample_count: usize,
     local_refinement_radius: i32,
     refine_automatic_track: bool,
+    human_track: Option<&HumanMotionTrack>,
     reference_frame: usize,
     tracking_inertia: f64,
     loop_closed: bool,
@@ -66,7 +70,10 @@ pub fn recover(
             progress,
         )?;
         regularize_refined_motion(motion, rect, reference_frame, tracking_inertia, loop_closed)?;
-        progress.finish("subpixel refinement and all-frame trajectory smoothing");
+        if let Some(track) = human_track {
+            tracking::reapply_locked_human_constraints(motion, track, rect)?;
+        }
+        progress.finish("subpixel refinement, smoothing, and human constraints");
     } else {
         progress.update(
             info.frames,

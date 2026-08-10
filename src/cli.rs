@@ -11,14 +11,71 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Detect plaque candidates and create an editable metadata sidecar.
+    Init(InitArgs),
     /// Analyze a text-free plaque video and cache motion, masks, and confidence data.
     Analyze(AnalyzeArgs),
+    /// Export a title-pack trajectory as an editable motion track.
+    ExportTrack(ExportTrackArgs),
     /// Render new typography using an existing title-pack.
     Render(RenderArgs),
     /// Compare a rendered video with the source and issue sanity scores and remedies.
     Verify(VerifyArgs),
     /// Convenience command: analyze if needed, render, then verify.
-    Replace(ReplaceArgs),
+    Replace(Box<ReplaceArgs>),
+}
+
+#[derive(Debug, Args)]
+pub struct InitArgs {
+    /// Source video that the sidecar describes.
+    #[arg(long)]
+    pub input: PathBuf,
+
+    /// Destination. Defaults to <input-stem>.plaque.toml next to the video.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+
+    /// Replace an existing sidecar after explicit review.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Optional directory for candidate ranking and an annotated reference frame.
+    #[arg(long)]
+    pub diagnostics: Option<PathBuf>,
+
+    /// Candidate detector used to create the initial proposal.
+    #[arg(long, value_enum, default_value_t = CandidateDetector::Ensemble)]
+    pub detector: CandidateDetector,
+
+    /// Number of sampled frames used during candidate ranking.
+    #[arg(long, default_value_t = 24)]
+    pub candidate_samples: usize,
+
+    #[arg(long, default_value = "ffprobe")]
+    pub ffprobe: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct ExportTrackArgs {
+    /// Existing title-pack containing the trajectory to review.
+    #[arg(long)]
+    pub analysis: PathBuf,
+
+    /// Commented TOML track to create.
+    #[arg(long)]
+    pub output: PathBuf,
+
+    /// Plaque id written into the exported track. Defaults to the analyzed plaque.
+    #[arg(long)]
+    pub plaque: Option<String>,
+
+    /// Replace an existing human track after explicit review.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Mark every exported frame as reviewed and authoritative.
+    #[arg(long)]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -84,10 +141,26 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub output: PathBuf,
 
+    /// Human-owned TOML metadata. When omitted, <input-stem>.plaque.toml is loaded if present.
+    #[arg(long)]
+    pub metadata: Option<PathBuf>,
+
+    /// Named plaque to analyze when metadata declares more than one.
+    #[arg(long)]
+    pub plaque: Option<String>,
+
     /// Optional x,y,width,height hint in source pixels. It identifies the plaque;
     /// tracking and structural refinement remain automatic.
     #[arg(long, value_parser = parse_rect)]
     pub plaque_hint: Option<[f64; 4]>,
+
+    /// Frame on which --plaque-hint is defined. Defaults to frame 0.
+    #[arg(long, requires = "plaque_hint")]
+    pub plaque_frame: Option<usize>,
+
+    /// Human-owned TOML quad track. Overrides the track referenced by metadata.
+    #[arg(long, conflicts_with = "track_csv")]
+    pub motion_track: Option<PathBuf>,
 
     /// Optional supervised plaque quad keyframes in frame,tl_x,tl_y,tr_x,tr_y,br_x,br_y,bl_x,bl_y CSV format.
     #[arg(long)]
@@ -283,6 +356,14 @@ pub struct ReplaceArgs {
     #[arg(long)]
     pub analysis: Option<PathBuf>,
 
+    /// Human-owned TOML metadata. When omitted, <input-stem>.plaque.toml is loaded if present.
+    #[arg(long)]
+    pub metadata: Option<PathBuf>,
+
+    /// Named plaque to analyze when metadata declares more than one.
+    #[arg(long)]
+    pub plaque: Option<String>,
+
     #[arg(long)]
     pub text: Option<String>,
 
@@ -295,6 +376,14 @@ pub struct ReplaceArgs {
     /// Optional x,y,width,height plaque bounds in source pixels. Tracking remains automatic.
     #[arg(long, value_parser = parse_rect)]
     pub plaque_hint: Option<[f64; 4]>,
+
+    /// Frame on which --plaque-hint is defined. Defaults to frame 0.
+    #[arg(long, requires = "plaque_hint")]
+    pub plaque_frame: Option<usize>,
+
+    /// Human-owned TOML quad track. Overrides the track referenced by metadata.
+    #[arg(long, conflicts_with = "track_csv")]
+    pub motion_track: Option<PathBuf>,
 
     #[arg(long)]
     pub track_csv: Option<PathBuf>,
@@ -408,7 +497,11 @@ impl ReplaceArgs {
         AnalyzeArgs {
             input: self.input.clone(),
             output,
+            metadata: self.metadata.clone(),
+            plaque: self.plaque.clone(),
             plaque_hint: self.plaque_hint,
+            plaque_frame: self.plaque_frame,
+            motion_track: self.motion_track.clone(),
             track_csv: self.track_csv.clone(),
             detector: self.detector,
             motion_model: self.motion_model,

@@ -1,6 +1,6 @@
 # Plaque Forge 0.3.0
 
-Plaque Forge analyzes a video containing one dominant moving planar title plaque, caches its motion and masks, renders custom typography, and verifies the result.
+Plaque Forge analyzes a selected moving planar title plaque, caches its motion and masks, renders custom typography, and verifies the result.
 
 See [`PROJECT-OBJECTIVE.md`](PROJECT-OBJECTIVE.md) for the artistic objective,
 supported source class, and decision criteria. Numerical verification does not
@@ -19,14 +19,53 @@ This contract removes the most destructive and least general part of earlier ver
 ## Commands
 
 ```text
+init      detect plaque candidates and create an editable source metadata sidecar
 analyze   inspect the video once and create a reusable .titlepack
+export-track  export generated motion as a commented human-owned track
 render    render a title using a cached title-pack
 verify    score tracking, scene preservation, typography, occlusion and loop continuity
 replace   analyze when needed, render, then verify
 ```
 
-Analysis is automatic. `--plaque-hint` optionally identifies the subject; it is
-not a fixed track.
+Analysis is automatic unless a sidecar or command-line input constrains it.
+`--plaque-hint` identifies the subject; it is not a fixed track.
+
+## Human metadata
+
+Create the portable sidecar for a source video:
+
+```bash
+./target/release/plaque-forge init \
+  --input video.mp4 \
+  --diagnostics video-plaque-diagnostics/
+```
+
+This creates `video.plaque.toml` with the best automatic `reference_frame` and
+`bounds` proposal as active values. Distinct alternatives and editing guidance
+remain comments. The sidecar supports multiple named plaques, segmentation
+prompts, human motion tracks, and future dense layer artifacts. Plaque Forge
+refuses to replace it unless `--force` is supplied.
+
+To turn generated all-frame motion into an editable track:
+
+```bash
+./target/release/plaque-forge analyze \
+  --input video.mp4 \
+  --output video.titlepack
+
+./target/release/plaque-forge export-track \
+  --analysis video.titlepack \
+  --output video.main.track.toml
+```
+
+Exported samples are unlocked guidance by default. `export-track --locked`
+marks every frame authoritative and should be used only for reviewed motion.
+The plaque id is copied from the title-pack; `--plaque` is only needed to
+override it or name a pack that was analyzed without metadata.
+Fonts are required by `render` and `replace`, not by these metadata commands.
+
+See [`METADATA.md`](METADATA.md) for the schema, ownership rules, precedence,
+track export, and the boundary between implemented inputs and future layers.
 
 ## Build on CachyOS / Arch Linux
 
@@ -74,7 +113,7 @@ The default output is lossless FFV1 in Matroska. This is important because `veri
 Analysis is the expensive stage:
 
 ```bash
-plaque-forge analyze \
+./target/release/plaque-forge analyze \
   --input text-free-plaque.mp4 \
   --output video.titlepack \
   --plaque-hint 130,160,458,268 \
@@ -84,13 +123,13 @@ plaque-forge analyze \
 Render any number of titles from that cache:
 
 ```bash
-plaque-forge render \
+./target/release/plaque-forge render \
   --analysis video.titlepack \
   --text-file title-a.txt \
   --font "$FONT" \
   --output title-a.mkv
 
-plaque-forge render \
+./target/release/plaque-forge render \
   --analysis video.titlepack \
   --text-file title-b.txt \
   --font "$FONT" \
@@ -100,14 +139,16 @@ plaque-forge render \
 Force reanalysis when you want to discard a compatible cache:
 
 ```bash
-plaque-forge replace ... --reanalyze
+./target/release/plaque-forge replace ... --reanalyze
 ```
 
-A title-pack is reused only when its complete version-3 manifest and required
+A title-pack is reused only when its complete version-4 manifest and required
 assets exist, its analyzer build matches the running binary, and its source
 SHA-256 matches `replace --input`. `replace` automatically reanalyzes an
 incompatible cache. Direct `render` refuses one with a missing, unknown, or
-different analyzer build instead of silently using stale motion.
+different analyzer build instead of silently using stale motion. Human metadata
+and motion-track hashes, explicit plaque bounds, and legacy CSV contents are also
+part of cache identity. Other analysis-setting changes require `--reanalyze`.
 
 ## Tracking model
 
@@ -140,8 +181,9 @@ estimate prevents feature matches from expanding or drifting off the plaque.
 Scene/background motion is not used as a proxy for plaque motion.
 
 After impulse rejection and plaque-local structural refinement, zero-phase filters
-regularize every measured corner trajectory. A supervised `--track-csv` remains
-authoritative and is never changed by automatic refinement.
+regularize every measured corner trajectory. Human TOML motion tracks can mix
+automatic guides with reviewed locked constraints or replace every frame
+authoritatively.
 
 Useful analysis options:
 
@@ -151,6 +193,9 @@ Useful analysis options:
 --local-refinement-radius <px>   default 12
 --motion-model adaptive|similarity|affine|projective
 --loop-closure auto|on|off
+--metadata <path>                explicit source sidecar
+--plaque <id>                    plaque selected from the sidecar
+--motion-track <path>            human TOML quad track
 --track-csv <path>               reviewed sparse quad keyframes
 --minimum-analysis-confidence    default 0.70
 --allow-low-confidence           diagnostics-only escape hatch
@@ -162,11 +207,14 @@ appearance changes. `--tracking-inertia 0.35` is the default; raise it toward
 `0.50` for more smoothing, or lower it toward `0.20` only when the title visibly
 lags real plaque motion.
 
-`--track-csv` accepts
+`--motion-track` is the human-owned production format documented in
+[`METADATA.md`](METADATA.md). The legacy `--track-csv` accepts
 `frame,tl_x,tl_y,tr_x,tr_y,br_x,br_y,bl_x,bl_y`. It must cover the complete shot;
 intermediate frames are interpolated. This is the supervised production path when
 automatic tracking cannot meet the quality contract. Low-confidence automatic
 analysis is not committed unless `--allow-low-confidence` is explicitly supplied.
+Human-authored visibility is merged after automatic occlusion analysis, and
+`--loop-closure on|off|auto` applies to automatic and human tracks alike.
 
 ## Typography
 
@@ -206,7 +254,7 @@ For Bash multiline strings, `$'line one\nline two'` is shell syntax, not Plaque 
 ## Verification
 
 ```bash
-plaque-forge verify \
+./target/release/plaque-forge verify \
   --analysis video.titlepack \
   --rendered custom-title.mkv \
   --original text-free-plaque.mp4 \
@@ -248,8 +296,9 @@ is the largest second-order corner/visibility motion error and
 curvature; `loop_seam_mean_error` is a separate pixel-domain diagnostic, so the
 two values are not expected to have the same numerical scale.
 
-For a supervised CSV, geometric lock is an asserted, reviewed input and the report
-records `tracking_lock_basis = authoritative-supervised-quad-track`. The verifier
+For a dense locked TOML track, geometric lock is an asserted, reviewed input and
+the report records `tracking_lock_basis = authoritative-human-quad-track`. Legacy
+supervised CSV tracks retain `authoritative-supervised-quad-track`. The verifier
 continues to reject high-frequency trajectory errors, broken loop continuity,
 bad masks, or scene damage, and still reports structural registration residuals.
 This is a trust boundary: labeling an unreviewed automatic track as supervised
@@ -281,8 +330,9 @@ Control it with:
 Analysis is transactional. It is created under a `.partial-<pid>` directory and renamed only when complete. Failed analysis retains the partial diagnostics and reports their exact path.
 
 `candidate-ranking.json` records the leading automatic candidates.
-`candidate.png` shows the selected rectangle, `tracking-contact-sheet.jpg` samples
-the recovered track, and verifier diagnostics include the exact worst frame.
+`candidate.png` shows the selected rectangle and distinct alternatives,
+`tracking-contact-sheet.jpg` samples the recovered track, and verifier
+diagnostics include the exact worst frame.
 
 ## Title-pack contents
 
@@ -302,19 +352,16 @@ No blank-plaque PNG or reconstructed background is produced.
 ## Production correction path
 
 Automatic analysis is the fast path, not the definition of artistic acceptance.
-The currently implemented correction surface is `--track-csv`: an artist or
-tracking package can approve sparse plaque quadrilaterals once, and every title
-then reuses the same immutable track. The title-pack also stores explicit
+An artist or tracking package can approve TOML plaque quadrilaterals once, and
+every title then reuses the same immutable track. The title-pack also stores explicit
 per-frame plaque visibility and full-frame occluder masks, so rendering is already
 separated from inference and those artifacts can be reviewed.
 
-Import commands for externally authored visibility curves and foreground mattes,
-plus a reusable material/style profile, are the next production interfaces. They
-are part of the target architecture but are not implemented in 0.3.0. Today the
-art direction surface is a static text/stroke/glow style; it cannot reproduce an
-arbitrary animated plaque material by itself. This boundary and the intended
-hybrid automatic-plus-reviewed workflow are specified in
-[`PROJECT-OBJECTIVE.md`](PROJECT-OBJECTIVE.md).
+Lossless RGBA foreground mattes and a reusable material/style profile are the next
+production interfaces. They are not implemented yet. Today the art direction
+surface is a static text/stroke/glow style; it cannot reproduce an arbitrary
+animated plaque material by itself. See
+[`PROJECT-OBJECTIVE.md`](PROJECT-OBJECTIVE.md) for that boundary.
 
 ## Intended scope
 
@@ -349,9 +396,11 @@ REFERENCE_FONT=/path/to/font.ttf \
 scripts/validate_reference.sh
 ```
 
-For the production path, add
-`REFERENCE_TRACK=/path/to/reviewed-plaque-track.csv`. Omitting it deliberately
-tests the automatic path.
+Set `REFERENCE_METADATA=/path/to/video.plaque.toml` to exercise sidecar geometry
+and `REFERENCE_MOTION_TRACK=/path/to/video.main.track.toml` for the TOML
+production path. `REFERENCE_TRACK=/path/to/reviewed-plaque-track.csv` retains the
+legacy CSV compatibility gate. Omitting all three deliberately tests the
+automatic path.
 
 This produces a fresh title-pack, lossless render, verification report, exact
 packet-count check, and `render-contact-sheet.png`. The contact sheet remains a

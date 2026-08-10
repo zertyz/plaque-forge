@@ -14,12 +14,19 @@ use crate::{
     video::VideoInfo,
 };
 
+#[derive(Debug, Clone)]
 pub struct Candidate {
     pub rect: RectF,
     pub frame_index: usize,
     pub confidence: f64,
     pub canonical_width: u32,
     pub canonical_height: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct DetectionReport {
+    pub selected: Candidate,
+    pub alternatives: Vec<Candidate>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,20 +46,38 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
                 width,
                 height,
             },
-            frame_index: 0,
+            frame_index: args.plaque_frame.unwrap_or(0),
             confidence: 0.90,
             canonical_width: width.round().max(1.0) as u32,
             canonical_height: height.round().max(1.0) as u32,
         });
     }
 
-    let mut capture = VideoCapture::from_file(&args.input.to_string_lossy(), CAP_ANY)?;
+    detect_proposals(
+        &args.input,
+        args.detector,
+        args.candidate_samples,
+        info,
+        Some(diagnostics),
+    )?
+    .map(|report| report.selected)
+    .context("no plausible plaque candidate found; use --plaque-hint x,y,w,h")
+}
+
+pub fn detect_proposals(
+    input: &Path,
+    detector: CandidateDetector,
+    candidate_samples: usize,
+    info: &VideoInfo,
+    diagnostics: Option<&Path>,
+) -> Result<Option<DetectionReport>> {
+    let mut capture = VideoCapture::from_file(&input.to_string_lossy(), CAP_ANY)?;
     if !capture.is_opened()? {
-        bail!("failed to open {}", args.input.display());
+        bail!("failed to open {}", input.display());
     }
 
     let actual_frames = capture.get(CAP_PROP_FRAME_COUNT)?.round().max(1.0) as usize;
-    let sample_count = args.candidate_samples.min(actual_frames).max(1);
+    let sample_count = candidate_samples.min(actual_frames).max(1);
     let mut candidates = Vec::new();
 
     for sample in 0..sample_count {
@@ -66,7 +91,7 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
         if !capture.read(&mut frame)? || frame.empty() {
             continue;
         }
-        let mut frame_rects = frame_candidates(&frame, args.detector)?;
+        let mut frame_rects = frame_candidates(&frame, detector)?;
         for candidate in &mut frame_rects {
             candidate.frame_index = frame_index;
         }
@@ -79,6 +104,27 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
         info.height as i32,
         sample_count,
     );
+    if let Some(diagnostics) = diagnostics {
+        write_ranking(diagnostics, &ranked)?;
+    }
+    let Some(best) = ranked.first() else {
+        return Ok(None);
+    };
+    let alternatives = distinct_alternatives(&ranked, best, 3);
+    if let Some(diagnostics) = diagnostics {
+        write_candidate_image(&mut capture, diagnostics, best, &alternatives)?;
+    }
+
+    Ok(Some(DetectionReport {
+        selected: candidate_from_scored(best),
+        alternatives: alternatives
+            .iter()
+            .map(|candidate| candidate_from_scored(candidate))
+            .collect(),
+    }))
+}
+
+fn write_ranking(diagnostics: &Path, ranked: &[ScoredRect]) -> Result<()> {
     fs::write(
         diagnostics.join("candidate-ranking.json"),
         serde_json::to_vec_pretty(
@@ -90,47 +136,112 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
                         "frame": candidate.frame_index,
                         "rect": [candidate.rect.x, candidate.rect.y, candidate.rect.width, candidate.rect.height],
                         "score": candidate.score,
+                        "confidence": score_to_confidence(candidate.score),
                         "edge_completeness": candidate.edge_completeness,
                     })
                 })
                 .collect::<Vec<_>>(),
         )?,
     )?;
-    let best = ranked
-        .into_iter()
-        .next()
-        .context("no plausible plaque candidate found; use --plaque-hint x,y,w,h")?;
+    Ok(())
+}
 
-    capture.set(CAP_PROP_POS_FRAMES, best.frame_index as f64)?;
+fn distinct_alternatives<'a>(
+    ranked: &'a [ScoredRect],
+    selected: &ScoredRect,
+    limit: usize,
+) -> Vec<&'a ScoredRect> {
+    let mut alternatives: Vec<&ScoredRect> = Vec::new();
+    for candidate in ranked {
+        if candidate.frame_index != selected.frame_index
+            || candidate.rect == selected.rect
+            || rect_iou(candidate.rect, selected.rect) >= 0.5
+            || alternatives
+                .iter()
+                .any(|other| rect_iou(candidate.rect, other.rect) >= 0.5)
+        {
+            continue;
+        }
+        alternatives.push(candidate);
+        if alternatives.len() == limit {
+            break;
+        }
+    }
+    alternatives
+}
+
+fn rect_iou(a: Rect, b: Rect) -> f64 {
+    let left = a.x.max(b.x);
+    let top = a.y.max(b.y);
+    let right = (a.x + a.width).min(b.x + b.width);
+    let bottom = (a.y + a.height).min(b.y + b.height);
+    let intersection = (right - left).max(0) * (bottom - top).max(0);
+    let union = a.width * a.height + b.width * b.height - intersection;
+    f64::from(intersection) / f64::from(union.max(1))
+}
+
+fn write_candidate_image(
+    capture: &mut VideoCapture,
+    diagnostics: &Path,
+    selected: &ScoredRect,
+    alternatives: &[&ScoredRect],
+) -> Result<()> {
+    capture.set(CAP_PROP_POS_FRAMES, selected.frame_index as f64)?;
     let mut frame = Mat::default();
-    if capture.read(&mut frame)? && !frame.empty() {
-        imgproc::rectangle(
+    if !capture.read(&mut frame)? || frame.empty() {
+        return Ok(());
+    }
+    draw_candidate(
+        &mut frame,
+        selected.rect,
+        "selected",
+        Scalar::new(0.0, 255.0, 255.0, 0.0),
+    )?;
+    for (index, candidate) in alternatives.iter().enumerate() {
+        draw_candidate(
             &mut frame,
-            best.rect,
-            Scalar::new(0.0, 255.0, 255.0, 0.0),
-            3,
-            imgproc::LINE_AA,
-            0,
-        )?;
-        imgcodecs::imwrite(
-            &diagnostics.join("candidate.png").to_string_lossy(),
-            &frame,
-            &Vector::new(),
+            candidate.rect,
+            &format!("alternative {}", index + 1),
+            Scalar::new(255.0, 180.0, 0.0, 0.0),
         )?;
     }
+    imgcodecs::imwrite(
+        &diagnostics.join("candidate.png").to_string_lossy(),
+        &frame,
+        &Vector::new(),
+    )?;
+    Ok(())
+}
 
-    Ok(Candidate {
+fn draw_candidate(frame: &mut Mat, rect: Rect, label: &str, color: Scalar) -> Result<()> {
+    imgproc::rectangle(frame, rect, color, 3, imgproc::LINE_AA, 0)?;
+    imgproc::put_text(
+        frame,
+        label,
+        Point::new(rect.x, (rect.y - 8).max(18)),
+        imgproc::FONT_HERSHEY_SIMPLEX,
+        0.55,
+        color,
+        2,
+        imgproc::LINE_AA,
+        false,
+    )?;
+    Ok(())
+}
+
+fn candidate_from_scored(candidate: &ScoredRect) -> Candidate {
+    Candidate {
         rect: RectF {
-            x: best.rect.x as f64,
-            y: best.rect.y as f64,
-            width: best.rect.width as f64,
-            height: best.rect.height as f64,
+            x: candidate.rect.x as f64,
+            y: candidate.rect.y as f64,
+            width: candidate.rect.width as f64,
+            height: candidate.rect.height as f64,
         },
-        frame_index: best.frame_index,
-        confidence: score_to_confidence(best.score),
-        canonical_width: best.rect.width as u32,
-        canonical_height: best.rect.height as u32,
-    })
+        frame_index: candidate.frame_index,
+        confidence: score_to_confidence(candidate.score),
+        canonical_width: candidate.rect.width as u32,
+        canonical_height: candidate.rect.height as u32,
+    }
 }
 
 fn frame_candidates(frame: &Mat, detector: CandidateDetector) -> Result<Vec<ScoredRect>> {
@@ -403,7 +514,7 @@ fn score_to_confidence(score: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ScoredRect, rank_candidates};
+    use super::{ScoredRect, distinct_alternatives, rank_candidates};
     use opencv::core::Rect;
 
     #[test]
@@ -432,5 +543,40 @@ mod tests {
         let ranked = rank_candidates(&candidates, 720, 1280, 1);
 
         assert_eq!(ranked[0].rect, candidates[0].rect);
+    }
+
+    #[test]
+    fn alternatives_share_the_reference_frame_and_suppress_overlaps() {
+        let ranked = vec![
+            ScoredRect {
+                rect: Rect::new(100, 100, 500, 250),
+                score: 3.0,
+                edge_completeness: 0.9,
+                frame_index: 12,
+            },
+            ScoredRect {
+                rect: Rect::new(110, 110, 490, 240),
+                score: 2.9,
+                edge_completeness: 0.8,
+                frame_index: 12,
+            },
+            ScoredRect {
+                rect: Rect::new(700, 100, 300, 150),
+                score: 2.8,
+                edge_completeness: 0.8,
+                frame_index: 12,
+            },
+            ScoredRect {
+                rect: Rect::new(50, 50, 300, 150),
+                score: 2.7,
+                edge_completeness: 0.8,
+                frame_index: 24,
+            },
+        ];
+
+        let alternatives = distinct_alternatives(&ranked, &ranked[0], 3);
+
+        assert_eq!(alternatives.len(), 1);
+        assert_eq!(alternatives[0].rect, ranked[2].rect);
     }
 }

@@ -5,13 +5,17 @@ use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     color::Rgba,
+    metadata::HumanMotionTrack,
     model::{MotionSample, RectF},
     progress::ProgressReporter,
     surface::Surface,
     video::{Decoder, VideoInfo},
 };
 
-use super::extraction::{ExtractionResult, rectify, transformed_rect};
+use super::{
+    extraction::{ExtractionResult, rectify, transformed_rect},
+    tracking,
+};
 
 pub struct OcclusionResult {
     pub has_occluder: bool,
@@ -31,6 +35,7 @@ pub fn extract(
     diagnostics: &Path,
     sensitivity: f64,
     loop_closed: bool,
+    human_track: Option<&HumanMotionTrack>,
     progress: &mut ProgressReporter,
 ) -> Result<OcclusionResult> {
     let masks_dir = output_root.join("occluder");
@@ -184,8 +189,16 @@ pub fn extract(
     for (sample, &value) in motion.iter_mut().zip(&visibility) {
         sample.plaque_visibility = value;
     }
-    let mean_visibility = mean(&visibility);
-    let minimum_visibility = visibility.iter().copied().fold(1.0, f64::min);
+    let automatic_mean_visibility = mean(&visibility);
+    if let Some(track) = human_track {
+        tracking::apply_human_visibility_constraints(motion, track)?;
+    }
+    let final_visibility = motion
+        .iter()
+        .map(|sample| sample.plaque_visibility)
+        .collect::<Vec<_>>();
+    let mean_visibility = mean(&final_visibility);
+    let minimum_visibility = final_visibility.iter().copied().fold(1.0, f64::min);
 
     fs::write(
         diagnostics.join("occlusion-summary.json"),
@@ -199,6 +212,7 @@ pub fn extract(
             "coverage_persistence": persistence,
             "nonempty_adjacent_mask_iou": agreement
             ,"mean_content_occlusion": mean(&content_coverages)
+            ,"automatic_mean_plaque_visibility": automatic_mean_visibility
             ,"mean_plaque_visibility": mean_visibility
             ,"minimum_plaque_visibility": minimum_visibility
         }))?,

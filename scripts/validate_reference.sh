@@ -4,11 +4,27 @@ set -euo pipefail
 : "${REFERENCE_VIDEO:?set REFERENCE_VIDEO to a supported text-free plaque video}"
 : "${REFERENCE_FONT:?set REFERENCE_FONT to the exact font file to validate}"
 
-reference_rect="${REFERENCE_RECT:-130,160,458,268}"
 reference_text="${REFERENCE_TEXT:-CASE CLOSED}"
 track_args=()
-if [[ -n "${REFERENCE_TRACK:-}" ]]; then
+if [[ -n "${REFERENCE_MOTION_TRACK:-}" && -n "${REFERENCE_TRACK:-}" ]]; then
+  printf 'set only one of REFERENCE_MOTION_TRACK or REFERENCE_TRACK\n' >&2
+  exit 1
+elif [[ -n "${REFERENCE_MOTION_TRACK:-}" ]]; then
+  track_args=(--motion-track "$REFERENCE_MOTION_TRACK")
+elif [[ -n "${REFERENCE_TRACK:-}" ]]; then
   track_args=(--track-csv "$REFERENCE_TRACK")
+fi
+plaque_args=()
+if [[ -n "${REFERENCE_METADATA:-}" ]]; then
+  plaque_args=(--metadata "$REFERENCE_METADATA")
+  if [[ -n "${REFERENCE_PLAQUE:-}" ]]; then
+    plaque_args+=(--plaque "$REFERENCE_PLAQUE")
+  fi
+  if [[ -n "${REFERENCE_RECT:-}" ]]; then
+    plaque_args+=(--plaque-hint "$REFERENCE_RECT")
+  fi
+else
+  plaque_args=(--plaque-hint "${REFERENCE_RECT:-130,160,458,268}")
 fi
 if [[ -n "${REFERENCE_OUTPUT:-}" ]]; then
   output_root="$REFERENCE_OUTPUT"
@@ -24,7 +40,7 @@ cargo build --release
   --analysis "$output_root/analysis.titlepack" \
   --text "$reference_text" \
   --font "$REFERENCE_FONT" \
-  --plaque-hint "$reference_rect" \
+  "${plaque_args[@]}" \
   "${track_args[@]}" \
   --diagnostics "$output_root/diagnostics" \
   --progress always

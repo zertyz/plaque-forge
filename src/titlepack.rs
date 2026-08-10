@@ -6,6 +6,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::metadata::HumanInputProvenance;
 use crate::model::{AnalysisConfidence, MotionSample, RectF};
 
 pub const MANIFEST_FILE: &str = "manifest.toml";
@@ -14,7 +15,7 @@ pub const CONTENT_MASK_FILE: &str = "content-mask.png";
 pub const STRUCTURAL_MASK_FILE: &str = "structural-mask.png";
 pub const STRUCTURAL_TEMPLATE_FILE: &str = "structural-template.png";
 pub const OCCLUDER_DIR: &str = "occluder";
-pub const CURRENT_FORMAT_VERSION: u32 = 3;
+pub const CURRENT_FORMAT_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -49,6 +50,8 @@ pub struct TitlePackManifest {
     pub motion_model: String,
     pub loop_closed: bool,
     pub has_occluder: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human_inputs: Option<HumanInputProvenance>,
     #[serde(default = "gate_passed_by_default")]
     pub analysis_gate_passed: bool,
     pub confidence: AnalysisConfidence,
@@ -144,7 +147,11 @@ impl TitlePack {
     pub fn save_metadata(&self) -> Result<()> {
         let manifest_path = self.root.join(MANIFEST_FILE);
         let motion_path = self.root.join(MOTION_FILE);
-        fs::write(&manifest_path, toml::to_string_pretty(&self.manifest)?).with_context(|| {
+        let manifest = format!(
+            "# Generated title-pack metadata. Do not edit; regenerate it with analyze.\n{}",
+            toml::to_string_pretty(&self.manifest)?
+        );
+        fs::write(&manifest_path, manifest).with_context(|| {
             format!(
                 "failed to write title-pack manifest {}",
                 manifest_path.display()
@@ -199,4 +206,60 @@ pub fn is_titlepack(path: &Path) -> bool {
         && path.join(CONTENT_MASK_FILE).is_file()
         && path.join(STRUCTURAL_MASK_FILE).is_file()
         && path.join(STRUCTURAL_TEMPLATE_FILE).is_file()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TitlePackManifest;
+
+    #[test]
+    fn existing_format_four_manifest_defaults_new_provenance_fields() {
+        let manifest: TitlePackManifest = toml::from_str(
+            r#"
+                format_version = 4
+                status = "complete"
+                source_is_text_free = true
+                analyzer_build = "build"
+                reference_frame = 0
+                canonical_width = 10
+                canonical_height = 5
+                motion_model = "automatic"
+                loop_closed = false
+                has_occluder = false
+                analysis_gate_passed = true
+
+                [source]
+                path = "clip.mp4"
+                sha256 = "source"
+                width = 100
+                height = 50
+                fps = 24.0
+                frames = 2
+                duration_seconds = 0.083333
+
+                [source_plaque_rect]
+                x = 0.0
+                y = 0.0
+                width = 10.0
+                height = 5.0
+
+                [human_inputs]
+                plaque_id = "main"
+                locked_keyframes = 0
+                guide_keyframes = 0
+
+                [confidence]
+                plaque_detection = 0.9
+                motion = 0.9
+                extraction = 0.9
+                occlusion = 0.9
+                overall = 0.9
+            "#,
+        )
+        .unwrap();
+        let provenance = manifest.human_inputs.unwrap();
+
+        assert_eq!(provenance.plaque_hint, None);
+        assert_eq!(provenance.track_csv, None);
+    }
 }

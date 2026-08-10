@@ -1,5 +1,21 @@
 # Validation status
 
+## Metadata workflow result (2026-08-09)
+
+- `init` selected the expected static reference plaque at frame 20 with bounds
+  `331,33,633,152` and retained a distinct commented alternative.
+- Automatic, 240-frame guided, mixed `1 locked / 239 guided`, and dense locked
+  analyses all completed through the generated sidecar.
+- A reviewed visibility value of `0.25` at frame 120 survived automatic occlusion
+  analysis exactly; the locked frame also round-tripped with identical quad values.
+- Comment-only metadata changes reused the title-pack, while an explicit plaque
+  bounds override triggered reanalysis and was recorded in provenance.
+- The sidecar plus dense TOML reference gate passed at `1.000` overall, tracking,
+  scene integrity, typography, temporal stability, occlusion, and loop continuity.
+  The verifier reported `authoritative-human-quad-track`, and packet counts matched
+  at 240 frames. Artifacts are under
+  `/tmp/plaque-forge-metadata-final.8PtmYs/`.
+
 ## Completed locally
 
 - `Cargo.toml` and `config/default.toml` parse successfully.
@@ -22,8 +38,10 @@ REFERENCE_FONT=/path/to/font.ttf \
 scripts/validate_reference.sh
 ```
 
-Set `REFERENCE_TRACK=/path/to/reviewed-track.csv` to validate the authoritative
-production path; omit it to measure automatic tracking.
+Set `REFERENCE_METADATA=/path/to/video.plaque.toml` to validate sidecar geometry.
+Add `REFERENCE_MOTION_TRACK=/path/to/video.main.track.toml` for the TOML
+production path. `REFERENCE_TRACK=/path/to/reviewed-track.csv` retains the legacy
+CSV gate. Omit them to measure automatic tracking.
 
 The second command is intentionally slower. It creates a fresh analysis cache,
 lossless render, verification report, packet-count comparison, and render contact
@@ -31,15 +49,16 @@ sheet. Machine verification and human contact-sheet review are both required.
 
 ## Behavioral validation sequence
 
-1. Produce a text-free plaque source.
-2. Run `replace` with lossless FFV1 output.
-3. Confirm `verify` passes every mandatory threshold.
-4. Inspect `tracking-contact-sheet.jpg` and the reported worst tracking frame.
-5. Inspect `render-contact-sheet.png` for material integration and occlusion.
-6. Render a second title from the same title-pack to confirm cache reuse.
-7. Test an intentionally oversized fixed font and confirm the program exits with a corrective error rather than producing empty or clipped text.
-8. Test a font missing a requested glyph and confirm deterministic failure.
-9. For a low-confidence automatic track, confirm analysis fails unless
+1. Produce a text-free plaque source and create its sidecar with `init`.
+2. Analyze it, export a guided track, then test guided, mixed, and dense locked reimports.
+3. Confirm authored visibility and locked quads survive automatic refinement.
+4. Run `replace` with lossless FFV1 output and confirm every verification threshold passes.
+5. Inspect `tracking-contact-sheet.jpg` and the reported worst tracking frame.
+6. Inspect `render-contact-sheet.png` for material integration and occlusion.
+7. Render a second title from the same title-pack to confirm cache reuse.
+8. Confirm comment-only TOML changes reuse the cache while bounds, track, and CSV changes invalidate it.
+9. Test an intentionally oversized fixed font and a font missing a requested glyph; both must fail deterministically.
+10. For a low-confidence automatic track, confirm analysis fails unless
    `--allow-low-confidence` is explicitly supplied.
 
 The verifier checks residual structural registration, trajectory smoothness,

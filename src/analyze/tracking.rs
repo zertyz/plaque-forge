@@ -11,10 +11,261 @@ use opencv::{
 use crate::{
     cli::{AnalyzeArgs, LoopClosure, MotionModel},
     geometry::{Point as GeoPoint, Quad as GeoQuad, QuadTrack, homography},
+    metadata::HumanMotionTrack,
     model::{Mat3, MotionSample, PointF, RectF},
     progress::ProgressReporter,
     video::VideoInfo,
 };
+
+pub fn apply_human_track(
+    result: &mut TrackingResult,
+    track: &HumanMotionTrack,
+    plaque: RectF,
+    loop_closure: LoopClosure,
+) -> Result<()> {
+    apply_human_constraints(&mut result.samples, track, plaque, ConstraintSelection::All)?;
+
+    let dense = track.is_dense_locked(result.samples.len());
+    let locked = track.locked_keyframes();
+    let guides = track.guide_keyframes();
+    let old_model = std::mem::take(&mut result.model_name);
+    result.model_name = if dense {
+        result.confidence = 0.99;
+        for sample in &mut result.samples {
+            sample.inlier_ratio = 1.0;
+            sample.reprojection_error = 0.0;
+            sample.ecc = Some(1.0);
+        }
+        format!(
+            "authoritative-human-quad-track-{}-frames",
+            track.keyframes.len()
+        )
+    } else if locked > 0 && guides > 0 {
+        format!("human-mixed-quad-track-{locked}-locked-{guides}-guided+{old_model}")
+    } else if locked > 0 {
+        format!(
+            "human-constrained-quad-track-{}-keyframes+{old_model}",
+            locked
+        )
+    } else {
+        format!(
+            "human-guided-quad-track-{}-keyframes+{old_model}",
+            track.keyframes.len()
+        )
+    };
+
+    result.loop_closed = human_loop_closed(loop_closure, &result.samples, plaque);
+    Ok(())
+}
+
+pub fn reapply_locked_human_constraints(
+    samples: &mut [MotionSample],
+    track: &HumanMotionTrack,
+    plaque: RectF,
+) -> Result<()> {
+    if track.locked_keyframes() == 0 {
+        return Ok(());
+    }
+    apply_human_constraints(samples, track, plaque, ConstraintSelection::Locked)
+}
+
+#[derive(Clone, Copy)]
+enum ConstraintSelection {
+    All,
+    Locked,
+}
+
+fn apply_human_constraints(
+    samples: &mut [MotionSample],
+    track: &HumanMotionTrack,
+    plaque: RectF,
+    selection: ConstraintSelection,
+) -> Result<()> {
+    if samples.is_empty() {
+        bail!("automatic track contains no frames");
+    }
+    let source = GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
+    let automatic = samples
+        .iter()
+        .map(|sample| transformed_quad(source, sample.transform))
+        .collect::<Vec<_>>();
+    let mut corrections = Vec::with_capacity(track.keyframes.len());
+    for keyframe in track
+        .sorted_keyframes()
+        .into_iter()
+        .filter(|keyframe| matches!(selection, ConstraintSelection::All) || keyframe.locked)
+    {
+        let current = automatic
+            .get(keyframe.frame)
+            .with_context(|| format!("missing automatic frame {}", keyframe.frame))?;
+        let desired = metadata_quad(keyframe.quad);
+        desired.validate(&format!("human motion keyframe {}", keyframe.frame))?;
+        corrections.push((keyframe.frame, quad_difference(desired, *current)));
+    }
+    if corrections.is_empty() {
+        return Ok(());
+    }
+
+    for (frame, sample) in samples.iter_mut().enumerate() {
+        let correction = correction_at(&corrections, frame);
+        let corrected = quad_sum(automatic[frame], correction);
+        corrected.validate(&format!("human-constrained frame {frame}"))?;
+        sample.transform = Mat3 {
+            values: homography(source, corrected)?.m,
+        };
+    }
+
+    Ok(())
+}
+
+pub fn apply_human_visibility_constraints(
+    samples: &mut [MotionSample],
+    track: &HumanMotionTrack,
+) -> Result<()> {
+    if samples.is_empty() {
+        bail!("automatic track contains no frames");
+    }
+    let automatic = samples
+        .iter()
+        .map(|sample| sample.plaque_visibility)
+        .collect::<Vec<_>>();
+    let mut corrections = Vec::with_capacity(track.keyframes.len());
+    let mut has_authored_visibility = false;
+    for keyframe in track.sorted_keyframes() {
+        let current = automatic
+            .get(keyframe.frame)
+            .with_context(|| format!("missing automatic frame {}", keyframe.frame))?;
+        let correction = keyframe
+            .visibility
+            .map(|visibility| {
+                has_authored_visibility = true;
+                visibility - current
+            })
+            .unwrap_or(0.0);
+        corrections.push((keyframe.frame, correction));
+    }
+    if !has_authored_visibility {
+        return Ok(());
+    }
+
+    for (frame, sample) in samples.iter_mut().enumerate() {
+        sample.plaque_visibility =
+            (automatic[frame] + scalar_correction_at(&corrections, frame)).clamp(0.0, 1.0);
+    }
+    Ok(())
+}
+
+fn transformed_quad(source: GeoQuad, transform: Mat3) -> GeoQuad {
+    let transform_point = |point: GeoPoint| {
+        let point = transform.transform(PointF {
+            x: point.x,
+            y: point.y,
+        });
+        GeoPoint::new(point.x, point.y)
+    };
+    GeoQuad::new(
+        transform_point(source.tl),
+        transform_point(source.tr),
+        transform_point(source.br),
+        transform_point(source.bl),
+    )
+}
+
+fn metadata_quad(points: [[f64; 2]; 4]) -> GeoQuad {
+    GeoQuad::new(
+        GeoPoint::new(points[0][0], points[0][1]),
+        GeoPoint::new(points[1][0], points[1][1]),
+        GeoPoint::new(points[2][0], points[2][1]),
+        GeoPoint::new(points[3][0], points[3][1]),
+    )
+}
+
+fn quad_difference(a: GeoQuad, b: GeoQuad) -> [[f64; 2]; 4] {
+    let a = a.points();
+    let b = b.points();
+    std::array::from_fn(|index| [a[index].x - b[index].x, a[index].y - b[index].y])
+}
+
+fn quad_sum(quad: GeoQuad, correction: [[f64; 2]; 4]) -> GeoQuad {
+    let points = quad.points();
+    GeoQuad::new(
+        GeoPoint::new(
+            points[0].x + correction[0][0],
+            points[0].y + correction[0][1],
+        ),
+        GeoPoint::new(
+            points[1].x + correction[1][0],
+            points[1].y + correction[1][1],
+        ),
+        GeoPoint::new(
+            points[2].x + correction[2][0],
+            points[2].y + correction[2][1],
+        ),
+        GeoPoint::new(
+            points[3].x + correction[3][0],
+            points[3].y + correction[3][1],
+        ),
+    )
+}
+
+fn correction_at(corrections: &[(usize, [[f64; 2]; 4])], frame: usize) -> [[f64; 2]; 4] {
+    if frame <= corrections[0].0 {
+        return corrections[0].1;
+    }
+    let last = corrections[corrections.len() - 1];
+    if frame >= last.0 {
+        return last.1;
+    }
+    let upper = corrections.partition_point(|correction| correction.0 <= frame);
+    let a = corrections[upper - 1];
+    let b = corrections[upper];
+    let t = (frame - a.0) as f64 / (b.0 - a.0) as f64;
+    std::array::from_fn(|corner| {
+        [
+            a.1[corner][0] + (b.1[corner][0] - a.1[corner][0]) * t,
+            a.1[corner][1] + (b.1[corner][1] - a.1[corner][1]) * t,
+        ]
+    })
+}
+
+fn scalar_correction_at(corrections: &[(usize, f64)], frame: usize) -> f64 {
+    if frame <= corrections[0].0 {
+        return corrections[0].1;
+    }
+    let last = corrections[corrections.len() - 1];
+    if frame >= last.0 {
+        return last.1;
+    }
+    let upper = corrections.partition_point(|correction| correction.0 <= frame);
+    let a = corrections[upper - 1];
+    let b = corrections[upper];
+    let t = (frame - a.0) as f64 / (b.0 - a.0) as f64;
+    a.1 + (b.1 - a.1) * t
+}
+
+fn human_loop_closed(mode: LoopClosure, samples: &[MotionSample], plaque: RectF) -> bool {
+    match mode {
+        LoopClosure::On => true,
+        LoopClosure::Off => false,
+        LoopClosure::Auto => {
+            let Some((first, remainder)) = samples.split_first() else {
+                return false;
+            };
+            let last = remainder.last().unwrap_or(first);
+            let source = GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
+            let first = transformed_quad(source, first.transform);
+            let last = transformed_quad(source, last.transform);
+            first
+                .points()
+                .into_iter()
+                .zip(last.points())
+                .map(|(a, b)| (a.x - b.x).hypot(a.y - b.y))
+                .sum::<f64>()
+                / 4.0
+                < 2.0
+        }
+    }
+}
 
 pub struct TrackingResult {
     pub samples: Vec<MotionSample>,
@@ -22,6 +273,65 @@ pub struct TrackingResult {
     pub reference_frame: usize,
     pub confidence: f64,
     pub loop_closed: bool,
+}
+
+pub fn load_dense_human(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    track: &HumanMotionTrack,
+    diagnostics: &Path,
+    progress: &mut ProgressReporter,
+) -> Result<TrackingResult> {
+    if !track.is_dense_locked(info.frames) {
+        bail!("direct human-track import requires one locked quad per source frame");
+    }
+    let source = GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
+    let mut frames = vec![None; info.frames];
+    for keyframe in &track.keyframes {
+        frames[keyframe.frame] = Some(keyframe);
+    }
+    let samples = frames
+        .into_iter()
+        .enumerate()
+        .map(|(frame, keyframe)| {
+            let keyframe = keyframe.with_context(|| format!("missing human frame {frame}"))?;
+            let matrix = homography(source, metadata_quad(keyframe.quad))?;
+            Ok(MotionSample {
+                frame,
+                transform: Mat3 { values: matrix.m },
+                inlier_ratio: 1.0,
+                reprojection_error: 0.0,
+                ecc: Some(1.0),
+                plaque_visibility: keyframe.visibility.unwrap_or(1.0),
+                occluder_coverage: 0.0,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let mut capture = VideoCapture::from_file(&args.input.to_string_lossy(), CAP_ANY)?;
+    if !capture.is_opened()? {
+        bail!("failed to open {}", args.input.display());
+    }
+    progress.start(3, 7, "Load human plaque track", Some(info.frames));
+    write_tracking_diagnostics(&mut capture, &samples, plaque, diagnostics, info.frames)?;
+    progress.update(
+        info.frames,
+        format!("{} locked frames", track.keyframes.len()),
+    );
+    progress.finish("authoritative all-frame quadrilateral track");
+
+    let loop_closed = human_loop_closed(args.loop_closure, &samples, plaque);
+    Ok(TrackingResult {
+        samples,
+        model_name: format!(
+            "authoritative-human-quad-track-{}-frames",
+            track.keyframes.len()
+        ),
+        reference_frame: args.plaque_frame.unwrap_or(0),
+        confidence: 0.99,
+        loop_closed,
+    })
 }
 
 pub fn load_supervised(
@@ -69,16 +379,7 @@ pub fn load_supervised(
     progress.update(info.frames, format!("{} reviewed keyframes", track.len()));
     progress.finish("supervised quadrilateral track");
 
-    let first = track.at(0.0);
-    let last = track.at(info.frames.saturating_sub(1) as f64);
-    let loop_closed = first
-        .points()
-        .into_iter()
-        .zip(last.points())
-        .map(|(a, b)| (a.x - b.x).hypot(a.y - b.y))
-        .sum::<f64>()
-        / 4.0
-        < 2.0;
+    let loop_closed = human_loop_closed(args.loop_closure, &samples, plaque);
     Ok(TrackingResult {
         samples,
         model_name: format!("supervised-quad-csv-{}-keyframes", track.len()),
@@ -1235,8 +1536,17 @@ pub fn median(mut values: Vec<f64>) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{oriented_rect_quad, plaque_feature_mask, plaque_transform_is_valid};
-    use crate::model::{Mat3, RectF};
+    use super::{
+        TrackingResult, apply_human_track, apply_human_visibility_constraints, human_loop_closed,
+        oriented_rect_quad, plaque_feature_mask, plaque_transform_is_valid,
+        reapply_locked_human_constraints, transformed_quad,
+    };
+    use crate::{
+        cli::LoopClosure,
+        geometry::Quad,
+        metadata::{CoordinateSystem, HumanMotionTrack, MotionKeyframe},
+        model::{Mat3, MotionSample, RectF},
+    };
     use opencv::prelude::MatTraitConst;
 
     #[test]
@@ -1280,5 +1590,243 @@ mod tests {
         assert!((quad.orientation() - 6_400.0).abs() < 1e-6);
         assert!((quad.tl.x - 120.0).abs() < 1e-6);
         assert!((quad.br.x - 280.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sparse_human_keyframe_constrains_an_all_frame_track() {
+        let plaque = RectF {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let sample = |frame| MotionSample {
+            frame,
+            transform: Mat3::IDENTITY,
+            inlier_ratio: 0.8,
+            reprojection_error: 0.5,
+            ecc: None,
+            plaque_visibility: 1.0,
+            occluder_coverage: 0.0,
+        };
+        let mut result = TrackingResult {
+            samples: (0..3).map(sample).collect(),
+            model_name: "automatic-inertia-0.35".into(),
+            reference_frame: 0,
+            confidence: 0.8,
+            loop_closed: false,
+        };
+        let track = HumanMotionTrack {
+            schema_version: 1,
+            plaque: "main".into(),
+            coordinates: CoordinateSystem::SourcePixels,
+            source_sha256: None,
+            keyframes: vec![MotionKeyframe {
+                frame: 1,
+                quad: [[15.0, 20.0], [115.0, 20.0], [115.0, 70.0], [15.0, 70.0]],
+                locked: true,
+                visibility: None,
+            }],
+        };
+
+        apply_human_track(&mut result, &track, plaque, LoopClosure::Auto).unwrap();
+
+        assert_eq!(result.samples.len(), 3);
+        let source = Quad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
+        let constrained = transformed_quad(source, result.samples[1].transform);
+        assert!((constrained.tl.x - 15.0).abs() < 1.0e-9);
+        assert!(
+            result
+                .model_name
+                .starts_with("human-constrained-quad-track-")
+        );
+    }
+
+    #[test]
+    fn dense_locked_track_is_authoritative() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 5.0,
+        };
+        let mut result = TrackingResult {
+            samples: (0..2)
+                .map(|frame| MotionSample {
+                    frame,
+                    transform: Mat3::IDENTITY,
+                    inlier_ratio: 0.5,
+                    reprojection_error: 1.0,
+                    ecc: None,
+                    plaque_visibility: 1.0,
+                    occluder_coverage: 0.0,
+                })
+                .collect(),
+            model_name: "automatic-inertia-0.35".into(),
+            reference_frame: 0,
+            confidence: 0.5,
+            loop_closed: false,
+        };
+        let keyframe = |frame| MotionKeyframe {
+            frame,
+            quad: [[0.0, 0.0], [10.0, 0.0], [10.0, 5.0], [0.0, 5.0]],
+            locked: true,
+            visibility: Some(1.0),
+        };
+        let track = HumanMotionTrack {
+            schema_version: 1,
+            plaque: "main".into(),
+            coordinates: CoordinateSystem::SourcePixels,
+            source_sha256: None,
+            keyframes: vec![keyframe(0), keyframe(1)],
+        };
+
+        apply_human_track(&mut result, &track, plaque, LoopClosure::Auto).unwrap();
+
+        assert!(
+            result
+                .model_name
+                .starts_with("authoritative-human-quad-track-")
+        );
+        assert_eq!(result.confidence, 0.99);
+    }
+
+    #[test]
+    fn mixed_track_reapplies_only_locked_samples_after_refinement() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 5.0,
+        };
+        let sample = |frame| MotionSample {
+            frame,
+            transform: Mat3::IDENTITY,
+            inlier_ratio: 0.8,
+            reprojection_error: 0.5,
+            ecc: None,
+            plaque_visibility: 1.0,
+            occluder_coverage: 0.0,
+        };
+        let track = HumanMotionTrack {
+            schema_version: 2,
+            plaque: "main".into(),
+            coordinates: CoordinateSystem::SourcePixels,
+            source_sha256: None,
+            keyframes: vec![
+                MotionKeyframe {
+                    frame: 0,
+                    quad: [[2.0, 0.0], [12.0, 0.0], [12.0, 5.0], [2.0, 5.0]],
+                    locked: false,
+                    visibility: None,
+                },
+                MotionKeyframe {
+                    frame: 2,
+                    quad: [[6.0, 0.0], [16.0, 0.0], [16.0, 5.0], [6.0, 5.0]],
+                    locked: true,
+                    visibility: None,
+                },
+            ],
+        };
+        let mut result = TrackingResult {
+            samples: (0..3).map(sample).collect(),
+            model_name: "automatic-inertia-0.35".into(),
+            reference_frame: 0,
+            confidence: 0.8,
+            loop_closed: false,
+        };
+
+        apply_human_track(&mut result, &track, plaque, LoopClosure::Auto).unwrap();
+        assert!(result.model_name.starts_with("human-mixed-quad-track-"));
+        result.samples.iter_mut().for_each(|sample| {
+            sample.transform = Mat3::IDENTITY;
+        });
+        reapply_locked_human_constraints(&mut result.samples, &track, plaque).unwrap();
+
+        let source = Quad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
+        let guided = transformed_quad(source, result.samples[0].transform);
+        let locked = transformed_quad(source, result.samples[2].transform);
+        assert!((guided.tl.x - 6.0).abs() < 1.0e-9);
+        assert!((locked.tl.x - 6.0).abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn authored_visibility_is_applied_after_automatic_detection() {
+        let sample = |frame, plaque_visibility| MotionSample {
+            frame,
+            transform: Mat3::IDENTITY,
+            inlier_ratio: 0.8,
+            reprojection_error: 0.5,
+            ecc: None,
+            plaque_visibility,
+            occluder_coverage: 0.0,
+        };
+        let mut samples = vec![
+            sample(0, 0.2),
+            sample(1, 0.4),
+            sample(2, 0.6),
+            sample(3, 0.8),
+            sample(4, 1.0),
+        ];
+        let keyframe = |frame, visibility| MotionKeyframe {
+            frame,
+            quad: [[0.0, 0.0], [10.0, 0.0], [10.0, 5.0], [0.0, 5.0]],
+            locked: false,
+            visibility,
+        };
+        let track = HumanMotionTrack {
+            schema_version: 2,
+            plaque: "main".into(),
+            coordinates: CoordinateSystem::SourcePixels,
+            source_sha256: None,
+            keyframes: vec![
+                keyframe(1, Some(0.3)),
+                keyframe(2, None),
+                keyframe(3, Some(0.4)),
+            ],
+        };
+
+        apply_human_visibility_constraints(&mut samples, &track).unwrap();
+
+        let expected = [0.1, 0.3, 0.6, 0.4, 0.6];
+        for (sample, expected) in samples.iter().zip(expected) {
+            assert!((sample.plaque_visibility - expected).abs() < 1.0e-9);
+        }
+    }
+
+    #[test]
+    fn loop_closure_overrides_human_endpoint_inference() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 5.0,
+        };
+        let sample = |frame, translation| MotionSample {
+            frame,
+            transform: Mat3 {
+                values: [[1.0, 0.0, translation], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            },
+            inlier_ratio: 1.0,
+            reprojection_error: 0.0,
+            ecc: Some(1.0),
+            plaque_visibility: 1.0,
+            occluder_coverage: 0.0,
+        };
+        let open_samples = vec![sample(0, 0.0), sample(1, 10.0)];
+        let closed_samples = vec![sample(0, 0.0), sample(1, 0.0)];
+
+        assert!(human_loop_closed(LoopClosure::On, &open_samples, plaque));
+        assert!(!human_loop_closed(
+            LoopClosure::Off,
+            &closed_samples,
+            plaque
+        ));
+        assert!(!human_loop_closed(LoopClosure::Auto, &open_samples, plaque));
+        assert!(human_loop_closed(
+            LoopClosure::Auto,
+            &closed_samples,
+            plaque
+        ));
     }
 }

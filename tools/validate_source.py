@@ -106,8 +106,11 @@ def main() -> None:
     required = [
         "src/analyze/extraction.rs",
         "src/analyze/occlusion.rs",
+        "src/metadata.rs",
+        "src/metadata_commands.rs",
         "src/render/typography.rs",
         "src/verify/mod.rs",
+        "METADATA.md",
         "README.md",
         "VALIDATION.md",
     ]
