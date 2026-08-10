@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    analysis::{Analysis, OCCLUDER_DIR, STRUCTURAL_MASK_FILE, STRUCTURAL_TEMPLATE_FILE},
     analyze::extraction::{StructuralMatcher, StructuralRegistration, rectify, transformed_rect},
     cli::VerifyArgs,
     color::Rgba,
@@ -11,9 +12,8 @@ use crate::{
     layers::{ForegroundReader, merge_mask},
     model::{MotionSample, RectF},
     progress::ProgressReporter,
-    render::RenderMetadata,
+    render::RenderManifest,
     surface::Surface,
-    titlepack::{OCCLUDER_DIR, STRUCTURAL_MASK_FILE, STRUCTURAL_TEMPLATE_FILE, TitlePack},
     video::{self, Decoder},
 };
 
@@ -64,11 +64,8 @@ pub struct VerificationReport {
 pub fn run(args: VerifyArgs) -> Result<()> {
     let mut progress = ProgressReporter::new(args.progress, args.progress_interval_ms);
     progress.start(1, 2, "Open verification inputs", None);
-    let pack = TitlePack::open(&args.analysis)?;
-    let original = args
-        .original
-        .clone()
-        .unwrap_or_else(|| pack.manifest.source.path.clone());
+    let pack = Analysis::open(&args.analysis)?;
+    let original = args.original.clone().unwrap_or_else(|| pack.source_path());
     let original_info = video::probe(&args.ffprobe, &original)?;
     let rendered_info = video::probe(&args.ffprobe, &args.rendered)?;
     if !original_info.constant_frame_rate || !rendered_info.constant_frame_rate {
@@ -97,23 +94,23 @@ pub fn run(args: VerifyArgs) -> Result<()> {
             rendered_info.start_time_seconds
         );
     }
-    let metadata_path = args.rendered.with_extension("render-metadata.json");
-    let metadata: RenderMetadata =
-        serde_json::from_slice(&fs::read(&metadata_path).with_context(|| {
-            format!("failed to read render metadata {}", metadata_path.display())
+    let manifest_path = args.rendered.with_extension("render-manifest.json");
+    let manifest: RenderManifest =
+        serde_json::from_slice(&fs::read(&manifest_path).with_context(|| {
+            format!("failed to read render manifest {}", manifest_path.display())
         })?)?;
-    let text_mask_image = image::open(&metadata.canonical_text_mask)
+    let text_mask_image = image::open(&manifest.canonical_text_mask)
         .with_context(|| {
             format!(
                 "failed to load canonical text mask {}",
-                metadata.canonical_text_mask
+                manifest.canonical_text_mask
             )
         })?
         .to_luma8();
     anyhow::ensure!(
         text_mask_image.width() == pack.manifest.canonical_width
             && text_mask_image.height() == pack.manifest.canonical_height,
-        "canonical text mask dimensions do not match title-pack"
+        "canonical text mask dimensions do not match analysis"
     );
     let canonical_text_mask = text_mask_image.into_raw();
     let canonical_text_surface = Surface::from_alpha_mask(
@@ -131,7 +128,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let structural_matcher = StructuralMatcher::new(&structural_template, &structural_mask);
     let foregrounds = ForegroundReader::open(&pack)?;
     let has_any_occluder = pack.manifest.has_occluder || !foregrounds.is_empty();
-    progress.finish("dimensions, timing, metadata and masks are valid");
+    progress.finish("dimensions, timing, manifest and masks are valid");
 
     progress.start(2, 2, "Verify every frame", Some(original_info.frames));
     let mut original_decoder = Decoder::spawn(&args.ffmpeg, &original, &original_info)?;
@@ -379,16 +376,12 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     } else {
         (tracking_score_sum / structural_alignment_count as f64).clamp(0.0, 1.0)
     };
-    let supervised_track = pack
+    let authoritative_refinement = pack
         .manifest
         .motion_model
-        .starts_with("supervised-quad-csv-")
-        || pack
-            .manifest
-            .motion_model
-            .starts_with("authoritative-human-quad-track-");
+        .starts_with("authoritative-refined-quad-track-");
     let tracking_measurement_valid = maximum_tracking_correction.is_finite();
-    let tracking_lock = if supervised_track {
+    let tracking_lock = if authoritative_refinement {
         1.0
     } else {
         measured_tracking_lock
@@ -396,11 +389,9 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let tracking_lock_basis = if pack
         .manifest
         .motion_model
-        .starts_with("authoritative-human-quad-track-")
+        .starts_with("authoritative-refined-quad-track-")
     {
-        "authoritative-human-quad-track"
-    } else if supervised_track {
-        "authoritative-supervised-quad-track"
+        "authoritative-refined-quad-track"
     } else {
         "automatic-structural-registration-and-edge-alignment"
     };
@@ -434,7 +425,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     } else {
         1.0
     };
-    let (typography_fit, typography_validity) = typography_scores(&metadata);
+    let (typography_fit, typography_validity) = typography_scores(&manifest);
 
     let overall = weighted_geometric_mean(&[
         (tracking_lock, 0.24),
@@ -457,7 +448,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     };
     let mut failures = Vec::new();
     let mut remedies = Vec::new();
-    let worst_tracking_diagnostic = if supervised_track {
+    let worst_tracking_diagnostic = if authoritative_refinement {
         None
     } else if let (Some(directory), Some((mut frame, quad))) =
         (&args.diagnostics, worst_tracking_preview)
@@ -479,7 +470,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let frame_seconds = worst_tracking.0 as f64 / original_info.fps;
     let tracking_remedy = if tracking_measurement_valid {
         format!(
-            "automatic registration needs up to {:.2}px correction; worst frame {} ({frame_seconds:.3}s){}. The analyzed rectangle is {:.0},{:.0},{:.0},{:.0}. If it does not follow the plaque edges, rerun with a corrected --plaque-hint x,y,width,height; if it does, use a reviewed --track-csv because temporal smoothing cannot fix spatial misregistration",
+            "automatic registration needs up to {:.2}px correction; worst frame {} ({frame_seconds:.3}s){}. The analyzed rectangle is {:.0},{:.0},{:.0},{:.0}. Correct refinement bounds or export and lock motion frames before reanalysis",
             maximum_tracking_correction,
             worst_tracking.0,
             worst_tracking_diagnostic
@@ -493,7 +484,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         )
     } else {
         format!(
-            "tracking could not be measured because the analyzed rectangle {:.0},{:.0},{:.0},{:.0} has no usable structural template; inspect canonical-reference.png and candidate.png when present, then rerun with --plaque-hint x,y,width,height around the full plaque",
+            "tracking could not be measured because the analyzed rectangle {:.0},{:.0},{:.0},{:.0} has no usable structural template; inspect canonical-reference.png and candidate.png, then correct the refinement bounds",
             rect.x, rect.y, rect.width, rect.height
         )
     };
@@ -536,7 +527,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         &mut failures,
         &mut remedies,
         format!(
-            "trajectory changes abruptly at frame {} ({:.3}s); current --tracking-inertia is {:.2}. Raise it toward 0.50 for more smoothing, or lower it toward 0.20 only when the title visibly lags genuine plaque motion; every frame is measured",
+            "trajectory changes abruptly at frame {} ({:.3}s), with analysis inertia {:.2}; export the motion and lock incorrect frames before reanalysis",
             trajectory.worst_frame,
             trajectory.worst_frame as f64 / original_info.fps,
             tracking_inertia(&pack.manifest.motion_model).unwrap_or(0.35)
@@ -548,7 +539,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         thresholds.occlusion_restore,
         &mut failures,
         &mut remedies,
-        "re-run analyze with a different --occlusion-sensitivity, or --disable-occlusion if nothing crosses the plaque".into(),
+        "add or correct a foreground refinement where automatic separation is wrong".into(),
     );
     check_score(
         "loop_seam",
@@ -556,7 +547,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         thresholds.loop_seam,
         &mut failures,
         &mut remedies,
-        "re-run analyze with --loop-closure on for a known loop".into(),
+        "lock the first and last motion frames when the source is intended to loop".into(),
     );
     if overall < thresholds.overall {
         failures.push(format!(
@@ -589,7 +580,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         loop_trajectory_residual_pixels: trajectory.loop_residual,
         untouched_region_mean_error: untouched_error,
         structural_mean_error: structure_mean,
-        worst_tracking_frame: if supervised_track {
+        worst_tracking_frame: if authoritative_refinement {
             0
         } else {
             worst_tracking.0
@@ -615,8 +606,8 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     Ok(())
 }
 
-fn typography_scores(metadata: &RenderMetadata) -> (f64, f64) {
-    let metrics = &metadata.typography;
+fn typography_scores(manifest: &RenderManifest) -> (f64, f64) {
+    let metrics = &manifest.typography;
     let fit = if metrics.fit_mode == "maximize" {
         (metrics.font_size as f64 / metrics.maximum_safe_font_size.max(0.001) as f64)
             .clamp(0.0, 1.0)

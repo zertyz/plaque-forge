@@ -5,11 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cli::SegmentArgs,
-    metadata::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, SourceMetadata,
-        resolve_relative,
+    refinement::{
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Refinement, resolve_relative,
     },
-    video,
+    video, workspace,
 };
 
 const WORKER_PROTOCOL_VERSION: u32 = 1;
@@ -49,7 +48,7 @@ struct WorkerLayer {
     role: LayerRole,
     affects_layout: bool,
     active_frames: Option<[usize; 2]>,
-    prompts: Vec<crate::metadata::SegmentationPrompt>,
+    prompts: Vec<crate::refinement::SegmentationPrompt>,
 }
 
 #[derive(Deserialize)]
@@ -74,17 +73,22 @@ pub fn run(args: SegmentArgs) -> Result<()> {
             args.worker.display()
         );
     }
-    let metadata = SourceMetadata::load(&args.metadata)?;
-    let declared_source = resolve_relative(&args.metadata, &metadata.source);
+    let refinement_path = args
+        .refinement
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(|| workspace::refinement_path(&args.input))?;
+    let refinement = Refinement::load(&refinement_path)?;
+    let declared_source = resolve_relative(&refinement_path, &refinement.source);
     ensure_same_file(&declared_source, &args.input)?;
-    let plaque = metadata.select_plaque(args.plaque.as_deref())?;
-    let layer = metadata
+    let plaque = refinement.select_plaque(args.plaque.as_deref())?;
+    let layer = refinement
         .layers
         .iter()
         .find(|layer| layer.id == args.layer && layer.plaque == plaque.id)
         .with_context(|| {
             format!(
-                "metadata does not declare layer {:?} for plaque {:?}",
+                "refinement does not declare layer {:?} for plaque {:?}",
                 args.layer, plaque.id
             )
         })?;
@@ -112,8 +116,16 @@ pub fn run(args: SegmentArgs) -> Result<()> {
             info.frames
         );
     }
-    prepare_output(&args.output, args.force)?;
-    let partial = partial_path(&args.output);
+    let output = args.output.clone().unwrap_or_else(|| {
+        layer
+            .artifact
+            .as_ref()
+            .map(|path| resolve_relative(&refinement_path, path))
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| workspace::layer_path(&refinement_path, &layer.id))
+    });
+    prepare_output(&output, args.force)?;
+    let partial = partial_path(&output);
     if partial.exists() {
         fs::remove_dir_all(&partial)?;
     }
@@ -139,7 +151,7 @@ pub fn run(args: SegmentArgs) -> Result<()> {
             motion_track: plaque
                 .motion_track
                 .as_ref()
-                .map(|path| resolve_relative(&args.metadata, path)),
+                .map(|path| resolve_relative(&refinement_path, path)),
         },
         layer: WorkerLayer {
             id: layer.id.clone(),
@@ -166,16 +178,11 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         );
     }
     validate_worker_output(&partial, &args.backend, &args.model, &info)?;
-    fs::rename(&partial, &args.output).with_context(|| {
-        format!(
-            "failed to commit segmentation bundle {}",
-            args.output.display()
-        )
-    })?;
-    println!(
-        "layer artifact: {}",
-        args.output.join("artifact.toml").display()
-    );
+    fs::remove_file(&request_path)?;
+    fs::remove_file(partial.join("result.json"))?;
+    fs::rename(&partial, &output)
+        .with_context(|| format!("failed to commit segmentation bundle {}", output.display()))?;
+    println!("layer artifact: {}", output.join("artifact.toml").display());
     Ok(())
 }
 
@@ -246,7 +253,7 @@ fn ensure_same_file(left: &Path, right: &Path) -> Result<()> {
         .with_context(|| format!("failed to resolve {}", right.display()))?;
     if left != right {
         bail!(
-            "metadata source {} differs from input {}",
+            "refinement source {} differs from input {}",
             left.display(),
             right.display()
         );

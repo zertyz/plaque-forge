@@ -8,10 +8,9 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const SIDECAR_FORMAT_VERSION: u32 = 1;
-pub const MOTION_TRACK_FORMAT_VERSION: u32 = 2;
-pub const LAYER_ARTIFACT_FORMAT_VERSION: u32 = 1;
-const LEGACY_MOTION_TRACK_FORMAT_VERSION: u32 = 1;
+pub const REFINEMENT_SCHEMA_VERSION: u32 = 1;
+pub const MOTION_TRACK_SCHEMA_VERSION: u32 = 1;
+pub const LAYER_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PlaqueProposal {
@@ -22,7 +21,7 @@ pub struct PlaqueProposal {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PlaqueMetadata {
+pub struct PlaqueRefinement {
     pub id: String,
     pub reference_frame: Option<usize>,
     pub bounds: Option<[f64; 4]>,
@@ -100,7 +99,7 @@ fn default_true() -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LayerMetadata {
+pub struct RefinementLayer {
     pub id: String,
     pub role: LayerRole,
     pub plaque: String,
@@ -115,14 +114,14 @@ pub struct LayerMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SourceMetadata {
+pub struct Refinement {
     pub schema_version: u32,
     pub source: PathBuf,
     pub default_plaque: Option<String>,
     #[serde(default)]
-    pub plaques: Vec<PlaqueMetadata>,
+    pub plaques: Vec<PlaqueRefinement>,
     #[serde(default)]
-    pub layers: Vec<LayerMetadata>,
+    pub layers: Vec<RefinementLayer>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -147,7 +146,7 @@ fn default_locked() -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct HumanMotionTrack {
+pub struct MotionRefinement {
     pub schema_version: u32,
     pub plaque: String,
     pub coordinates: CoordinateSystem,
@@ -156,6 +155,7 @@ pub struct HumanMotionTrack {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct InputFileProvenance {
     pub path: PathBuf,
     pub sha256: String,
@@ -164,30 +164,22 @@ pub struct InputFileProvenance {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct HumanInputProvenance {
-    pub metadata: Option<InputFileProvenance>,
+#[serde(deny_unknown_fields)]
+pub struct RefinementProvenance {
+    pub manifest: Option<InputFileProvenance>,
     pub plaque_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plaque_hint: Option<[f64; 4]>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plaque_frame: Option<usize>,
     pub motion_track: Option<InputFileProvenance>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub track_csv: Option<InputFileProvenance>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_artifacts: Vec<InputFileProvenance>,
     pub locked_keyframes: usize,
     pub guide_keyframes: usize,
 }
 
-impl HumanInputProvenance {
+impl RefinementProvenance {
     pub fn content_matches(&self, other: &Self) -> bool {
         self.plaque_id == other.plaque_id
-            && self.plaque_hint == other.plaque_hint
-            && self.plaque_frame == other.plaque_frame
-            && file_hash(&self.metadata) == file_hash(&other.metadata)
+            && file_hash(&self.manifest) == file_hash(&other.manifest)
             && file_hash(&self.motion_track) == file_hash(&other.motion_track)
-            && file_hash(&self.track_csv) == file_hash(&other.track_csv)
             && file_hash_list(&self.layer_artifacts) == file_hash_list(&other.layer_artifacts)
             && self.locked_keyframes == other.locked_keyframes
             && self.guide_keyframes == other.guide_keyframes
@@ -214,34 +206,34 @@ fn file_hash(file: &Option<InputFileProvenance>) -> Option<&str> {
 }
 
 #[derive(Debug, Clone)]
-pub struct LoadedSourceMetadata {
+pub struct LoadedRefinement {
     pub path: PathBuf,
-    pub document: SourceMetadata,
+    pub document: Refinement,
 }
 
-impl SourceMetadata {
+impl Refinement {
     pub fn load(path: &Path) -> Result<Self> {
         let text = fs::read_to_string(path)
-            .with_context(|| format!("failed to read source metadata {}", path.display()))?;
+            .with_context(|| format!("failed to read refinement {}", path.display()))?;
         let document: Self = toml::from_str(&text)
-            .with_context(|| format!("failed to parse source metadata {}", path.display()))?;
+            .with_context(|| format!("failed to parse refinement {}", path.display()))?;
         document
             .validate()
-            .with_context(|| format!("invalid source metadata {}", path.display()))?;
+            .with_context(|| format!("invalid refinement {}", path.display()))?;
         Ok(document)
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != SIDECAR_FORMAT_VERSION {
+        if self.schema_version != REFINEMENT_SCHEMA_VERSION {
             bail!(
-                "unsupported metadata schema {}; expected {}",
+                "unsupported refinement schema {}; expected {}",
                 self.schema_version,
-                SIDECAR_FORMAT_VERSION
+                REFINEMENT_SCHEMA_VERSION
             );
         }
         require_relative(&self.source, "source")?;
         if self.plaques.is_empty() {
-            bail!("metadata must declare at least one [[plaques]] entry");
+            bail!("refinement must declare at least one [[plaques]] entry");
         }
 
         let mut plaque_ids = HashSet::new();
@@ -305,19 +297,19 @@ impl SourceMetadata {
         Ok(())
     }
 
-    pub fn select_plaque(&self, requested: Option<&str>) -> Result<&PlaqueMetadata> {
+    pub fn select_plaque(&self, requested: Option<&str>) -> Result<&PlaqueRefinement> {
         let id = requested.or(self.default_plaque.as_deref());
         if let Some(id) = id {
             return self
                 .plaques
                 .iter()
                 .find(|plaque| plaque.id == id)
-                .with_context(|| format!("metadata does not declare plaque {id:?}"));
+                .with_context(|| format!("refinement does not declare plaque {id:?}"));
         }
         if self.plaques.len() == 1 {
             return Ok(&self.plaques[0]);
         }
-        bail!("metadata declares multiple plaques; select one with --plaque <id>")
+        bail!("refinement declares multiple plaques; select one with --plaque <id>")
     }
 }
 
@@ -369,11 +361,11 @@ impl LayerArtifact {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != LAYER_ARTIFACT_FORMAT_VERSION {
+        if self.schema_version != LAYER_ARTIFACT_SCHEMA_VERSION {
             bail!(
                 "unsupported layer-artifact schema {}; expected {}",
                 self.schema_version,
-                LAYER_ARTIFACT_FORMAT_VERSION
+                LAYER_ARTIFACT_SCHEMA_VERSION
             );
         }
         match self.kind {
@@ -456,7 +448,7 @@ impl LayerArtifact {
     }
 }
 
-impl HumanMotionTrack {
+impl MotionRefinement {
     pub fn load(path: &Path) -> Result<Self> {
         let text = fs::read_to_string(path)
             .with_context(|| format!("failed to read motion track {}", path.display()))?;
@@ -469,17 +461,11 @@ impl HumanMotionTrack {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if ![
-            LEGACY_MOTION_TRACK_FORMAT_VERSION,
-            MOTION_TRACK_FORMAT_VERSION,
-        ]
-        .contains(&self.schema_version)
-        {
+        if self.schema_version != MOTION_TRACK_SCHEMA_VERSION {
             bail!(
-                "unsupported motion-track schema {}; expected {} or {}",
+                "unsupported motion-track schema {}; expected {}",
                 self.schema_version,
-                LEGACY_MOTION_TRACK_FORMAT_VERSION,
-                MOTION_TRACK_FORMAT_VERSION
+                MOTION_TRACK_SCHEMA_VERSION
             );
         }
         validate_id(&self.plaque, "motion-track plaque")?;
@@ -491,12 +477,6 @@ impl HumanMotionTrack {
         if self.keyframes.is_empty() {
             bail!("motion track contains no [[keyframes]] entries");
         }
-        let has_locked = self.keyframes.iter().any(|keyframe| keyframe.locked);
-        let has_guides = self.keyframes.iter().any(|keyframe| !keyframe.locked);
-        if self.schema_version == LEGACY_MOTION_TRACK_FORMAT_VERSION && has_locked && has_guides {
-            bail!("motion-track schema version 1 cannot mix locked and guided keyframes");
-        }
-
         let mut frames = HashSet::new();
         let mut orientation = 0.0_f64;
         for keyframe in &self.keyframes {
@@ -554,18 +534,11 @@ impl HumanMotionTrack {
     }
 }
 
-pub fn default_sidecar_path(input: &Path) -> PathBuf {
-    input.with_extension("plaque.toml")
-}
-
-pub fn find_source_metadata(
-    input: &Path,
-    explicit: Option<&Path>,
-) -> Result<Option<LoadedSourceMetadata>> {
+pub fn find_refinement(input: &Path, explicit: Option<&Path>) -> Result<Option<LoadedRefinement>> {
     let path = match explicit {
         Some(path) => path.to_path_buf(),
         None => {
-            let candidate = default_sidecar_path(input);
+            let candidate = crate::workspace::refinement_path(input)?;
             if !candidate.is_file() {
                 return Ok(None);
             }
@@ -574,12 +547,12 @@ pub fn find_source_metadata(
     };
     if !path.is_file() {
         bail!(
-            "source metadata does not exist or is not a file: {}",
+            "refinement does not exist or is not a file: {}",
             path.display()
         );
     }
-    let document = SourceMetadata::load(&path)?;
-    Ok(Some(LoadedSourceMetadata { path, document }))
+    let document = Refinement::load(&path)?;
+    Ok(Some(LoadedRefinement { path, document }))
 }
 
 pub fn resolve_relative(owner: &Path, referenced: &Path) -> PathBuf {
@@ -621,88 +594,58 @@ pub fn layer_artifact_provenance(
 }
 
 pub fn selected_layer_artifacts(
-    metadata: &LoadedSourceMetadata,
+    refinement: &LoadedRefinement,
     plaque_id: &str,
-) -> Result<Vec<(LayerMetadata, PathBuf, LayerArtifact)>> {
-    metadata
+) -> Result<Vec<(RefinementLayer, PathBuf, LayerArtifact)>> {
+    refinement
         .document
         .layers
         .iter()
         .filter(|layer| layer.plaque == plaque_id)
         .filter_map(|layer| {
             layer.artifact.as_ref().map(|artifact| {
-                let path = resolve_relative(&metadata.path, artifact);
+                let path = resolve_relative(&refinement.path, artifact);
                 LayerArtifact::load(&path).map(|document| (layer.clone(), path, document))
             })
         })
         .collect()
 }
 
-pub fn current_human_input_provenance(
+pub fn current_refinement_provenance(
     input: &Path,
-    explicit_metadata: Option<&Path>,
+    explicit_refinement: Option<&Path>,
     requested_plaque: Option<&str>,
-    explicit_plaque_hint: Option<[f64; 4]>,
-    explicit_plaque_frame: Option<usize>,
-    explicit_motion_track: Option<&Path>,
-    track_csv: Option<&Path>,
-) -> Result<Option<HumanInputProvenance>> {
-    let loaded = find_source_metadata(input, explicit_metadata)?;
-    let mut identity = HumanInputProvenance::default();
-    if let Some(bounds) = explicit_plaque_hint {
-        identity.plaque_hint = Some(bounds);
-        identity.plaque_frame = Some(explicit_plaque_frame.unwrap_or(0));
-    } else if explicit_plaque_frame.is_some() {
-        bail!("--plaque-frame requires --plaque-hint");
-    }
-    let mut referenced_track = None;
+) -> Result<Option<RefinementProvenance>> {
+    let loaded = find_refinement(input, explicit_refinement)?;
+    let mut identity = RefinementProvenance::default();
     if let Some(loaded) = &loaded {
         let selected = loaded.document.select_plaque(requested_plaque)?;
-        identity.metadata = Some(semantic_provenance(&loaded.path, &loaded.document)?);
+        identity.manifest = Some(semantic_provenance(&loaded.path, &loaded.document)?);
         identity.plaque_id = Some(selected.id.clone());
         for (_, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
             identity
                 .layer_artifacts
                 .push(layer_artifact_provenance(&path, &artifact)?);
         }
-        if track_csv.is_none() {
-            referenced_track = selected
-                .motion_track
-                .as_ref()
-                .map(|path| resolve_relative(&loaded.path, path));
+        if let Some(track) = &selected.motion_track {
+            let path = resolve_relative(&loaded.path, track);
+            let track = MotionRefinement::load(&path)?;
+            if track.plaque != selected.id {
+                bail!(
+                    "motion track describes plaque {:?}, but refinement selected {:?}",
+                    track.plaque,
+                    selected.id
+                );
+            }
+            identity.motion_track = Some(semantic_provenance(&path, &track)?);
+            identity.locked_keyframes = track.locked_keyframes();
+            identity.guide_keyframes = track.guide_keyframes();
         }
     } else if let Some(id) = requested_plaque {
-        bail!("--plaque {id:?} requires a metadata sidecar");
+        bail!("--plaque {id:?} requires a refinement manifest");
     }
 
-    let track_path = if track_csv.is_some() {
-        None
-    } else {
-        explicit_motion_track
-            .map(Path::to_path_buf)
-            .or(referenced_track)
-    };
-    if let Some(path) = track_path {
-        let track = HumanMotionTrack::load(&path)?;
-        if let Some(plaque_id) = &identity.plaque_id
-            && track.plaque != *plaque_id
-        {
-            bail!(
-                "motion track describes plaque {:?}, but metadata selected {:?}",
-                track.plaque,
-                plaque_id
-            );
-        }
-        identity.plaque_id = Some(track.plaque.clone());
-        identity.motion_track = Some(semantic_provenance(&path, &track)?);
-        identity.locked_keyframes = track.locked_keyframes();
-        identity.guide_keyframes = track.guide_keyframes();
-    }
-    if let Some(path) = track_csv {
-        identity.track_csv = Some(provenance(path)?);
-    }
-
-    if identity == HumanInputProvenance::default() {
+    if identity == RefinementProvenance::default() {
         Ok(None)
     } else {
         Ok(Some(identity))
@@ -720,23 +663,17 @@ fn sha256_bytes(bytes: &[u8]) -> String {
     format!("{:x}", digest.finalize())
 }
 
-pub fn sidecar_document(
+pub fn refinement_document(
     input: &Path,
-    sidecar: &Path,
+    refinement: &Path,
     detector: &str,
     proposal: Option<PlaqueProposal>,
     alternatives: &[PlaqueProposal],
 ) -> Result<String> {
-    let source = relative_reference(sidecar, input)?;
-    let source_stem = input
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("video");
-    let suggested_track = format!("{source_stem}.main.track.toml");
+    let source = relative_reference(refinement, input)?;
     let mut output = format!(
-        "# Plaque Forge source metadata. This file is human-owned.\n\
-         # Plaque Forge will not overwrite it without explicit --force.\n\
-         schema_version = {SIDECAR_FORMAT_VERSION}\n\
+        "# Editable Plaque Forge refinement.\n\
+         schema_version = {REFINEMENT_SCHEMA_VERSION}\n\
          source = {}\n\
          default_plaque = \"main\"\n\n\
          [[plaques]]\n\
@@ -745,9 +682,8 @@ pub fn sidecar_document(
     );
     if let Some(proposal) = proposal {
         output.push_str(&format!(
-            "# Automatic {detector} proposal (confidence {:.3}). Review and edit as needed.\n\
-             # Bounds are [x, y, width, height] in source pixels on reference_frame.\n\
-             # Analysis still measures plaque motion on every frame.\n\
+            "# Automatic {detector} proposal; confidence {:.3}.\n\
+             # bounds = [x, y, width, height] on reference_frame.\n\
              reference_frame = {}\n\
              bounds = [{:.1}, {:.1}, {:.1}, {:.1}]\n",
             proposal.confidence.clamp(0.0, 1.0),
@@ -759,19 +695,14 @@ pub fn sidecar_document(
         ));
     } else {
         output.push_str(
-            "# Automatic plaque detection found no proposal. Set both fields manually.\n\
+            "# Set both fields manually.\n\
              # reference_frame = 0\n\
              # bounds = [100.0, 100.0, 400.0, 200.0]\n",
         );
     }
-    output.push_str(&format!(
-        "# Optional motion track, relative to this file.\n\
-         # motion_track = {}\n\n",
-        toml_string(&suggested_track)?
-    ));
+    output.push_str("# motion_track = \"motion.toml\"\n\n");
     output.push_str(
-        "# Segmentation prompts are optional. Positive points belong to the target;\n\
-         # negative points identify nearby pixels that must be excluded.\n\
+        "# Optional segmentation prompt.\n\
          # [[plaques.prompts]]\n",
     );
     if let Some(proposal) = proposal {
@@ -799,8 +730,6 @@ pub fn sidecar_document(
     for (index, alternative) in alternatives.iter().enumerate() {
         output.push_str(&format!(
             "\n# Alternative automatic candidate {} (confidence {:.3}).\n\
-             # Replace main's geometry with this candidate, or uncomment this block\n\
-             # if it is a separate plaque you want to keep.\n\
              # [[plaques]]\n\
              # id = \"candidate-{}\"\n\
              # reference_frame = {}\n\
@@ -826,12 +755,8 @@ pub fn motion_track_document(
 ) -> Result<String> {
     validate_id(plaque, "motion-track plaque")?;
     let mut output = format!(
-        "# Plaque Forge motion-track proposal. This file is human-owned after export.\n\
-         # Coordinates are source-video pixels. Corner order is top-left, top-right,\n\
-         # bottom-right, bottom-left. Unlocked quads guide automatic refinement.\n\
-         # Set locked = true only on reviewed frames that must be exact. A locked\n\
-         # entry for every frame is a fully authoritative motion track.\n\
-         schema_version = {MOTION_TRACK_FORMAT_VERSION}\n\
+        "# Editable motion refinement. Quads use TL, TR, BR, BL source pixels.\n\
+         schema_version = {MOTION_TRACK_SCHEMA_VERSION}\n\
          plaque = {plaque:?}\n\
          coordinates = \"source-pixels\"\n\
          source_sha256 = {source_sha256:?}\n"
@@ -850,7 +775,7 @@ pub fn motion_track_document(
             visibility.clamp(0.0, 1.0),
         ));
     }
-    let track: HumanMotionTrack =
+    let track: MotionRefinement =
         toml::from_str(&output).context("generated motion-track document is not valid TOML")?;
     track
         .validate()
@@ -858,10 +783,10 @@ pub fn motion_track_document(
     Ok(output)
 }
 
-pub fn write_human_file(path: &Path, contents: &str, force: bool) -> Result<()> {
+pub fn write_refinement(path: &Path, contents: &str, force: bool) -> Result<()> {
     if path.exists() && !force {
         bail!(
-            "refusing to overwrite human-owned file {}; use --force only after reviewing it",
+            "refusing to overwrite refinement {}; use --force to replace it",
             path.display()
         );
     }
@@ -887,7 +812,7 @@ fn validate_id(id: &str, kind: &str) -> Result<()> {
 
 fn require_relative(path: &Path, description: &str) -> Result<()> {
     if path.is_absolute() {
-        bail!("{description} must be relative so the metadata remains portable");
+        bail!("{description} must be relative");
     }
     Ok(())
 }
@@ -952,7 +877,7 @@ fn toml_string(value: &str) -> Result<String> {
     Ok(toml::Value::String(value.to_string()).to_string())
 }
 
-fn relative_reference(owner: &Path, target: &Path) -> Result<PathBuf> {
+pub(crate) fn relative_reference(owner: &Path, target: &Path) -> Result<PathBuf> {
     let owner_parent = owner.parent().unwrap_or_else(|| Path::new("."));
     if owner_parent == target.parent().unwrap_or_else(|| Path::new(".")) {
         return target
@@ -979,7 +904,7 @@ fn relative_reference(owner: &Path, target: &Path) -> Result<PathBuf> {
         .take_while(|(a, b)| a == b)
         .count();
     if common == 0 {
-        bail!("sidecar and source do not share a filesystem root");
+        bail!("refinement and source do not share a filesystem root");
     }
     let mut relative = PathBuf::new();
     for _ in common..owner_components.len() {
@@ -996,8 +921,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generated_sidecar_is_commented_and_valid() {
-        let text = sidecar_document(
+    fn generated_refinement_is_valid() {
+        let text = refinement_document(
             Path::new("example.mp4"),
             Path::new("example.plaque.toml"),
             "ensemble",
@@ -1005,14 +930,13 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert!(text.contains("human-owned"));
-        let metadata: SourceMetadata = toml::from_str(&text).unwrap();
-        metadata.validate().unwrap();
+        let refinement: Refinement = toml::from_str(&text).unwrap();
+        refinement.validate().unwrap();
     }
 
     #[test]
     fn detected_proposal_is_active_and_alternatives_are_comments() {
-        let text = sidecar_document(
+        let text = refinement_document(
             Path::new("example.mp4"),
             Path::new("example.plaque.toml"),
             "ensemble",
@@ -1028,19 +952,22 @@ mod tests {
             }],
         )
         .unwrap();
-        let metadata: SourceMetadata = toml::from_str(&text).unwrap();
+        let refinement: Refinement = toml::from_str(&text).unwrap();
 
-        metadata.validate().unwrap();
-        assert_eq!(metadata.plaques.len(), 1);
-        assert_eq!(metadata.plaques[0].reference_frame, Some(51));
-        assert_eq!(metadata.plaques[0].bounds, Some([65.0, 6.0, 905.0, 487.0]));
+        refinement.validate().unwrap();
+        assert_eq!(refinement.plaques.len(), 1);
+        assert_eq!(refinement.plaques[0].reference_frame, Some(51));
+        assert_eq!(
+            refinement.plaques[0].bounds,
+            Some([65.0, 6.0, 905.0, 487.0])
+        );
         assert!(text.contains("Alternative automatic candidate 1"));
         assert!(text.contains("# [[plaques]]"));
     }
 
     #[test]
-    fn metadata_selects_an_explicit_plaque() {
-        let metadata: SourceMetadata = toml::from_str(
+    fn refinement_selects_an_explicit_plaque() {
+        let refinement: Refinement = toml::from_str(
             r#"
                 schema_version = 1
                 source = "clip.mp4"
@@ -1054,9 +981,9 @@ mod tests {
             "#,
         )
         .unwrap();
-        metadata.validate().unwrap();
-        assert_eq!(metadata.select_plaque(None).unwrap().id, "right");
-        assert_eq!(metadata.select_plaque(Some("left")).unwrap().id, "left");
+        refinement.validate().unwrap();
+        assert_eq!(refinement.select_plaque(None).unwrap().id, "right");
+        assert_eq!(refinement.select_plaque(Some("left")).unwrap().id, "left");
     }
 
     #[test]
@@ -1091,8 +1018,8 @@ mod tests {
     }
 
     #[test]
-    fn track_rejects_mixed_authority() {
-        let track: HumanMotionTrack = toml::from_str(
+    fn track_accepts_mixed_authority() {
+        let track: MotionRefinement = toml::from_str(
             r#"
                 schema_version = 1
                 plaque = "main"
@@ -1110,13 +1037,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert!(
-            track
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("cannot mix")
-        );
+        track.validate().unwrap();
     }
 
     #[test]
@@ -1128,7 +1049,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let track: HumanMotionTrack = toml::from_str(&text).unwrap();
+        let track: MotionRefinement = toml::from_str(&text).unwrap();
         track.validate().unwrap();
         assert!(!track.keyframes[0].locked);
     }
@@ -1146,10 +1067,10 @@ mod tests {
     }
 
     #[test]
-    fn schema_two_accepts_mixed_authority() {
-        let track: HumanMotionTrack = toml::from_str(
+    fn mixed_track_counts_authority() {
+        let track: MotionRefinement = toml::from_str(
             r#"
-                schema_version = 2
+                schema_version = 1
                 plaque = "main"
                 coordinates = "source-pixels"
 
@@ -1178,86 +1099,16 @@ mod tests {
             sha256: raw.into(),
             semantic_sha256: Some("same-semantics".into()),
         };
-        let a = HumanInputProvenance {
-            metadata: Some(file("a.toml", "raw-a")),
+        let a = RefinementProvenance {
+            manifest: Some(file("a.toml", "raw-a")),
             plaque_id: Some("main".into()),
-            ..HumanInputProvenance::default()
+            ..RefinementProvenance::default()
         };
-        let b = HumanInputProvenance {
-            metadata: Some(file("b.toml", "raw-b")),
+        let b = RefinementProvenance {
+            manifest: Some(file("b.toml", "raw-b")),
             plaque_id: Some("main".into()),
-            ..HumanInputProvenance::default()
+            ..RefinementProvenance::default()
         };
         assert!(a.content_matches(&b));
-    }
-
-    #[test]
-    fn cache_identity_includes_bounds_and_legacy_track_contents() {
-        let file = |hash: &str| InputFileProvenance {
-            path: "track.csv".into(),
-            sha256: hash.into(),
-            semantic_sha256: None,
-        };
-        let baseline = HumanInputProvenance {
-            plaque_hint: Some([10.0, 20.0, 30.0, 40.0]),
-            plaque_frame: Some(0),
-            track_csv: Some(file("csv-a")),
-            ..HumanInputProvenance::default()
-        };
-        let changed_bounds = HumanInputProvenance {
-            plaque_hint: Some([11.0, 20.0, 30.0, 40.0]),
-            ..baseline.clone()
-        };
-        let changed_csv = HumanInputProvenance {
-            track_csv: Some(file("csv-b")),
-            ..baseline.clone()
-        };
-
-        assert!(!baseline.content_matches(&changed_bounds));
-        assert!(!baseline.content_matches(&changed_csv));
-    }
-
-    #[test]
-    fn cache_identity_normalizes_the_default_plaque_frame() {
-        let implicit = current_human_input_provenance(
-            Path::new("missing-test-video.mp4"),
-            None,
-            None,
-            Some([10.0, 20.0, 30.0, 40.0]),
-            None,
-            None,
-            None,
-        )
-        .unwrap()
-        .unwrap();
-        let explicit = current_human_input_provenance(
-            Path::new("missing-test-video.mp4"),
-            None,
-            None,
-            Some([10.0, 20.0, 30.0, 40.0]),
-            Some(0),
-            None,
-            None,
-        )
-        .unwrap()
-        .unwrap();
-
-        assert!(implicit.content_matches(&explicit));
-    }
-
-    #[test]
-    fn existing_format_four_provenance_defaults_new_fields() {
-        let provenance: HumanInputProvenance = toml::from_str(
-            r#"
-                plaque_id = "main"
-                locked_keyframes = 0
-                guide_keyframes = 0
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(provenance.plaque_hint, None);
-        assert_eq!(provenance.plaque_frame, None);
-        assert_eq!(provenance.track_csv, None);
     }
 }

@@ -7,18 +7,18 @@ use image::{GrayImage, ImageBuffer, Luma, RgbaImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    analysis::{Analysis, CONTENT_MASK_FILE, OCCLUDER_DIR},
     analyze::extraction::transformed_rect,
-    cli::RenderArgs,
+    cli::ComposeArgs,
     image_io::load_luma,
     layers::{ForegroundReader, merge_mask},
     model::TypographyMetrics,
     progress::ProgressReporter,
-    titlepack::{CONTENT_MASK_FILE, OCCLUDER_DIR, TitlePack},
     video::{self, Decoder, Encoder},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RenderMetadata {
+pub struct RenderManifest {
     #[serde(default)]
     pub program_version: String,
     #[serde(default)]
@@ -28,23 +28,20 @@ pub struct RenderMetadata {
     pub typography: TypographyMetrics,
     pub frames: usize,
     pub used_occluder_masks: bool,
-    #[serde(default)]
-    pub human_foreground_layers: usize,
+    pub refinement_foreground_layers: usize,
     pub source_sha256: String,
     pub canonical_text_mask: String,
     #[serde(default)]
     pub render_contact_sheet: Option<String>,
 }
 
-pub fn run(args: RenderArgs) -> Result<()> {
+pub fn run(args: ComposeArgs) -> Result<()> {
     let mut progress = ProgressReporter::new(args.progress, args.progress_interval_ms);
-    progress.start(1, 3, "Open title-pack and validate source", None);
-    let pack = TitlePack::open(&args.analysis)?;
+    progress.start(1, 3, "Open analysis and validate source", None);
+    let pack = Analysis::open(&args.analysis)?;
     pack.require_current_analyzer()?;
     if !pack.manifest.analysis_gate_passed {
-        eprintln!(
-            "warning: this title-pack was committed with --allow-low-confidence; inspect its diagnostics before accepting the render"
-        );
+        eprintln!("warning: this analysis was accepted below the confidence threshold");
     }
     let text = match (args.text, args.text_file) {
         (Some(text), None) => text,
@@ -53,27 +50,27 @@ pub fn run(args: RenderArgs) -> Result<()> {
         (None, None) => bail!("provide --text or --text-file"),
         (Some(_), Some(_)) => unreachable!(),
     };
-    let source = &pack.manifest.source.path;
+    let source = pack.source_path();
     if !source.is_file() {
         bail!(
-            "title-pack source video no longer exists: {}\nhelp: restore it or re-run analyze on the new source",
+            "analysis source video does not exist: {}\nhelp: restore it or re-run analyze",
             source.display()
         );
     }
-    let current_sha = video::sha256(source)?;
+    let current_sha = video::sha256(&source)?;
     if current_sha != pack.manifest.source.sha256 {
         bail!(
-            "source video differs from the file used for analysis: {}\nhelp: re-run analyze or replace with --reanalyze",
+            "source video differs from the file used for analysis: {}\nhelp: re-run analyze or render --reanalyze",
             source.display()
         );
     }
-    let info = video::probe(&args.ffprobe, source)?;
+    let info = video::probe(&args.ffprobe, &source)?;
     let mask = load_luma(
         &pack.require_asset(CONTENT_MASK_FILE)?,
         pack.manifest.canonical_width,
         pack.manifest.canonical_height,
     )?;
-    progress.finish("source fingerprint and title-pack are valid");
+    progress.finish("source fingerprint and analysis are valid");
 
     progress.start(2, 3, "Shape and fit typography", None);
     let style = typography::Style::parse(
@@ -144,16 +141,16 @@ pub fn run(args: RenderArgs) -> Result<()> {
     } else {
         args.encoder_args.clone()
     };
-    let mut decoder = Decoder::spawn(&args.ffmpeg, source, &info)?;
-    let mut encoder = Encoder::spawn(&args.ffmpeg, source, &args.output, &info, &encoder_args)?;
+    let mut decoder = Decoder::spawn(&args.ffmpeg, &source, &info)?;
+    let mut encoder = Encoder::spawn(&args.ffmpeg, &source, &args.output, &info, &encoder_args)?;
     let masks_dir = pack.root.join(OCCLUDER_DIR);
     let use_masks = pack.manifest.has_occluder && masks_dir.is_dir();
     let foregrounds = ForegroundReader::open(&pack)?;
-    let human_foreground_layers = pack
+    let refinement_foreground_layers = pack
         .manifest
         .layers
         .iter()
-        .filter(|layer| layer.role == crate::metadata::LayerRole::Foreground)
+        .filter(|layer| layer.role == crate::refinement::LayerRole::Foreground)
         .count();
     let mut frame_index = 0usize;
     let diagnostic_indices = evenly_spaced(info.frames, 12);
@@ -235,14 +232,14 @@ pub fn run(args: RenderArgs) -> Result<()> {
         None
     };
 
-    let metadata = RenderMetadata {
+    let manifest = RenderManifest {
         program_version: env!("CARGO_PKG_VERSION").to_string(),
         renderer_build: crate::build_info::SOURCE_FINGERPRINT.to_string(),
         analyzer_build: pack.manifest.analyzer_build.clone(),
         typography: text_render.metrics,
         frames: frame_index,
         used_occluder_masks: use_masks || !foregrounds.is_empty(),
-        human_foreground_layers,
+        refinement_foreground_layers,
         source_sha256: pack.manifest.source.sha256.clone(),
         canonical_text_mask: canonical_text_mask_path
             .canonicalize()
@@ -251,11 +248,11 @@ pub fn run(args: RenderArgs) -> Result<()> {
             .into_owned(),
         render_contact_sheet,
     };
-    let report_path = args.output.with_extension("render-metadata.json");
-    fs::write(&report_path, serde_json::to_vec_pretty(&metadata)?)
-        .with_context(|| format!("failed to write render metadata {}", report_path.display()))?;
+    let report_path = args.output.with_extension("render-manifest.json");
+    fs::write(&report_path, serde_json::to_vec_pretty(&manifest)?)
+        .with_context(|| format!("failed to write render manifest {}", report_path.display()))?;
     println!("rendered {frame_index} frames -> {}", args.output.display());
-    println!("render metadata -> {}", report_path.display());
+    println!("render manifest -> {}", report_path.display());
     Ok(())
 }
 

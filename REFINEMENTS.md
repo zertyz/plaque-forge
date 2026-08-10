@@ -1,0 +1,118 @@
+# Refinements
+
+A refinement contains reviewed input that automatic analysis must honor. Paths are relative to `refinement.toml`.
+
+## Manifest
+
+```toml
+schema_version = 1
+source = "../../video.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 51
+bounds = [65.0, 6.0, 905.0, 487.0]
+motion_track = "motion.toml"
+
+[[layers]]
+id = "foreground"
+role = "foreground"
+plaque = "main"
+in_front_of = "main"
+artifact = "foreground/artifact.toml"
+affects_layout = false
+```
+
+`bounds` is `[x, y, width, height]` in source pixels on `reference_frame`. It initializes automatic all-frame tracking.
+
+Create a proposal:
+
+```bash
+plaque-forge refine --input assets/video.mp4
+```
+
+## Motion
+
+```toml
+schema_version = 1
+plaque = "main"
+coordinates = "source-pixels"
+source_sha256 = "..."
+
+[[keyframes]]
+frame = 51
+quad = [[65.0, 6.0], [970.0, 6.0], [970.0, 493.0], [65.0, 493.0]]
+locked = true
+visibility = 1.0
+```
+
+Corners are top-left, top-right, bottom-right, bottom-left. Locked frames are exact constraints; unlocked frames guide automatic refinement. A locked entry for every frame is authoritative.
+
+Export analyzed motion:
+
+```bash
+plaque-forge export-motion --analysis assets/analysis/video
+```
+
+## Layers
+
+Roles are `writing-surface`, `foreground`, `shadow`, `background`, `reflection`, and `modulation`.
+
+Canonical image:
+
+```toml
+schema_version = 1
+kind = "alpha-image"
+coordinates = "plaque-canonical"
+path = "moss.png"
+affects_layout = false
+```
+
+Source-pixel sequence:
+
+```toml
+schema_version = 1
+kind = "alpha-sequence"
+coordinates = "source-pixels"
+pattern = "masks/%06d.png"
+first_frame = 0
+last_frame = 239
+affects_layout = false
+```
+
+Soft alpha is preserved. Foreground layers restore source pixels over the title; shadow layers restore only their alpha-weighted shadow.
+
+## Segmentation
+
+Prompts belong to a declared layer:
+
+```toml
+[[layers.prompts]]
+frame = 72
+object = "lizard"
+box_bounds = [490.0, 145.0, 235.0, 105.0]
+positive_points = [[615.0, 190.0]]
+negative_points = [[760.0, 190.0]]
+```
+
+Install the isolated worker runtime:
+
+```bash
+./scripts/setup_segmentation.sh
+```
+
+Generate the layer:
+
+```bash
+plaque-forge segment \
+  --input assets/video.mp4 \
+  --layer foreground \
+  --worker tools/segmentation-worker \
+  --backend sam2-cutie-vitmatte \
+  --model facebook/sam2.1-hiera-large \
+  --device auto \
+  --force
+```
+
+Available backends are `sam2-vitmatte`, `cutie-vitmatte`, `sam2-cutie-vitmatte`, and `matanyone2`.

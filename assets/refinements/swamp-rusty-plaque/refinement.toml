@@ -1,0 +1,24 @@
+schema_version = 1
+source = "../../swamp-rusty-plaque.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 83
+bounds = [323.0, 53.0, 640.0, 125.0]
+
+[[layers]]
+id = "moss"
+role = "foreground"
+plaque = "main"
+in_front_of = "main"
+artifact = "moss-soft.toml"
+affects_layout = false
+
+[[layers]]
+id = "moss-shadow"
+role = "shadow"
+plaque = "main"
+in_front_of = "main"
+artifact = "moss-shadow.toml"
+affects_layout = false

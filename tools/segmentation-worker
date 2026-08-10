@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="/tmp/plaque-forge-python"
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+export HOME="$root/home"
+export XDG_CACHE_HOME="$root/cache/xdg"
+export XDG_CONFIG_HOME="$root/config"
+export XDG_DATA_HOME="$root/data"
+export HF_HOME="$root/cache/huggingface"
+export TORCH_HOME="$root/cache/torch"
+export MPLCONFIGDIR="$root/cache/matplotlib"
+export TRITON_CACHE_DIR="$root/cache/triton"
+export TORCHINDUCTOR_CACHE_DIR="$root/cache/torchinductor"
+export TORCH_EXTENSIONS_DIR="$root/cache/torch-extensions"
+export PYTHONPYCACHEPREFIX="$root/cache/pycache"
+export TMPDIR="$root/tmp"
+exec "$root/venv/bin/python" "$repo/tools/segmentation_worker.py" "$@"

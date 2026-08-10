@@ -4,3 +4,7 @@
 /.codex/
 __pycache__/
 *.py[cod]
+/assets/analysis/
+/assets/refinements/**/masks
+/assets/refinements/*/*-shadow
+/output/

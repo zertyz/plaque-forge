@@ -5,9 +5,9 @@ use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     color::Rgba,
-    metadata::HumanMotionTrack,
     model::{MotionSample, RectF},
     progress::ProgressReporter,
+    refinement::MotionRefinement,
     surface::Surface,
     video::{Decoder, VideoInfo},
 };
@@ -35,7 +35,7 @@ pub fn extract(
     diagnostics: &Path,
     sensitivity: f64,
     loop_closed: bool,
-    human_track: Option<&HumanMotionTrack>,
+    refinement_track: Option<&MotionRefinement>,
     progress: &mut ProgressReporter,
 ) -> Result<OcclusionResult> {
     let masks_dir = output_root.join("occluder");
@@ -198,8 +198,8 @@ pub fn extract(
         sample.plaque_visibility = value;
     }
     let automatic_mean_visibility = mean(&visibility);
-    if let Some(track) = human_track {
-        tracking::apply_human_visibility_constraints(motion, track)?;
+    if let Some(track) = refinement_track {
+        tracking::apply_visibility_refinements(motion, track)?;
     }
     let final_visibility = motion
         .iter()

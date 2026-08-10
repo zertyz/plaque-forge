@@ -6,10 +6,10 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::metadata::{
-    HumanInputProvenance, LayerArtifactKind, LayerCoordinates, LayerGenerator, LayerRole,
-};
 use crate::model::{AnalysisConfidence, MotionSample, RectF};
+use crate::refinement::{
+    LayerArtifactKind, LayerCoordinates, LayerGenerator, LayerRole, RefinementProvenance,
+};
 
 pub const MANIFEST_FILE: &str = "manifest.toml";
 pub const MOTION_FILE: &str = "motion.json";
@@ -18,15 +18,16 @@ pub const STRUCTURAL_MASK_FILE: &str = "structural-mask.png";
 pub const STRUCTURAL_TEMPLATE_FILE: &str = "structural-template.png";
 pub const OCCLUDER_DIR: &str = "occluder";
 pub const LAYERS_DIR: &str = "layers";
-pub const CURRENT_FORMAT_VERSION: u32 = 6;
+pub const ANALYSIS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum PackStatus {
+pub enum AnalysisStatus {
     Complete,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceInfo {
     pub path: PathBuf,
     pub sha256: String,
@@ -38,6 +39,7 @@ pub struct SourceInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LayerAsset {
     pub id: String,
     pub role: LayerRole,
@@ -51,12 +53,11 @@ pub struct LayerAsset {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TitlePackManifest {
-    pub format_version: u32,
-    pub status: PackStatus,
-    /// Milestone 3 assumes the production source has a text-free plaque cavity.
+#[serde(deny_unknown_fields)]
+pub struct AnalysisManifest {
+    pub schema_version: u32,
+    pub status: AnalysisStatus,
     pub source_is_text_free: bool,
-    #[serde(default = "unknown_build")]
     pub analyzer_build: String,
     pub source: SourceInfo,
     pub reference_frame: usize,
@@ -69,41 +70,32 @@ pub struct TitlePackManifest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layers: Vec<LayerAsset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub human_inputs: Option<HumanInputProvenance>,
-    #[serde(default = "gate_passed_by_default")]
+    pub refinements: Option<RefinementProvenance>,
     pub analysis_gate_passed: bool,
     pub confidence: AnalysisConfidence,
 }
 
-fn gate_passed_by_default() -> bool {
-    false
-}
-
-fn unknown_build() -> String {
-    "unknown".to_string()
-}
-
-pub struct TitlePack {
+pub struct Analysis {
     pub root: PathBuf,
-    pub manifest: TitlePackManifest,
+    pub manifest: AnalysisManifest,
     pub motion: Vec<MotionSample>,
 }
 
-impl TitlePack {
+impl Analysis {
     pub fn create(
         root: impl Into<PathBuf>,
-        manifest: TitlePackManifest,
+        manifest: AnalysisManifest,
         motion: Vec<MotionSample>,
     ) -> Result<Self> {
         let root = root.into();
         fs::create_dir_all(&root)
-            .with_context(|| format!("failed to create title-pack {}", root.display()))?;
+            .with_context(|| format!("failed to create analysis {}", root.display()))?;
         let pack = Self {
             root,
             manifest,
             motion,
         };
-        pack.save_metadata()?;
+        pack.save_manifest()?;
         Ok(pack)
     }
 
@@ -113,43 +105,37 @@ impl TitlePack {
         let motion_path = root.join(MOTION_FILE);
         let manifest_text = fs::read_to_string(&manifest_path).with_context(|| {
             format!(
-                "failed to read title-pack manifest {}",
+                "failed to read analysis manifest {}",
                 manifest_path.display()
             )
         })?;
-        let manifest: TitlePackManifest = toml::from_str(&manifest_text).with_context(|| {
+        let manifest: AnalysisManifest = toml::from_str(&manifest_text).with_context(|| {
             format!(
-                "failed to parse title-pack manifest {}",
+                "failed to parse analysis manifest {}",
                 manifest_path.display()
             )
         })?;
-        if manifest.format_version != CURRENT_FORMAT_VERSION {
+        if manifest.schema_version != ANALYSIS_SCHEMA_VERSION {
             bail!(
-                "unsupported title-pack format {}; expected {}. Re-run analyze with this version",
-                manifest.format_version,
-                CURRENT_FORMAT_VERSION
+                "unsupported analysis schema {}; expected {}. Re-run analyze",
+                manifest.schema_version,
+                ANALYSIS_SCHEMA_VERSION
             );
         }
-        if manifest.status != PackStatus::Complete {
-            bail!("title-pack is not complete: {}", root.display());
+        if manifest.status != AnalysisStatus::Complete {
+            bail!("analysis is not complete: {}", root.display());
         }
         if !manifest.source_is_text_free {
-            bail!(
-                "title-pack was not analyzed under the text-free plaque contract; re-run analyze"
-            );
+            bail!("analysis source was not text-free; re-run analyze");
         }
-        let motion_bytes = fs::read(&motion_path).with_context(|| {
-            format!("failed to read title-pack motion {}", motion_path.display())
-        })?;
+        let motion_bytes = fs::read(&motion_path)
+            .with_context(|| format!("failed to read analysis motion {}", motion_path.display()))?;
         let motion: Vec<MotionSample> =
             serde_json::from_slice(&motion_bytes).with_context(|| {
-                format!(
-                    "failed to parse title-pack motion {}",
-                    motion_path.display()
-                )
+                format!("failed to parse analysis motion {}", motion_path.display())
             })?;
         if motion.len() != manifest.source.frames {
-            bail!("title-pack motion length does not match source frame count");
+            bail!("analysis motion length does not match source frame count");
         }
         let pack = Self {
             root,
@@ -180,24 +166,21 @@ impl TitlePack {
         Ok(pack)
     }
 
-    pub fn save_metadata(&self) -> Result<()> {
+    pub fn save_manifest(&self) -> Result<()> {
         let manifest_path = self.root.join(MANIFEST_FILE);
         let motion_path = self.root.join(MOTION_FILE);
         let manifest = format!(
-            "# Generated title-pack metadata. Do not edit; regenerate it with analyze.\n{}",
+            "# Generated analysis cache. Regenerate with analyze.\n{}",
             toml::to_string_pretty(&self.manifest)?
         );
         fs::write(&manifest_path, manifest).with_context(|| {
             format!(
-                "failed to write title-pack manifest {}",
+                "failed to write analysis manifest {}",
                 manifest_path.display()
             )
         })?;
         fs::write(&motion_path, serde_json::to_vec_pretty(&self.motion)?).with_context(|| {
-            format!(
-                "failed to write title-pack motion {}",
-                motion_path.display()
-            )
+            format!("failed to write analysis motion {}", motion_path.display())
         })?;
         Ok(())
     }
@@ -212,11 +195,11 @@ impl TitlePack {
                 .components()
                 .any(|component| matches!(component, std::path::Component::ParentDir))
         {
-            bail!("title-pack asset path is not relative: {}", name.display());
+            bail!("analysis asset path is not relative: {}", name.display());
         }
         let path = self.root.join(name);
         if !path.is_file() {
-            bail!("title-pack is missing required asset {}", path.display());
+            bail!("analysis is missing required asset {}", path.display());
         }
         Ok(path)
     }
@@ -224,12 +207,20 @@ impl TitlePack {
     pub fn require_current_analyzer(&self) -> Result<()> {
         if self.manifest.analyzer_build != crate::build_info::SOURCE_FINGERPRINT {
             bail!(
-                "title-pack was analyzed by source build {}; current build is {}\nhelp: re-run analyze or use replace --reanalyze",
+                "analysis was produced by source build {}; current build is {}\nhelp: re-run analyze or render --reanalyze",
                 self.manifest.analyzer_build,
                 crate::build_info::SOURCE_FINGERPRINT
             );
         }
         Ok(())
+    }
+
+    pub fn source_path(&self) -> PathBuf {
+        if self.manifest.source.path.is_absolute() {
+            self.manifest.source.path.clone()
+        } else {
+            self.root.join(&self.manifest.source.path)
+        }
     }
 }
 
@@ -241,76 +232,20 @@ pub fn sequence_path(pattern: &Path, frame: usize) -> PathBuf {
     )
 }
 
-pub fn is_titlepack(path: &Path) -> bool {
+pub fn is_analysis(path: &Path) -> bool {
     let manifest_path = path.join(MANIFEST_FILE);
     let Ok(text) = fs::read_to_string(manifest_path) else {
         return false;
     };
-    let Ok(manifest) = toml::from_str::<TitlePackManifest>(&text) else {
+    let Ok(manifest) = toml::from_str::<AnalysisManifest>(&text) else {
         return false;
     };
-    manifest.format_version == CURRENT_FORMAT_VERSION
-        && manifest.status == PackStatus::Complete
+    manifest.schema_version == ANALYSIS_SCHEMA_VERSION
+        && manifest.status == AnalysisStatus::Complete
         && manifest.source_is_text_free
         && manifest.analyzer_build == crate::build_info::SOURCE_FINGERPRINT
         && path.join(MOTION_FILE).is_file()
         && path.join(CONTENT_MASK_FILE).is_file()
         && path.join(STRUCTURAL_MASK_FILE).is_file()
         && path.join(STRUCTURAL_TEMPLATE_FILE).is_file()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::TitlePackManifest;
-
-    #[test]
-    fn format_five_manifest_defaults_new_provenance_fields() {
-        let manifest: TitlePackManifest = toml::from_str(
-            r#"
-                format_version = 5
-                status = "complete"
-                source_is_text_free = true
-                analyzer_build = "build"
-                reference_frame = 0
-                canonical_width = 10
-                canonical_height = 5
-                motion_model = "automatic"
-                loop_closed = false
-                has_occluder = false
-                analysis_gate_passed = true
-
-                [source]
-                path = "clip.mp4"
-                sha256 = "source"
-                width = 100
-                height = 50
-                fps = 24.0
-                frames = 2
-                duration_seconds = 0.083333
-
-                [source_plaque_rect]
-                x = 0.0
-                y = 0.0
-                width = 10.0
-                height = 5.0
-
-                [human_inputs]
-                plaque_id = "main"
-                locked_keyframes = 0
-                guide_keyframes = 0
-
-                [confidence]
-                plaque_detection = 0.9
-                motion = 0.9
-                extraction = 0.9
-                occlusion = 0.9
-                overall = 0.9
-            "#,
-        )
-        .unwrap();
-        let provenance = manifest.human_inputs.unwrap();
-
-        assert_eq!(provenance.plaque_hint, None);
-        assert_eq!(provenance.track_csv, None);
-    }
 }

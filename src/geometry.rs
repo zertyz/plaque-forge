@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use std::{cmp::Ordering, fs, path::Path};
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Point {
@@ -17,39 +17,6 @@ impl Point {
             self.x + (other.x - self.x) * t,
             self.y + (other.y - self.y) * t,
         )
-    }
-
-    fn add(self, other: Self) -> Self {
-        Self::new(self.x + other.x, self.y + other.y)
-    }
-
-    fn sub(self, other: Self) -> Self {
-        Self::new(self.x - other.x, self.y - other.y)
-    }
-
-    fn scale(self, factor: f64) -> Self {
-        Self::new(self.x * factor, self.y * factor)
-    }
-
-    fn hermite(
-        start: Self,
-        end: Self,
-        start_slope: Self,
-        end_slope: Self,
-        t: f64,
-        span: f64,
-    ) -> Self {
-        let t2 = t * t;
-        let t3 = t2 * t;
-        let h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
-        let h10 = t3 - 2.0 * t2 + t;
-        let h01 = -2.0 * t3 + 3.0 * t2;
-        let h11 = t3 - t2;
-        start
-            .scale(h00)
-            .add(start_slope.scale(h10 * span))
-            .add(end.scale(h01))
-            .add(end_slope.scale(h11 * span))
     }
 }
 
@@ -85,40 +52,6 @@ impl Quad {
             self.tr.lerp(other.tr, t),
             self.br.lerp(other.br, t),
             self.bl.lerp(other.bl, t),
-        )
-    }
-
-    fn sub(self, other: Self) -> Self {
-        Self::new(
-            self.tl.sub(other.tl),
-            self.tr.sub(other.tr),
-            self.br.sub(other.br),
-            self.bl.sub(other.bl),
-        )
-    }
-
-    fn scale(self, factor: f64) -> Self {
-        Self::new(
-            self.tl.scale(factor),
-            self.tr.scale(factor),
-            self.br.scale(factor),
-            self.bl.scale(factor),
-        )
-    }
-
-    fn hermite(
-        start: Self,
-        end: Self,
-        start_slope: Self,
-        end_slope: Self,
-        t: f64,
-        span: f64,
-    ) -> Self {
-        Self::new(
-            Point::hermite(start.tl, end.tl, start_slope.tl, end_slope.tl, t, span),
-            Point::hermite(start.tr, end.tr, start_slope.tr, end_slope.tr, t, span),
-            Point::hermite(start.br, end.br, start_slope.br, end_slope.br, t, span),
-            Point::hermite(start.bl, end.bl, start_slope.bl, end_slope.bl, t, span),
         )
     }
 
@@ -302,146 +235,6 @@ pub fn homography(source: Quad, destination: Quad) -> Result<Mat3> {
     })
 }
 
-#[derive(Debug, Clone)]
-pub struct TrackKeyframe {
-    pub frame: f64,
-    pub quad: Quad,
-}
-
-#[derive(Debug, Clone)]
-pub struct QuadTrack {
-    keyframes: Vec<TrackKeyframe>,
-}
-
-impl QuadTrack {
-    pub fn new(mut keyframes: Vec<TrackKeyframe>) -> Result<Self> {
-        if keyframes.is_empty() {
-            bail!("quad track contains no keyframes");
-        }
-        keyframes.sort_by(|a, b| a.frame.total_cmp(&b.frame));
-        let mut expected_orientation = 0.0_f64;
-        for (index, keyframe) in keyframes.iter().enumerate() {
-            if !keyframe.frame.is_finite() {
-                bail!("quad track keyframe {index} has a non-finite frame number");
-            }
-            keyframe
-                .quad
-                .validate(&format!("quad track keyframe {index}"))?;
-            let orientation = keyframe.quad.orientation().signum();
-            if expected_orientation == 0.0 {
-                expected_orientation = orientation;
-            } else if orientation != expected_orientation {
-                bail!("quad track changes corner winding at keyframe {index}");
-            }
-        }
-        for pair in keyframes.windows(2) {
-            if pair[0].frame == pair[1].frame {
-                bail!("duplicate track frame {}", pair[0].frame);
-            }
-        }
-        Ok(Self { keyframes })
-    }
-
-    pub fn load_csv(path: &Path) -> Result<Self> {
-        let text = fs::read_to_string(path)
-            .with_context(|| format!("failed to read track {}", path.display()))?;
-        let mut keyframes = Vec::new();
-
-        for (line_no, line) in text.lines().enumerate() {
-            if line_no == 0 && line.trim_start().starts_with("frame,") {
-                continue;
-            }
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let fields: Vec<_> = line.split(',').map(str::trim).collect();
-            if fields.len() != 9 {
-                bail!(
-                    "{}:{}: expected 9 comma-separated fields, found {}",
-                    path.display(),
-                    line_no + 1,
-                    fields.len()
-                );
-            }
-            let mut values = [0.0_f64; 9];
-            for (index, field) in fields.iter().enumerate() {
-                values[index] = field.parse().with_context(|| {
-                    format!(
-                        "{}:{}: invalid number {:?}",
-                        path.display(),
-                        line_no + 1,
-                        field
-                    )
-                })?;
-            }
-            keyframes.push(TrackKeyframe {
-                frame: values[0],
-                quad: Quad::new(
-                    Point::new(values[1], values[2]),
-                    Point::new(values[3], values[4]),
-                    Point::new(values[5], values[6]),
-                    Point::new(values[7], values[8]),
-                ),
-            });
-        }
-        Self::new(keyframes)
-    }
-
-    pub fn at(&self, frame: f64) -> Quad {
-        if frame <= self.keyframes[0].frame {
-            return self.keyframes[0].quad;
-        }
-        let last = &self.keyframes[self.keyframes.len() - 1];
-        if frame >= last.frame {
-            return last.quad;
-        }
-
-        let upper = self
-            .keyframes
-            .partition_point(|keyframe| keyframe.frame <= frame);
-        let lower = upper - 1;
-        let a = &self.keyframes[lower];
-        let b = &self.keyframes[upper];
-        let span = b.frame - a.frame;
-        let t = (frame - a.frame) / span;
-
-        let start_slope = if lower > 0 {
-            let previous = &self.keyframes[lower - 1];
-            b.quad
-                .sub(previous.quad)
-                .scale(1.0 / (b.frame - previous.frame))
-        } else {
-            b.quad.sub(a.quad).scale(1.0 / span)
-        };
-        let end_slope = if upper + 1 < self.keyframes.len() {
-            let next = &self.keyframes[upper + 1];
-            next.quad.sub(a.quad).scale(1.0 / (next.frame - a.frame))
-        } else {
-            b.quad.sub(a.quad).scale(1.0 / span)
-        };
-
-        let candidate = Quad::hermite(a.quad, b.quad, start_slope, end_slope, t, span);
-        if candidate.validate("interpolated quad").is_ok() {
-            candidate
-        } else {
-            a.quad.lerp(b.quad, t)
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.keyframes.len()
-    }
-
-    pub fn first_frame(&self) -> f64 {
-        self.keyframes[0].frame
-    }
-
-    pub fn last_frame(&self) -> f64 {
-        self.keyframes[self.keyframes.len() - 1].frame
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,33 +269,6 @@ mod tests {
             Point::new(1.0, 0.0),
         );
         assert!(bow_tie.validate("bow tie").is_err());
-    }
-
-    #[test]
-    fn sparse_track_interpolation_hits_keyframes_exactly() {
-        let first = Quad::from_rect(0.1, 0.1, 0.4, 0.2);
-        let second = Quad::from_rect(0.2, 0.15, 0.5, 0.25);
-        let third = Quad::from_rect(0.15, 0.2, 0.45, 0.3);
-        let track = QuadTrack::new(vec![
-            TrackKeyframe {
-                frame: 0.0,
-                quad: first,
-            },
-            TrackKeyframe {
-                frame: 10.0,
-                quad: second,
-            },
-            TrackKeyframe {
-                frame: 20.0,
-                quad: third,
-            },
-        ])
-        .unwrap();
-        assert_eq!(track.at(0.0), first);
-        assert_eq!(track.at(10.0), second);
-        assert_eq!(track.at(20.0), third);
-        track.at(5.0).validate("midpoint").unwrap();
-        track.at(15.0).validate("midpoint").unwrap();
     }
 
     #[test]

@@ -11,28 +11,28 @@ use std::{
 use anyhow::{Context, Result, bail};
 
 use crate::{
+    analysis::{
+        ANALYSIS_SCHEMA_VERSION, Analysis, AnalysisManifest, AnalysisStatus, MOTION_FILE,
+        OCCLUDER_DIR, SourceInfo,
+    },
     cli::AnalyzeArgs,
     layers::{self, LayerInput},
-    metadata::{
-        HumanInputProvenance, HumanMotionTrack, find_source_metadata, layer_artifact_provenance,
-        resolve_relative, selected_layer_artifacts, semantic_provenance,
-    },
     model::AnalysisConfidence,
     progress::ProgressReporter,
-    titlepack::{
-        CURRENT_FORMAT_VERSION, MOTION_FILE, OCCLUDER_DIR, PackStatus, SourceInfo, TitlePack,
-        TitlePackManifest,
+    refinement::{
+        MotionRefinement, RefinementProvenance, find_refinement, layer_artifact_provenance,
+        relative_reference, resolve_relative, selected_layer_artifacts, semantic_provenance,
     },
-    video,
+    video, workspace,
 };
 
-struct HumanAnalysisInputs {
-    motion_track: Option<HumanMotionTrack>,
+struct AnalysisRefinements {
+    motion_track: Option<MotionRefinement>,
     layers: Vec<LayerInput>,
-    provenance: Option<HumanInputProvenance>,
+    provenance: Option<RefinementProvenance>,
 }
 
-impl HumanAnalysisInputs {
+impl AnalysisRefinements {
     fn has_dense_locked_track(&self, frame_count: usize) -> bool {
         self.motion_track
             .as_ref()
@@ -61,23 +61,27 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     }
     let source_sha256 = video::sha256(&args.input)
         .with_context(|| format!("failed to hash source {}", args.input.display()))?;
-    let human_inputs = resolve_human_inputs(&mut args, &info, &source_sha256)?;
+    let refinements = resolve_refinements(&mut args, &info, &source_sha256)?;
     progress.finish(format!(
         "{}x{}, {:.3} fps, {} frames",
         info.width, info.height, info.fps, info.frames
     ));
 
-    let output = args.output.clone();
+    let output = args
+        .output
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(|| workspace::analysis_path(&args.input))?;
     if output.exists() {
         if !args.force {
             bail!(
-                "analysis output already exists: {}\nhelp: use --force for analyze or --reanalyze for replace",
+                "analysis output already exists: {}\nhelp: use --force or render --reanalyze",
                 output.display()
             );
         }
         if output.is_dir() {
             fs::remove_dir_all(&output)
-                .with_context(|| format!("failed to remove old title-pack {}", output.display()))?;
+                .with_context(|| format!("failed to remove old analysis {}", output.display()))?;
         } else {
             fs::remove_file(&output)
                 .with_context(|| format!("failed to remove old output {}", output.display()))?;
@@ -94,7 +98,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         })?;
     }
     fs::create_dir_all(&partial)
-        .with_context(|| format!("failed to create partial title-pack {}", partial.display()))?;
+        .with_context(|| format!("failed to create partial analysis {}", partial.display()))?;
 
     let diagnostics = match &args.diagnostics {
         Some(path) => path.clone(),
@@ -107,7 +111,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         )
     })?;
 
-    let result = (|| -> Result<TitlePack> {
+    let result = (|| -> Result<Analysis> {
         progress.start(2, 7, "Detect plaque", Some(args.candidate_samples));
         let candidate = candidate::detect(&args, &info, &diagnostics)
             .context("plaque candidate detection failed")?;
@@ -121,21 +125,18 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             candidate.rect.height
         ));
 
-        let mut track = if args.track_csv.is_some() {
-            tracking::load_supervised(&args, &info, candidate.rect, &diagnostics, &mut progress)
-                .context("supervised plaque tracking failed")?
-        } else if let Some(human_track) = &human_inputs.motion_track
-            && human_track.is_dense_locked(info.frames)
+        let mut track = if let Some(refinement_track) = &refinements.motion_track
+            && refinement_track.is_dense_locked(info.frames)
         {
-            tracking::load_dense_human(
+            tracking::load_dense_refinement(
                 &args,
                 &info,
                 candidate.rect,
-                human_track,
+                refinement_track,
                 &diagnostics,
                 &mut progress,
             )
-            .context("failed to load authoritative human plaque track")?
+            .context("failed to load authoritative refined plaque track")?
         } else {
             let mut track = tracking::track(
                 &args,
@@ -146,14 +147,9 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 &mut progress,
             )
             .context("adaptive scene and plaque tracking failed")?;
-            if let Some(human_track) = &human_inputs.motion_track {
-                tracking::apply_human_track(
-                    &mut track,
-                    human_track,
-                    candidate.rect,
-                    args.loop_closure,
-                )
-                .context("failed to apply human motion constraints")?;
+            if let Some(refinement_track) = &refinements.motion_track {
+                tracking::apply_motion_refinement(&mut track, refinement_track, candidate.rect)
+                    .context("failed to apply motion refinement constraints")?;
             }
             track
         };
@@ -168,8 +164,8 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             &diagnostics,
             args.extraction_samples,
             args.local_refinement_radius,
-            args.track_csv.is_none() && !human_inputs.has_dense_locked_track(info.frames),
-            human_inputs.motion_track.as_ref(),
+            !refinements.has_dense_locked_track(info.frames),
+            refinements.motion_track.as_ref(),
             track.reference_frame,
             args.tracking_inertia,
             track.loop_closed,
@@ -196,30 +192,30 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 &diagnostics,
                 args.occlusion_sensitivity,
                 track.loop_closed,
-                human_inputs.motion_track.as_ref(),
+                refinements.motion_track.as_ref(),
                 &mut progress,
             )
             .context("foreground occlusion extraction failed")?
         };
         let automatic_exclusions = partial.join(OCCLUDER_DIR);
         let combined_exclusions = partial.join("tracking-exclusions");
-        let authoritative_foreground = layers::has_authored_foreground(&human_inputs.layers);
+        let authoritative_foreground = layers::has_authored_foreground(&refinements.layers);
         let empty_exclusions = partial.join("no-automatic-exclusions");
         let automatic_tracking_exclusions = if authoritative_foreground {
             &empty_exclusions
         } else {
             &automatic_exclusions
         };
-        let has_human_exclusions = layers::build_tracking_exclusions(
-            &human_inputs.layers,
+        let has_refinement_exclusions = layers::build_tracking_exclusions(
+            &refinements.layers,
             automatic_tracking_exclusions,
             &combined_exclusions,
             info.width,
             info.height,
             info.frames,
         )
-        .context("failed to combine human and automatic tracking exclusions")?;
-        let tracking_exclusions = if has_human_exclusions {
+        .context("failed to combine refinement and automatic tracking exclusions")?;
+        let tracking_exclusions = if has_refinement_exclusions {
             &combined_exclusions
         } else if authoritative_foreground {
             &empty_exclusions
@@ -227,9 +223,8 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             &automatic_exclusions
         };
         let stabilized_frames = if !args.disable_occlusion
-            && args.track_csv.is_none()
-            && !human_inputs.has_dense_locked_track(info.frames)
-            && (has_human_exclusions || (!authoritative_foreground && occlusion.has_occluder))
+            && !refinements.has_dense_locked_track(info.frames)
+            && (has_refinement_exclusions || (!authoritative_foreground && occlusion.has_occluder))
         {
             let mut refined = tracking::retrack_masked(
                 &args,
@@ -241,13 +236,8 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 tracking_exclusions,
             )
             .context("failed to retrack the plaque with foreground masks")?;
-            if let Some(human_track) = &human_inputs.motion_track {
-                tracking::apply_human_track(
-                    &mut refined,
-                    human_track,
-                    candidate.rect,
-                    args.loop_closure,
-                )?;
+            if let Some(refinement_track) = &refinements.motion_track {
+                tracking::apply_motion_refinement(&mut refined, refinement_track, candidate.rect)?;
             }
             for (sample, previous) in refined.samples.iter_mut().zip(&track.samples) {
                 sample.occluder_coverage = previous.occluder_coverage;
@@ -258,10 +248,10 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 candidate.rect,
                 track.reference_frame,
             );
-            if let Some(human_track) = &human_inputs.motion_track {
-                tracking::reapply_locked_human_constraints(
+            if let Some(refinement_track) = &refinements.motion_track {
+                tracking::reapply_locked_refinements(
                     &mut track.samples,
-                    human_track,
+                    refinement_track,
                     candidate.rect,
                 )?;
             }
@@ -279,7 +269,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 args.extraction_samples,
                 args.local_refinement_radius,
                 false,
-                human_inputs.motion_track.as_ref(),
+                refinements.motion_track.as_ref(),
                 track.reference_frame,
                 args.tracking_inertia,
                 track.loop_closed,
@@ -298,7 +288,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 &diagnostics,
                 args.occlusion_sensitivity,
                 track.loop_closed,
-                human_inputs.motion_track.as_ref(),
+                refinements.motion_track.as_ref(),
                 &mut progress,
             )
             .context("failed to rebuild foreground masks after masked tracking")?;
@@ -312,14 +302,14 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 fs::remove_dir_all(&automatic_exclusions)?;
             }
         }
-        if has_human_exclusions {
+        if has_refinement_exclusions {
             fs::remove_dir_all(&combined_exclusions)?;
         }
         if args.disable_occlusion
-            && let Some(human_track) = &human_inputs.motion_track
+            && let Some(refinement_track) = &refinements.motion_track
         {
-            tracking::apply_human_visibility_constraints(&mut track.samples, human_track)
-                .context("failed to apply human plaque visibility constraints")?;
+            tracking::apply_visibility_refinements(&mut track.samples, refinement_track)
+                .context("failed to apply refined plaque visibility constraints")?;
         }
         progress.finish(format!(
             "occluder {}, confidence {:.3}",
@@ -332,7 +322,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         ));
 
         let packed_layers = layers::package(
-            &human_inputs.layers,
+            &refinements.layers,
             &partial,
             candidate.canonical_width,
             candidate.canonical_height,
@@ -342,7 +332,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             &track.samples,
             &mut extraction.content_mask,
         )
-        .context("failed to import human layer artifacts")?;
+        .context("failed to import refinement layer artifacts")?;
 
         let overall = geometric_mean(&[
             candidate.confidence,
@@ -370,7 +360,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         fs::write(
             partial.join("analysis-summary.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
-                "format_version": CURRENT_FORMAT_VERSION,
+                "schema_version": ANALYSIS_SCHEMA_VERSION,
                 "source_contract": "text-free-plaque",
                 "candidate_confidence": candidate.confidence,
                 "motion_confidence": track.confidence,
@@ -412,13 +402,13 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             );
         }
 
-        let manifest = TitlePackManifest {
-            format_version: CURRENT_FORMAT_VERSION,
-            status: PackStatus::Complete,
+        let manifest = AnalysisManifest {
+            schema_version: ANALYSIS_SCHEMA_VERSION,
+            status: AnalysisStatus::Complete,
             source_is_text_free: true,
             analyzer_build: crate::build_info::SOURCE_FINGERPRINT.to_string(),
             source: SourceInfo {
-                path: args.input.canonicalize().unwrap_or(args.input.clone()),
+                path: relative_reference(&output.join("manifest.toml"), &args.input)?,
                 sha256: source_sha256.clone(),
                 width: info.width,
                 height: info.height,
@@ -434,7 +424,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             loop_closed: track.loop_closed,
             has_occluder: occlusion.has_occluder,
             layers: packed_layers,
-            human_inputs: human_inputs.provenance.clone(),
+            refinements: refinements.provenance.clone(),
             analysis_gate_passed,
             confidence: AnalysisConfidence {
                 plaque_detection: candidate.confidence,
@@ -445,7 +435,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             },
         };
 
-        TitlePack::create(&partial, manifest, track.samples)
+        Analysis::create(&partial, manifest, track.samples)
     })();
 
     let pack = match result {
@@ -461,13 +451,13 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     drop(pack);
     fs::rename(&partial, &output).with_context(|| {
         format!(
-            "analysis succeeded but title-pack could not be committed from {} to {}",
+            "analysis succeeded but could not be committed from {} to {}",
             partial.display(),
             output.display()
         )
     })?;
-    let pack = TitlePack::open(&output)?;
-    println!("title-pack: {}", pack.root.display());
+    let pack = Analysis::open(&output)?;
+    println!("analysis: {}", pack.root.display());
     println!(
         "overall analysis confidence: {:.3}",
         pack.manifest.confidence.overall
@@ -475,22 +465,13 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     Ok(())
 }
 
-fn resolve_human_inputs(
+fn resolve_refinements(
     args: &mut AnalyzeArgs,
     info: &video::VideoInfo,
     source_sha256: &str,
-) -> Result<HumanAnalysisInputs> {
-    let explicit_plaque_hint = args.plaque_hint;
-    let explicit_plaque_frame = args.plaque_frame;
-    let loaded = find_source_metadata(&args.input, args.metadata.as_deref())?;
-    let mut identity = HumanInputProvenance::default();
-    if let Some(bounds) = explicit_plaque_hint {
-        identity.plaque_hint = Some(bounds);
-        identity.plaque_frame = Some(explicit_plaque_frame.unwrap_or(0));
-    }
-    if let Some(path) = &args.track_csv {
-        identity.track_csv = Some(crate::metadata::provenance(path)?);
-    }
+) -> Result<AnalysisRefinements> {
+    let loaded = find_refinement(&args.input, args.refinement.as_deref())?;
+    let mut identity = RefinementProvenance::default();
     let mut selected_id = None;
     let mut referenced_track = None;
     let mut layer_inputs = Vec::new();
@@ -499,7 +480,7 @@ fn resolve_human_inputs(
         let declared_source = resolve_relative(&loaded.path, &loaded.document.source);
         same_file(&declared_source, &args.input).with_context(|| {
             format!(
-                "metadata {} declares source {}, not input {}",
+                "refinement {} declares source {}, not input {}",
                 loaded.path.display(),
                 declared_source.display(),
                 args.input.display()
@@ -507,7 +488,7 @@ fn resolve_human_inputs(
         })?;
         let selected = loaded.document.select_plaque(args.plaque.as_deref())?;
         selected_id = Some(selected.id.clone());
-        identity.metadata = Some(semantic_provenance(&loaded.path, &loaded.document)?);
+        identity.manifest = Some(semantic_provenance(&loaded.path, &loaded.document)?);
         identity.plaque_id = Some(selected.id.clone());
 
         if args.plaque_hint.is_none()
@@ -559,12 +540,12 @@ fn resolve_human_inputs(
                 );
             }
         }
-        for (metadata, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
+        for (refinement, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
             identity
                 .layer_artifacts
                 .push(layer_artifact_provenance(&path, &artifact)?);
             layer_inputs.push(LayerInput {
-                metadata,
+                refinement,
                 artifact_path: path,
                 artifact,
             });
@@ -574,21 +555,16 @@ fn resolve_human_inputs(
             .as_ref()
             .map(|path| resolve_relative(&loaded.path, path));
     } else if let Some(id) = &args.plaque {
-        bail!("--plaque {id:?} requires a metadata sidecar");
+        bail!("--plaque {id:?} requires a refinement manifest");
     }
 
-    let track_path = if args.track_csv.is_some() {
-        None
-    } else {
-        args.motion_track.clone().or(referenced_track)
-    };
-    let motion_track = if let Some(path) = track_path {
-        let track = HumanMotionTrack::load(&path)?;
+    let motion_track = if let Some(path) = referenced_track {
+        let track = MotionRefinement::load(&path)?;
         if let Some(selected_id) = &selected_id
             && track.plaque != *selected_id
         {
             bail!(
-                "motion track describes plaque {:?}, but metadata selected {:?}",
+                "motion track describes plaque {:?}, but refinement selected {:?}",
                 track.plaque,
                 selected_id
             );
@@ -641,12 +617,12 @@ fn resolve_human_inputs(
         }
     }
 
-    let provenance = if identity == HumanInputProvenance::default() {
+    let provenance = if identity == RefinementProvenance::default() {
         None
     } else {
         Some(identity)
     };
-    Ok(HumanAnalysisInputs {
+    Ok(AnalysisRefinements {
         motion_track,
         layers: layer_inputs,
         provenance,
@@ -690,7 +666,7 @@ fn partial_path(output: &std::path::Path) -> PathBuf {
     let name = output
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("analysis.titlepack");
+        .unwrap_or("analysis.analysis");
     output.with_file_name(format!("{name}.partial-{}", std::process::id()))
 }
 
@@ -715,7 +691,7 @@ fn remedies(
     if structural_area < 0.001 {
         output.push(if args.plaque_hint.is_some() {
             format!(
-                "--plaque-hint selected {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure and is not a usable plaque; remove the hint for automatic selection or correct it to the full plaque bounds",
+                "the refinement selected {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure; correct it to the full plaque bounds",
                 rect.x,
                 rect.y,
                 rect.width,
@@ -724,7 +700,7 @@ fn remedies(
             )
         } else {
             format!(
-                "automatic selection chose {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure and is not a usable plaque; inspect candidate.png and rerun with --plaque-hint x,y,width,height around the full plaque",
+                "automatic selection chose {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure; inspect candidate.png, run refine, and correct the plaque bounds",
                 rect.x,
                 rect.y,
                 rect.width,
@@ -736,14 +712,13 @@ fn remedies(
     }
     if candidate < 0.75 {
         output.push(format!(
-            "automatic detection selected {:.0},{:.0},{:.0},{:.0} with confidence {candidate:.3}; inspect candidate.png and pass --plaque-hint x,y,width,height only if the yellow rectangle is wrong",
+            "automatic detection selected {:.0},{:.0},{:.0},{:.0} with confidence {candidate:.3}; inspect candidate.png and create a refinement if the rectangle is wrong",
             rect.x, rect.y, rect.width, rect.height
         ));
     }
     if motion < 0.70 {
         output.push(format!(
-            "automatic motion confidence is {motion:.3}; all frames were measured. --anchor-interval {} only controls feature-reference refreshes; use verification to distinguish spatial misregistration from temporal jitter before changing controls",
-            args.anchor_interval
+            "automatic motion confidence is {motion:.3}; export the motion and lock only incorrect frames before reanalysis"
         ));
     }
     if structure < 0.75 {
@@ -753,7 +728,7 @@ fn remedies(
     }
     if occlusion < 0.80 {
         output.push(format!(
-            "occlusion confidence is {occlusion:.3}; inspect occlusion-summary.json, then adjust --occlusion-sensitivity or use --disable-occlusion only when nothing crosses the plaque"
+            "occlusion confidence is {occlusion:.3}; inspect occlusion-summary.json and add a foreground refinement when automatic separation is wrong"
         ));
     }
     output

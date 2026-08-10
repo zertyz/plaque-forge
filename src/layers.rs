@@ -4,19 +4,19 @@ use anyhow::{Context, Result, bail};
 use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
+    analysis::{Analysis, CONTENT_MASK_FILE, LAYERS_DIR, LayerAsset, sequence_path},
     analyze::extraction::{rectify, transformed_rect},
     color::Rgba,
-    metadata::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMetadata, LayerRole,
+    model::{MotionSample, RectF},
+    refinement::{
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, RefinementLayer,
         resolve_relative,
     },
-    model::{MotionSample, RectF},
     surface::Surface,
-    titlepack::{CONTENT_MASK_FILE, LAYERS_DIR, LayerAsset, TitlePack, sequence_path},
 };
 
 pub struct LayerInput {
-    pub metadata: LayerMetadata,
+    pub refinement: RefinementLayer,
     pub artifact_path: std::path::PathBuf,
     pub artifact: LayerArtifact,
 }
@@ -24,7 +24,7 @@ pub struct LayerInput {
 pub fn has_authored_foreground(inputs: &[LayerInput]) -> bool {
     inputs
         .iter()
-        .any(|input| input.metadata.role == LayerRole::Foreground)
+        .any(|input| input.refinement.role == LayerRole::Foreground)
 }
 
 pub fn build_tracking_exclusions(
@@ -38,7 +38,7 @@ pub fn build_tracking_exclusions(
     let foregrounds = inputs
         .iter()
         .filter(|input| {
-            input.metadata.role == LayerRole::Foreground
+            input.refinement.role == LayerRole::Foreground
                 && input.artifact.coordinates == LayerCoordinates::SourcePixels
         })
         .collect::<Vec<_>>();
@@ -46,7 +46,7 @@ pub fn build_tracking_exclusions(
         return Ok(false);
     }
     for input in &foregrounds {
-        validate_frame_range(&input.artifact, frames, &input.metadata.id)?;
+        validate_frame_range(&input.artifact, frames, &input.refinement.id)?;
     }
     fs::create_dir_all(output_root)?;
     for frame in 0..frames {
@@ -86,8 +86,8 @@ pub fn package(
     let mut packed = Vec::with_capacity(inputs.len());
     for input in inputs {
         let artifact = &input.artifact;
-        validate_frame_range(artifact, motion.len(), &input.metadata.id)?;
-        let directory = Path::new(LAYERS_DIR).join(&input.metadata.id);
+        validate_frame_range(artifact, motion.len(), &input.refinement.id)?;
+        let directory = Path::new(LAYERS_DIR).join(&input.refinement.id);
         fs::create_dir_all(output_root.join(&directory))?;
         let packed_path = match artifact.kind {
             LayerArtifactKind::AlphaImage => directory.join("mask.png"),
@@ -108,8 +108,8 @@ pub fn package(
         }
 
         let layer = LayerAsset {
-            id: input.metadata.id.clone(),
-            role: input.metadata.role,
+            id: input.refinement.id.clone(),
+            role: input.refinement.role,
             coordinates: artifact.coordinates,
             kind: artifact.kind,
             affects_layout: artifact.affects_layout,
@@ -143,14 +143,14 @@ pub fn package(
 }
 
 pub struct ForegroundReader<'a> {
-    pack: &'a TitlePack,
+    pack: &'a Analysis,
     canonical: Vec<(Surface, &'a LayerAsset)>,
     source_static: Vec<(Vec<u8>, &'a LayerAsset)>,
     sequences: Vec<&'a LayerAsset>,
 }
 
 impl<'a> ForegroundReader<'a> {
-    pub fn open(pack: &'a TitlePack) -> Result<Self> {
+    pub fn open(pack: &'a Analysis) -> Result<Self> {
         let mut canonical = Vec::new();
         let mut source_static = Vec::new();
         let mut sequences = Vec::new();
@@ -470,8 +470,10 @@ fn intersect(output: &mut [u8], input: &[u8]) {
 mod tests {
     use super::{LayerInput, alpha_over, has_authored_foreground, intersect, package};
     use crate::{
-        metadata::{LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMetadata, LayerRole},
         model::{Mat3, MotionSample, RectF},
+        refinement::{
+            LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, RefinementLayer,
+        },
     };
     use image::{GrayImage, ImageBuffer, Luma};
     use std::{fs, path::PathBuf};
@@ -530,7 +532,7 @@ mod tests {
             ImageBuffer::<Luma<u8>, _>::from_raw(4, 2, vec![0, 64, 128, 0, 0, 0, 0, 0]).unwrap();
         image.save(&source_mask).unwrap();
         let input = LayerInput {
-            metadata: LayerMetadata {
+            refinement: RefinementLayer {
                 id: "shadow".into(),
                 role: LayerRole::Shadow,
                 plaque: "main".into(),
@@ -599,7 +601,7 @@ mod tests {
             ImageBuffer::<Luma<u8>, _>::from_raw(4, 2, vec![0, 64, 255, 0, 0, 0, 0, 0]).unwrap();
         image.save(&source_mask).unwrap();
         let input = LayerInput {
-            metadata: LayerMetadata {
+            refinement: RefinementLayer {
                 id: "moss".into(),
                 role: LayerRole::Foreground,
                 plaque: "main".into(),
@@ -665,7 +667,7 @@ mod tests {
         last_frame: Option<usize>,
     ) -> LayerInput {
         LayerInput {
-            metadata: LayerMetadata {
+            refinement: RefinementLayer {
                 id: "test".into(),
                 role,
                 plaque: "main".into(),

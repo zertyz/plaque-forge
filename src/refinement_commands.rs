@@ -3,17 +3,14 @@ use std::fs;
 use anyhow::{Context, Result, bail};
 
 use crate::{
+    analysis::Analysis,
     analyze::{candidate, extraction::transformed_rect},
-    cli::{CandidateDetector, ExportTrackArgs, InitArgs},
-    metadata::{
-        PlaqueProposal, default_sidecar_path, motion_track_document, sidecar_document,
-        write_human_file,
-    },
-    titlepack::TitlePack,
-    video,
+    cli::{ExportMotionArgs, RefineArgs},
+    refinement::{PlaqueProposal, motion_track_document, refinement_document, write_refinement},
+    video, workspace,
 };
 
-pub fn init(args: InitArgs) -> Result<()> {
+pub fn refine(args: RefineArgs) -> Result<()> {
     if !args.input.is_file() {
         bail!(
             "input video does not exist or is not a file: {}",
@@ -23,19 +20,18 @@ pub fn init(args: InitArgs) -> Result<()> {
     let output = args
         .output
         .clone()
-        .unwrap_or_else(|| default_sidecar_path(&args.input));
+        .map(Ok)
+        .unwrap_or_else(|| workspace::refinement_path(&args.input))?;
     if output.exists() && !args.force {
         bail!(
-            "refusing to overwrite human-owned file {}; use --force only after reviewing it",
+            "refusing to overwrite refinement {}; use --force to replace it",
             output.display()
         );
     }
     let info = video::probe(&args.ffprobe, &args.input)
         .with_context(|| format!("failed to probe input video {}", args.input.display()))?;
     if !info.constant_frame_rate {
-        bail!(
-            "variable-frame-rate input is outside the 0.3 source contract; transcode it to a constant frame rate before initialization"
-        );
+        bail!("variable-frame-rate input is unsupported; transcode it to a constant frame rate");
     }
     if let Some(diagnostics) = &args.diagnostics {
         fs::create_dir_all(diagnostics).with_context(|| {
@@ -45,15 +41,8 @@ pub fn init(args: InitArgs) -> Result<()> {
             )
         })?;
     }
-    let detector = detector_name(args.detector);
-    let report = candidate::detect_proposals(
-        &args.input,
-        args.detector,
-        args.candidate_samples,
-        &info,
-        args.diagnostics.as_deref(),
-    )
-    .context("automatic plaque proposal failed")?;
+    let report = candidate::detect_proposals(&args.input, 24, &info, args.diagnostics.as_deref())
+        .context("automatic plaque proposal failed")?;
     let proposal = report.as_ref().map(|report| to_proposal(&report.selected));
     let alternatives = report
         .as_ref()
@@ -65,11 +54,11 @@ pub fn init(args: InitArgs) -> Result<()> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let contents = sidecar_document(&args.input, &output, detector, proposal, &alternatives)?;
-    write_human_file(&output, &contents, args.force)?;
+    let contents = refinement_document(&args.input, &output, "ensemble", proposal, &alternatives)?;
+    write_refinement(&output, &contents, args.force)?;
     let Some(report) = report else {
         bail!(
-            "automatic plaque detection found no plausible candidate; unresolved metadata was written to {}",
+            "automatic plaque detection found no plausible candidate; refinement written to {}",
             output.display()
         );
     };
@@ -82,17 +71,8 @@ pub fn init(args: InitArgs) -> Result<()> {
         report.selected.rect.width,
         report.selected.rect.height,
     );
-    println!("source metadata: {}", output.display());
+    println!("refinement: {}", output.display());
     Ok(())
-}
-
-fn detector_name(detector: CandidateDetector) -> &'static str {
-    match detector {
-        CandidateDetector::Ensemble => "ensemble",
-        CandidateDetector::Geometry => "geometry",
-        CandidateDetector::Color => "color",
-        CandidateDetector::Text => "text",
-    }
 }
 
 fn to_proposal(candidate: &candidate::Candidate) -> PlaqueProposal {
@@ -108,11 +88,17 @@ fn to_proposal(candidate: &candidate::Candidate) -> PlaqueProposal {
     }
 }
 
-pub fn export_track(args: ExportTrackArgs) -> Result<()> {
-    let pack = TitlePack::open(&args.analysis)?;
+pub fn export_motion(args: ExportMotionArgs) -> Result<()> {
+    let pack = Analysis::open(&args.analysis)?;
+    let source = pack.source_path();
+    let output = args
+        .output
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(|| workspace::motion_path(&source))?;
     let analyzed_plaque = pack
         .manifest
-        .human_inputs
+        .refinements
         .as_ref()
         .and_then(|inputs| inputs.plaque_id.as_deref());
     let plaque = export_plaque_id(args.plaque.as_deref(), analyzed_plaque);
@@ -131,11 +117,11 @@ pub fn export_track(args: ExportTrackArgs) -> Result<()> {
         .collect::<Vec<_>>();
     let contents =
         motion_track_document(&plaque, &pack.manifest.source.sha256, &frames, args.locked)?;
-    write_human_file(&args.output, &contents, args.force)?;
+    write_refinement(&output, &contents, args.force)?;
     let authority = if args.locked { "locked" } else { "guided" };
     println!(
-        "human motion track: {} ({} {authority} frames)",
-        args.output.display(),
+        "motion refinement: {} ({} {authority} frames)",
+        output.display(),
         frames.len()
     );
     Ok(())

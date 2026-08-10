@@ -10,9 +10,9 @@ use opencv::{
 
 use crate::{
     geometry::{Point, Quad},
-    metadata::HumanMotionTrack,
     model::{Mat3, MotionSample, RectF},
     progress::ProgressReporter,
+    refinement::MotionRefinement,
     surface::Surface,
     video::{Decoder, VideoInfo},
 };
@@ -43,7 +43,7 @@ pub fn recover(
     sample_count: usize,
     local_refinement_radius: i32,
     refine_automatic_track: bool,
-    human_track: Option<&HumanMotionTrack>,
+    refinement_track: Option<&MotionRefinement>,
     reference_frame: usize,
     tracking_inertia: f64,
     loop_closed: bool,
@@ -81,8 +81,8 @@ pub fn recover(
                 tracking_inertia,
                 loop_closed,
             )?;
-            if let Some(track) = human_track {
-                tracking::reapply_locked_human_constraints(motion, track, rect)?;
+            if let Some(track) = refinement_track {
+                tracking::reapply_locked_refinements(motion, track, rect)?;
             }
             if pass == 0 {
                 samples = decode_rectified_samples(
@@ -102,14 +102,11 @@ pub fn recover(
         }
         progress.finish("two-pass structural refinement");
     } else {
-        progress.update(
-            info.frames,
-            "reviewed track retained without automatic correction",
-        );
-        progress.finish("supervised track retained");
+        progress.update(info.frames, "structural correction skipped");
+        progress.finish("current trajectory retained");
     }
 
-    progress.start(6, 7, "Build title-pack assets", Some(sample_indices.len()));
+    progress.start(6, 7, "Build analysis assets", Some(sample_indices.len()));
     samples =
         decode_rectified_samples(ffmpeg, input, info, rect, motion, &sample_indices, progress)?;
     let (refined_median, mad) = robust_median(&samples)?;

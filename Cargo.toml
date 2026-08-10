@@ -3,7 +3,7 @@ name = "plaque-forge"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.89"
-description = "Analyze, replace, and verify moving title plaques in video"
+description = "Analyze, render, and verify moving title plaques in video"
 license = "MIT"
 
 [dependencies]

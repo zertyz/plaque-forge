@@ -8,11 +8,7 @@ use opencv::{
     videoio::{CAP_ANY, CAP_PROP_FRAME_COUNT, CAP_PROP_POS_FRAMES, VideoCapture},
 };
 
-use crate::{
-    cli::{AnalyzeArgs, CandidateDetector},
-    model::RectF,
-    video::VideoInfo,
-};
+use crate::{cli::AnalyzeArgs, model::RectF, video::VideoInfo};
 
 #[derive(Debug, Clone)]
 pub struct Candidate {
@@ -56,20 +52,13 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
         });
     }
 
-    detect_proposals(
-        &args.input,
-        args.detector,
-        args.candidate_samples,
-        info,
-        Some(diagnostics),
-    )?
-    .map(|report| report.selected)
-    .context("no plausible plaque candidate found; use --plaque-hint x,y,w,h")
+    detect_proposals(&args.input, args.candidate_samples, info, Some(diagnostics))?
+        .map(|report| report.selected)
+        .context("no plausible plaque candidate found; create a refinement and set plaque bounds")
 }
 
 pub fn detect_proposals(
     input: &Path,
-    detector: CandidateDetector,
     candidate_samples: usize,
     info: &VideoInfo,
     diagnostics: Option<&Path>,
@@ -94,7 +83,7 @@ pub fn detect_proposals(
         if !capture.read(&mut frame)? || frame.empty() {
             continue;
         }
-        let mut frame_rects = frame_candidates(&frame, detector)?;
+        let mut frame_rects = frame_candidates(&frame)?;
         for candidate in &mut frame_rects {
             candidate.frame_index = frame_index;
         }
@@ -286,33 +275,18 @@ fn candidate_from_scored(candidate: &ScoredRect) -> Candidate {
     }
 }
 
-fn frame_candidates(frame: &Mat, detector: CandidateDetector) -> Result<Vec<ScoredRect>> {
+fn frame_candidates(frame: &Mat) -> Result<Vec<ScoredRect>> {
     let mut output = Vec::new();
     let edges = geometry_edges(frame)?;
 
-    if matches!(
-        detector,
-        CandidateDetector::Ensemble | CandidateDetector::Color
-    ) {
-        output.extend(color_candidates(frame)?);
-    }
-    if matches!(
-        detector,
-        CandidateDetector::Ensemble | CandidateDetector::Geometry
-    ) {
-        output.extend(contour_rectangles(
-            &edges,
-            frame.cols(),
-            frame.rows(),
-            1.25,
-        )?);
-    }
-    if matches!(
-        detector,
-        CandidateDetector::Ensemble | CandidateDetector::Text
-    ) {
-        output.extend(text_density_candidates(frame)?);
-    }
+    output.extend(color_candidates(frame)?);
+    output.extend(contour_rectangles(
+        &edges,
+        frame.cols(),
+        frame.rows(),
+        1.25,
+    )?);
+    output.extend(text_density_candidates(frame)?);
 
     for candidate in &mut output {
         let evidence = edge_evidence(&edges, candidate.rect)?;
