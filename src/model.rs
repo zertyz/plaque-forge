@@ -43,6 +43,36 @@ impl Mat3 {
         Self { values: out }
     }
 
+    pub fn inverse(self) -> Option<Self> {
+        let m = self.values;
+        let determinant = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+        if determinant.abs() < 1.0e-12 {
+            return None;
+        }
+        let scale = determinant.recip();
+        Some(Self {
+            values: [
+                [
+                    (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * scale,
+                    (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * scale,
+                    (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * scale,
+                ],
+                [
+                    (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * scale,
+                    (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * scale,
+                    (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * scale,
+                ],
+                [
+                    (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * scale,
+                    (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * scale,
+                    (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * scale,
+                ],
+            ],
+        })
+    }
+
     pub fn translation(x: f64, y: f64) -> Self {
         Self {
             values: [[1.0, 0.0, x], [0.0, 1.0, y], [0.0, 0.0, 1.0]],

@@ -1,0 +1,20 @@
+minimum_iou = 0.80
+
+[videos.moving-holographic-plaque]
+frame = 72
+bounds = [84, 55, 557, 321]
+[videos.rusty-plaque-with-object-in-front-parallax-and-plaque-moves]
+frame = 114
+bounds = [322, 46, 634, 133]
+[videos.static-holographic-plaque-with-background-movement]
+frame = 207
+bounds = [87, 208, 548, 391]
+[videos.static-holographic-plaque]
+frame = 41
+bounds = [335, 36, 611, 132]
+[videos.swamp-rusty-plaque]
+frame = 83
+bounds = [323, 53, 640, 125]
+[videos.swamp-wooden-plaque-with-foreground-objects]
+frame = 72
+bounds = [327, 30, 641, 285]

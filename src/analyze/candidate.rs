@@ -34,6 +34,9 @@ struct ScoredRect {
     rect: Rect,
     score: f64,
     edge_completeness: f64,
+    interior_clutter: f64,
+    temporal_support: f64,
+    oversize_penalty: f64,
     frame_index: usize,
 }
 
@@ -104,10 +107,11 @@ pub fn detect_proposals(
         info.height as i32,
         sample_count,
     );
+    let best = select_reference(&ranked, info.width as i32, info.height as i32);
     if let Some(diagnostics) = diagnostics {
-        write_ranking(diagnostics, &ranked)?;
+        write_ranking(diagnostics, &ranked, best)?;
     }
-    let Some(best) = ranked.first() else {
+    let Some(best) = best else {
         return Ok(None);
     };
     let alternatives = distinct_alternatives(&ranked, best, 3);
@@ -124,7 +128,39 @@ pub fn detect_proposals(
     }))
 }
 
-fn write_ranking(diagnostics: &Path, ranked: &[ScoredRect]) -> Result<()> {
+fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&ScoredRect> {
+    let target = ranked.first()?;
+    ranked
+        .iter()
+        .filter(|candidate| same_hypothesis(target.rect, candidate.rect, width, height))
+        .max_by(|left, right| {
+            reference_quality(left, width, height)
+                .total_cmp(&reference_quality(right, width, height))
+        })
+}
+
+fn reference_quality(candidate: &ScoredRect, width: i32, height: i32) -> f64 {
+    let area_ratio = f64::from(candidate.rect.width * candidate.rect.height)
+        / f64::from(width * height).max(1.0);
+    let resolution = (area_ratio.min(0.22) / 0.22).sqrt();
+    let oversize = ((area_ratio - 0.22) / 0.20).clamp(0.0, 1.0);
+    candidate.score + 1.5 * candidate.edge_completeness + 2.0 * resolution
+        - 1.5 * candidate.interior_clutter
+        - 2.0 * oversize
+}
+
+fn same_hypothesis(a: Rect, b: Rect, width: i32, height: i32) -> bool {
+    let diagonal = f64::from(width).hypot(f64::from(height)).max(1.0);
+    let width_change = (f64::from(a.width) / f64::from(b.width)).ln().abs();
+    let height_change = (f64::from(a.height) / f64::from(b.height)).ln().abs();
+    rect_center_distance(a, b) / diagonal <= 0.18 && width_change <= 0.45 && height_change <= 0.45
+}
+
+fn write_ranking(
+    diagnostics: &Path,
+    ranked: &[ScoredRect],
+    selected: Option<&ScoredRect>,
+) -> Result<()> {
     fs::write(
         diagnostics.join("candidate-ranking.json"),
         serde_json::to_vec_pretty(
@@ -135,9 +171,15 @@ fn write_ranking(diagnostics: &Path, ranked: &[ScoredRect]) -> Result<()> {
                     serde_json::json!({
                         "frame": candidate.frame_index,
                         "rect": [candidate.rect.x, candidate.rect.y, candidate.rect.width, candidate.rect.height],
+                        "selected": selected.is_some_and(|selected| {
+                            selected.frame_index == candidate.frame_index && selected.rect == candidate.rect
+                        }),
                         "score": candidate.score,
                         "confidence": score_to_confidence(candidate.score),
                         "edge_completeness": candidate.edge_completeness,
+                        "interior_clutter": candidate.interior_clutter,
+                        "temporal_support": candidate.temporal_support,
+                        "oversize_penalty": candidate.oversize_penalty,
                     })
                 })
                 .collect::<Vec<_>>(),
@@ -273,7 +315,9 @@ fn frame_candidates(frame: &Mat, detector: CandidateDetector) -> Result<Vec<Scor
     }
 
     for candidate in &mut output {
-        candidate.edge_completeness = edge_completeness(&edges, candidate.rect)?;
+        let evidence = edge_evidence(&edges, candidate.rect)?;
+        candidate.edge_completeness = evidence.border_support;
+        candidate.interior_clutter = evidence.interior_clutter;
     }
     Ok(output)
 }
@@ -402,56 +446,84 @@ fn contour_rectangles(
         }
         let contour_area = geometry::contour_area(&contour, false)?.abs();
         let rectangularity = (contour_area / (rect.width * rect.height) as f64).clamp(0.0, 1.0);
-        let center_bias = 1.0
-            - (((rect.y + rect.height / 2) as f64 / height as f64) - 0.35)
-                .abs()
-                .min(1.0);
+        let center_y = (rect.y + rect.height / 2) as f64 / height as f64;
+        let upper_fit = (1.0 - (center_y - 0.55).max(0.0) / 0.45).clamp(0.0, 1.0);
+        let area_fit = if area_ratio <= 0.30 {
+            1.0
+        } else {
+            (1.0 - (area_ratio - 0.30) / 0.25).clamp(0.0, 1.0)
+        };
+        let aspect_fit = (1.0 - ((aspect / 2.8).ln().abs() / 1.4)).clamp(0.0, 1.0);
         let score = source_weight
-            * (0.35 * rectangularity
-                + 0.30 * area_ratio.sqrt()
-                + 0.20 * center_bias
-                + 0.15 * aspect.min(4.0) / 4.0);
+            * (0.45 * rectangularity + 0.25 * area_fit + 0.20 * aspect_fit + 0.10 * upper_fit);
         result.push(ScoredRect {
             rect,
             score,
             edge_completeness: 0.0,
+            interior_clutter: 0.0,
+            temporal_support: 0.0,
+            oversize_penalty: 0.0,
             frame_index: 0,
         });
     }
     Ok(result)
 }
 
-fn edge_completeness(edges: &Mat, rect: Rect) -> Result<f64> {
-    let horizontal_band = (rect.height as f64 * 0.22).round().max(3.0) as i32;
-    let vertical_band = (rect.width as f64 * 0.08).round().max(3.0) as i32;
-    let top = Rect::new(rect.x, rect.y, rect.width, horizontal_band.min(rect.height));
-    let bottom = Rect::new(
-        rect.x,
-        rect.y + rect.height - horizontal_band.min(rect.height),
-        rect.width,
-        horizontal_band.min(rect.height),
-    );
-    let left = Rect::new(rect.x, rect.y, vertical_band.min(rect.width), rect.height);
-    let right = Rect::new(
-        rect.x + rect.width - vertical_band.min(rect.width),
-        rect.y,
-        vertical_band.min(rect.width),
-        rect.height,
-    );
-    let density = |band: Rect| -> Result<f64> {
-        let roi = Mat::roi(edges, band)?;
-        Ok(core::count_non_zero(&roi)? as f64 / f64::from(band.width * band.height).max(1.0))
+struct EdgeEvidence {
+    border_support: f64,
+    interior_clutter: f64,
+}
+
+fn edge_evidence(edges: &Mat, rect: Rect) -> Result<EdgeEvidence> {
+    let horizontal_radius = ((rect.height as f64 * 0.035).round() as i32).clamp(2, 12);
+    let vertical_radius = ((rect.width as f64 * 0.018).round() as i32).clamp(2, 12);
+    let horizontal = |y: i32| -> Result<f64> {
+        let mut supported = 0usize;
+        let mut total = 0usize;
+        for x in (rect.x..rect.x + rect.width).step_by(2) {
+            total += 1;
+            let start = (y - horizontal_radius).max(0);
+            let end = (y + horizontal_radius).min(edges.rows() - 1);
+            if (start..=end).any(|yy| edges.at_2d::<u8>(yy, x).is_ok_and(|value| *value > 0)) {
+                supported += 1;
+            }
+        }
+        Ok(supported as f64 / total.max(1) as f64)
     };
-    let scores = [
-        density(top)?,
-        density(bottom)?,
-        density(left)?,
-        density(right)?,
-    ]
-    .map(|value| value / (value + 0.035));
-    let minimum = scores.iter().copied().fold(f64::INFINITY, f64::min);
-    let mean = scores.iter().sum::<f64>() / scores.len() as f64;
-    Ok((0.65 * minimum + 0.35 * mean).clamp(0.0, 1.0))
+    let vertical = |x: i32| -> Result<f64> {
+        let mut supported = 0usize;
+        let mut total = 0usize;
+        for y in (rect.y..rect.y + rect.height).step_by(2) {
+            total += 1;
+            let start = (x - vertical_radius).max(0);
+            let end = (x + vertical_radius).min(edges.cols() - 1);
+            if (start..=end).any(|xx| edges.at_2d::<u8>(y, xx).is_ok_and(|value| *value > 0)) {
+                supported += 1;
+            }
+        }
+        Ok(supported as f64 / total.max(1) as f64)
+    };
+    let sides = [
+        horizontal(rect.y)?,
+        horizontal(rect.y + rect.height - 1)?,
+        vertical(rect.x)?,
+        vertical(rect.x + rect.width - 1)?,
+    ];
+    let minimum = sides.iter().copied().fold(f64::INFINITY, f64::min);
+    let mean = sides.iter().sum::<f64>() / sides.len() as f64;
+    let inner = Rect::new(
+        rect.x + rect.width / 5,
+        rect.y + rect.height / 5,
+        (rect.width * 3 / 5).max(1),
+        (rect.height * 3 / 5).max(1),
+    );
+    let roi = Mat::roi(edges, inner)?;
+    let density =
+        core::count_non_zero(&roi)? as f64 / f64::from(inner.width * inner.height).max(1.0);
+    Ok(EdgeEvidence {
+        border_support: (0.55 * minimum + 0.45 * mean).clamp(0.0, 1.0),
+        interior_clutter: (density / 0.16).clamp(0.0, 1.0),
+    })
 }
 
 fn rank_candidates(
@@ -462,42 +534,29 @@ fn rank_candidates(
 ) -> Vec<ScoredRect> {
     let mut ranked = Vec::with_capacity(candidates.len());
     for candidate in candidates {
-        let aspect = candidate.rect.width as f64 / candidate.rect.height.max(1) as f64;
-        let area = (candidate.rect.width * candidate.rect.height).max(1) as f64;
-        let mut frames = std::collections::HashSet::new();
-        for other in candidates {
-            let oa = other.rect.width as f64 / other.rect.height.max(1) as f64;
-            let oarea = (other.rect.width * other.rect.height).max(1) as f64;
-            if ((oa / aspect).ln()).abs() < 0.18 && ((oarea / area).ln()).abs() < 0.70 {
-                frames.insert(other.frame_index);
-            }
-        }
-        let persistence = (frames.len() as f64 / sample_count.max(1) as f64).min(1.0);
-        let area_ratio = area / f64::from(width * height);
-        let nested_evidence = candidates
+        let persistence = temporal_support(candidate, candidates, width, height, sample_count);
+        let oversize = candidates
             .iter()
-            .filter(|other| {
-                if other.frame_index != candidate.frame_index {
-                    return false;
-                }
-                let other_area = f64::from(other.rect.width * other.rect.height);
-                let ratio = other_area / area;
-                (0.20..=0.85).contains(&ratio)
-                    && other.rect.x >= candidate.rect.x
-                    && other.rect.y >= candidate.rect.y
-                    && other.rect.x + other.rect.width <= candidate.rect.x + candidate.rect.width
-                    && other.rect.y + other.rect.height <= candidate.rect.y + candidate.rect.height
-            })
-            .count()
-            .min(3) as f64
-            / 3.0;
+            .filter(|other| other.frame_index == candidate.frame_index)
+            .filter_map(|other| oversize_evidence(candidate, other))
+            .fold(0.0, f64::max);
+        let area_ratio = f64::from(candidate.rect.width * candidate.rect.height)
+            / f64::from(width * height).max(1.0);
+        let area_penalty = ((area_ratio - 0.22) / 0.20).clamp(0.0, 1.0);
+        let resolution_fit = (area_ratio.min(0.22) / 0.22).sqrt();
         let objective = candidate.score
-            + 0.65 * persistence
-            + 0.80 * area_ratio.sqrt()
-            + 0.40 * candidate.edge_completeness
-            + 0.42 * nested_evidence;
+            + 0.80 * persistence
+            + 0.85 * candidate.edge_completeness
+            + 0.45 * horizontal_center_fit(candidate.rect, width)
+            + 0.45 * vertical_layout_fit(candidate.rect, width, height)
+            + 0.15 * resolution_fit
+            - 0.45 * candidate.interior_clutter
+            - 0.35 * area_penalty
+            - 1.10 * oversize;
         let mut selected = candidate.clone();
         selected.score = objective;
+        selected.temporal_support = persistence;
+        selected.oversize_penalty = oversize;
         selected.rect.x = selected.rect.x.clamp(0, width - 1);
         selected.rect.y = selected.rect.y.clamp(0, height - 1);
         selected.rect.width = selected.rect.width.min(width - selected.rect.x).max(1);
@@ -508,36 +567,114 @@ fn rank_candidates(
     ranked
 }
 
+fn horizontal_center_fit(rect: Rect, frame_width: i32) -> f64 {
+    let center =
+        (f64::from(rect.x) + f64::from(rect.width) * 0.5) / f64::from(frame_width).max(1.0);
+    (1.0 - (center - 0.5).abs() * 2.0).clamp(0.0, 1.0)
+}
+
+fn vertical_layout_fit(rect: Rect, frame_width: i32, frame_height: i32) -> f64 {
+    let center =
+        (f64::from(rect.y) + f64::from(rect.height) * 0.5) / f64::from(frame_height).max(1.0);
+    let expected = if frame_width >= frame_height {
+        0.22
+    } else {
+        0.27
+    };
+    (-((center - expected) / 0.18).powi(2)).exp()
+}
+
+fn temporal_support(
+    candidate: &ScoredRect,
+    candidates: &[ScoredRect],
+    width: i32,
+    height: i32,
+    sample_count: usize,
+) -> f64 {
+    let diagonal = f64::from(width).hypot(f64::from(height)).max(1.0);
+    let mut by_frame = std::collections::HashMap::<usize, f64>::new();
+    for other in candidates {
+        let center_distance = rect_center_distance(candidate.rect, other.rect) / diagonal;
+        let width_change = (f64::from(other.rect.width) / f64::from(candidate.rect.width))
+            .ln()
+            .abs();
+        let height_change = (f64::from(other.rect.height) / f64::from(candidate.rect.height))
+            .ln()
+            .abs();
+        if center_distance > 0.20 || width_change > 0.45 || height_change > 0.45 {
+            continue;
+        }
+        let score = (-(center_distance / 0.12).powi(2)
+            - (width_change / 0.30).powi(2)
+            - (height_change / 0.30).powi(2))
+        .exp();
+        by_frame
+            .entry(other.frame_index)
+            .and_modify(|current| *current = current.max(score))
+            .or_insert(score);
+    }
+    by_frame.values().sum::<f64>() / sample_count.max(1) as f64
+}
+
+fn oversize_evidence(candidate: &ScoredRect, other: &ScoredRect) -> Option<f64> {
+    if candidate.rect == other.rect {
+        return None;
+    }
+    let candidate_area = f64::from(candidate.rect.width * candidate.rect.height).max(1.0);
+    let other_area = f64::from(other.rect.width * other.rect.height).max(1.0);
+    let area_ratio = other_area / candidate_area;
+    if !(0.12..=0.88).contains(&area_ratio) {
+        return None;
+    }
+    let intersection = rect_intersection(candidate.rect, other.rect);
+    let containment = intersection / other_area;
+    let edge_gain = (other.edge_completeness - candidate.edge_completeness).max(0.0);
+    let clutter_gain = (candidate.interior_clutter - other.interior_clutter).max(0.0);
+    (containment >= 0.90 && edge_gain + clutter_gain >= 0.025)
+        .then_some(containment * (1.0 - area_ratio) * (0.25 + edge_gain + clutter_gain))
+}
+
+fn rect_center_distance(a: Rect, b: Rect) -> f64 {
+    let ax = f64::from(a.x) + f64::from(a.width) * 0.5;
+    let ay = f64::from(a.y) + f64::from(a.height) * 0.5;
+    let bx = f64::from(b.x) + f64::from(b.width) * 0.5;
+    let by = f64::from(b.y) + f64::from(b.height) * 0.5;
+    (ax - bx).hypot(ay - by)
+}
+
+fn rect_intersection(a: Rect, b: Rect) -> f64 {
+    let width = ((a.x + a.width).min(b.x + b.width) - a.x.max(b.x)).max(0);
+    let height = ((a.y + a.height).min(b.y + b.height) - a.y.max(b.y)).max(0);
+    f64::from(width * height)
+}
+
 fn score_to_confidence(score: f64) -> f64 {
     (1.0 - (-score.max(0.0)).exp()).clamp(0.0, 0.98)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ScoredRect, distinct_alternatives, rank_candidates};
+    use super::{ScoredRect, distinct_alternatives, rank_candidates, select_reference};
     use opencv::core::Rect;
+
+    fn scored(rect: Rect, score: f64, edge: f64, frame: usize) -> ScoredRect {
+        ScoredRect {
+            rect,
+            score,
+            edge_completeness: edge,
+            interior_clutter: 0.0,
+            temporal_support: 0.0,
+            oversize_penalty: 0.0,
+            frame_index: frame,
+        }
+    }
 
     #[test]
     fn nested_plaque_geometry_outranks_an_internal_strip() {
         let candidates = vec![
-            ScoredRect {
-                rect: Rect::new(100, 100, 520, 300),
-                score: 0.55,
-                edge_completeness: 0.8,
-                frame_index: 0,
-            },
-            ScoredRect {
-                rect: Rect::new(120, 210, 480, 130),
-                score: 0.80,
-                edge_completeness: 0.2,
-                frame_index: 0,
-            },
-            ScoredRect {
-                rect: Rect::new(170, 150, 360, 100),
-                score: 0.30,
-                edge_completeness: 0.4,
-                frame_index: 0,
-            },
+            scored(Rect::new(100, 100, 520, 300), 0.55, 0.8, 0),
+            scored(Rect::new(120, 210, 480, 130), 0.80, 0.2, 0),
+            scored(Rect::new(170, 150, 360, 100), 0.30, 0.4, 0),
         ];
 
         let ranked = rank_candidates(&candidates, 720, 1280, 1);
@@ -548,35 +685,55 @@ mod tests {
     #[test]
     fn alternatives_share_the_reference_frame_and_suppress_overlaps() {
         let ranked = vec![
-            ScoredRect {
-                rect: Rect::new(100, 100, 500, 250),
-                score: 3.0,
-                edge_completeness: 0.9,
-                frame_index: 12,
-            },
-            ScoredRect {
-                rect: Rect::new(110, 110, 490, 240),
-                score: 2.9,
-                edge_completeness: 0.8,
-                frame_index: 12,
-            },
-            ScoredRect {
-                rect: Rect::new(700, 100, 300, 150),
-                score: 2.8,
-                edge_completeness: 0.8,
-                frame_index: 12,
-            },
-            ScoredRect {
-                rect: Rect::new(50, 50, 300, 150),
-                score: 2.7,
-                edge_completeness: 0.8,
-                frame_index: 24,
-            },
+            scored(Rect::new(100, 100, 500, 250), 3.0, 0.9, 12),
+            scored(Rect::new(110, 110, 490, 240), 2.9, 0.8, 12),
+            scored(Rect::new(700, 100, 300, 150), 2.8, 0.8, 12),
+            scored(Rect::new(50, 50, 300, 150), 2.7, 0.8, 24),
         ];
 
         let alternatives = distinct_alternatives(&ranked, &ranked[0], 3);
 
         assert_eq!(alternatives.len(), 1);
         assert_eq!(alternatives[0].rect, ranked[2].rect);
+    }
+
+    #[test]
+    fn persistence_requires_position_consistency() {
+        let target = scored(Rect::new(100, 80, 400, 140), 0.5, 0.8, 0);
+        let candidates = vec![
+            target.clone(),
+            scored(Rect::new(108, 84, 395, 142), 0.5, 0.8, 1),
+            scored(Rect::new(700, 500, 400, 140), 0.5, 0.8, 2),
+        ];
+
+        let ranked = rank_candidates(&candidates, 1280, 720, 3);
+
+        assert!(ranked[0].temporal_support > ranked[2].temporal_support);
+    }
+
+    #[test]
+    fn reference_selection_prefers_the_clearest_target_frame() {
+        let mut large = scored(Rect::new(84, 55, 557, 321), 2.40, 0.86, 72);
+        large.interior_clutter = 0.08;
+        let ranked = vec![scored(Rect::new(128, 150, 476, 270), 2.62, 0.78, 20), large];
+
+        assert_eq!(
+            select_reference(&ranked, 720, 1280).unwrap().frame_index,
+            72
+        );
+    }
+
+    #[test]
+    fn reference_selection_rejects_an_oversized_enclosure() {
+        let mut full = scored(Rect::new(327, 30, 641, 285), 2.30, 0.42, 72);
+        full.interior_clutter = 0.51;
+        let mut oversized = scored(Rect::new(335, 29, 781, 301), 2.25, 0.59, 197);
+        oversized.interior_clutter = 0.55;
+        let ranked = vec![full, oversized];
+
+        assert_eq!(
+            select_reference(&ranked, 1280, 720).unwrap().frame_index,
+            72
+        );
     }
 }

@@ -733,8 +733,6 @@ fn registration_correction_pixels(
     if registration.after + 0.25 >= registration.before {
         return 0.0;
     }
-    let center_x = f64::from(width.saturating_sub(1)) * 0.5;
-    let center_y = f64::from(height.saturating_sub(1)) * 0.5;
     let corners = [
         (0.0, 0.0),
         (f64::from(width.saturating_sub(1)), 0.0),
@@ -747,9 +745,10 @@ fn registration_correction_pixels(
     corners
         .iter()
         .map(|&(x, y)| {
-            let corrected_x = center_x + (x - center_x) * registration.scale + registration.dx;
-            let corrected_y = center_y + (y - center_y) * registration.scale + registration.dy;
-            (corrected_x - x).hypot(corrected_y - y)
+            let corrected = registration
+                .transform
+                .transform(crate::model::PointF { x, y });
+            (corrected.x - x).hypot(corrected.y - y)
         })
         .sum::<f64>()
         / corners.len() as f64
@@ -939,6 +938,7 @@ mod tests {
     use crate::{
         analyze::extraction::measure_structural_registration,
         color::Rgba,
+        geometry::{Point, Quad},
         model::{Mat3, MotionSample, RectF},
         surface::Surface,
     };
@@ -1037,5 +1037,36 @@ mod tests {
         assert!(registration_lock_score(correction) < 0.80);
         assert!(tracking_lock_score(correction, 0.20) < 0.80);
         assert!(tracking_lock_score(correction, 0.98) > 0.95);
+    }
+
+    #[test]
+    fn structural_registration_recovers_affine_motion() {
+        let mut template = Surface::new(96, 64);
+        for y in 0..64 {
+            for x in 0..96 {
+                let value = ((x * 17 + y * 29 + x * y * 3) % 211 + 30) as u8;
+                template.set_pixel(x, y, Rgba::new(value, value, value, 255));
+            }
+        }
+        let mut current = Surface::new(96, 64);
+        current
+            .warp_blend(
+                &template,
+                Quad::new(
+                    Point::new(3.0, 2.0),
+                    Point::new(93.0, 4.0),
+                    Point::new(95.0, 62.0),
+                    Point::new(5.0, 60.0),
+                ),
+                1.0,
+            )
+            .unwrap();
+        let mask = vec![255; 96 * 64];
+
+        let registration = measure_structural_registration(&template, &current, &mask, 8).unwrap();
+
+        assert!(registration.ecc.is_some());
+        assert!(registration.after + 1.0 < registration.before);
+        assert!(registration_correction_pixels(&registration, 96, 64) > 2.0);
     }
 }

@@ -440,7 +440,33 @@ pub fn track(
         );
     }
 
-    let loop_closed = should_close_loop(args.loop_closure, &root.gray, &mut capture, frame_count)?;
+    let loop_closed = should_close_loop(args.loop_closure, &mut capture, frame_count)?;
+    if let Some(confidence) =
+        detect_static_plaque(&mut capture, &mut sift, &root, plaque, frame_count)?
+    {
+        progress.start(3, 7, "Static plaque validation", Some(frame_count));
+        let samples = (0..frame_count)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::IDENTITY,
+                inlier_ratio: confidence,
+                reprojection_error: 0.0,
+                ecc: Some(1.0),
+                plaque_visibility: 1.0,
+                occluder_coverage: 0.0,
+            })
+            .collect::<Vec<_>>();
+        progress.update(frame_count, "identity model");
+        progress.finish("static plaque confirmed");
+        write_tracking_diagnostics(&mut capture, &samples, plaque, diagnostics, frame_count)?;
+        return Ok(TrackingResult {
+            samples,
+            model_name: "static-plaque-identity".into(),
+            reference_frame,
+            confidence,
+            loop_closed,
+        });
+    }
     let mut raw: Vec<Option<MotionSample>> = vec![None; frame_count];
     raw[reference_frame] = Some(MotionSample {
         frame: reference_frame,
@@ -501,8 +527,8 @@ pub fn track(
             })
         })
         .collect();
-    let repaired_frames = repair_temporal_outliers(&mut samples, plaque);
-    regularize_corner_trajectory(
+    let repaired_frames = repair_outliers(&mut samples, plaque);
+    optimize_trajectory(
         &mut samples,
         plaque,
         reference_frame,
@@ -590,12 +616,13 @@ fn process_direction(
             .and_then(|(reference, current)| {
                 homography(reference.quad, current.quad)
                     .ok()
-                    .map(|matrix| GlobalEstimate {
+                    .map(|matrix| Estimate {
                         matrix: Mat3 { values: matrix.m },
                         inlier_ratio: current.confidence,
                         error: (1.0 - current.confidence) * 2.0,
                         ecc: None,
                         source: "geometry",
+                        static_model: false,
                     })
             })
             .filter(|estimate| plaque_transform_is_valid(estimate.matrix, plaque));
@@ -615,14 +642,9 @@ fn process_direction(
             &keypoints,
             &descriptors,
             args.motion_model,
+            false,
         )
-        .map(|estimate| GlobalEstimate {
-            matrix: estimate.matrix.multiply(anchor.transform),
-            inlier_ratio: estimate.inlier_ratio,
-            error: estimate.error,
-            ecc: estimate.ecc,
-            source: "adaptive",
-        });
+        .map(|estimate| estimate.anchored(anchor.transform, "adaptive"));
 
         // The fixed root estimate prevents cumulative drift. The adaptive
         // reference remains available when appearance changes make the root weak.
@@ -632,25 +654,27 @@ fn process_direction(
             &keypoints,
             &descriptors,
             args.motion_model,
+            false,
         )
         .ok()
-        .map(|estimate| GlobalEstimate {
-            matrix: estimate.matrix,
-            inlier_ratio: estimate.inlier_ratio,
-            error: estimate.error,
-            ecc: estimate.ecc,
-            source: "root",
+        .map(|estimate| {
+            let source = if estimate.static_model {
+                "root-static"
+            } else {
+                "root"
+            };
+            estimate.named(source)
         });
 
         let feature = choose_estimate(local, direct, plaque, predicted);
-        let estimate =
-            choose_geometric_constraint(feature, contour, plaque).unwrap_or(GlobalEstimate {
-                matrix: predicted,
-                inlier_ratio: 0.0,
-                error: 24.0,
-                ecc: None,
-                source: "inertial-fallback",
-            });
+        let estimate = choose_geometric_constraint(feature, contour, plaque).unwrap_or(Estimate {
+            matrix: predicted,
+            inlier_ratio: 0.0,
+            error: 24.0,
+            ecc: None,
+            source: "inertial-fallback",
+            static_model: false,
+        });
         output[frame_index] = Some(MotionSample {
             frame: frame_index,
             transform: estimate.matrix,
@@ -689,20 +713,80 @@ fn process_direction(
     Ok(anchors_added)
 }
 
-struct GlobalEstimate {
+fn detect_static_plaque(
+    capture: &mut VideoCapture,
+    sift: &mut core::Ptr<features2d::SIFT>,
+    root: &FeatureAnchor,
+    plaque: RectF,
+    frame_count: usize,
+) -> Result<Option<f64>> {
+    let mut displacements = Vec::new();
+    let mut qualities = Vec::new();
+    for slot in 0..5 {
+        let frame = slot * frame_count.saturating_sub(1) / 4;
+        if frame == root.frame {
+            continue;
+        }
+        let gray = read_gray(capture, frame)?;
+        let mask =
+            plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, Mat3::IDENTITY)?;
+        let mut keypoints = Vector::<KeyPoint>::new();
+        let mut descriptors = Mat::default();
+        sift.detect_and_compute(&gray, &mask, &mut keypoints, &mut descriptors, false)?;
+        let Ok(estimate) = estimate_reference_transform(
+            &root.keypoints,
+            &root.descriptors,
+            &keypoints,
+            &descriptors,
+            MotionModel::Adaptive,
+            true,
+        ) else {
+            continue;
+        };
+        if estimate.inlier_ratio < 0.45 || estimate.error > 2.0 {
+            continue;
+        }
+        displacements.push(mean_corner_distance(
+            Mat3::IDENTITY,
+            estimate.matrix,
+            plaque,
+        ));
+        qualities.push(estimate.inlier_ratio * (-estimate.error / 2.0).exp());
+    }
+    if displacements.len() < 3 || displacements.iter().any(|value| *value > 1.25) {
+        return Ok(None);
+    }
+    Ok(Some(median(qualities).clamp(0.80, 0.99)))
+}
+
+struct Estimate {
     matrix: Mat3,
     inlier_ratio: f64,
     error: f64,
     ecc: Option<f64>,
     source: &'static str,
+    static_model: bool,
+}
+
+impl Estimate {
+    fn anchored(mut self, anchor: Mat3, source: &'static str) -> Self {
+        self.matrix = self.matrix.multiply(anchor);
+        self.source = source;
+        self
+    }
+
+    fn named(mut self, source: &'static str) -> Self {
+        self.source = source;
+        self
+    }
 }
 
 fn choose_estimate(
-    local: Result<GlobalEstimate>,
-    direct: Option<GlobalEstimate>,
+    local: Result<Estimate>,
+    direct: Option<Estimate>,
     plaque: RectF,
     predicted: Mat3,
-) -> Option<GlobalEstimate> {
+) -> Option<Estimate> {
     let local = local
         .ok()
         .filter(|estimate| plaque_transform_is_valid(estimate.matrix, plaque));
@@ -746,10 +830,10 @@ fn mean_corner_distance(left: Mat3, right: Mat3, plaque: RectF) -> f64 {
 }
 
 fn choose_geometric_constraint(
-    feature: Option<GlobalEstimate>,
-    geometry: Option<GlobalEstimate>,
+    feature: Option<Estimate>,
+    geometry: Option<Estimate>,
     plaque: RectF,
-) -> Option<GlobalEstimate> {
+) -> Option<Estimate> {
     match (feature, geometry) {
         (Some(feature), Some(geometry)) => {
             let disagreement = mean_corner_distance(feature.matrix, geometry.matrix, plaque);
@@ -758,7 +842,9 @@ fn choose_geometric_constraint(
                 .hypot(plaque.height)
                 .mul_add(0.02, 0.0)
                 .clamp(8.0, 18.0);
-            if geometry.inlier_ratio >= 0.78 && disagreement > tolerance {
+            let feature_score = feature.error + (1.0 - feature.inlier_ratio) * 3.0;
+            let geometry_score = geometry.error + (1.0 - geometry.inlier_ratio) * 3.0;
+            if disagreement > tolerance && geometry_score + 0.25 < feature_score {
                 Some(geometry)
             } else {
                 Some(feature)
@@ -1024,7 +1110,7 @@ fn plaque_feature_mask_for_transform(
     Ok(mask)
 }
 
-fn regularize_corner_trajectory(
+pub(crate) fn optimize_trajectory(
     samples: &mut [MotionSample],
     plaque: RectF,
     reference_frame: usize,
@@ -1066,10 +1152,8 @@ fn regularize_corner_trajectory(
             } else {
                 index + 1
             };
-            let confidence = (samples[index].inlier_ratio
-                * (-samples[index].reprojection_error.min(20.0) / 5.0).exp())
-            .clamp(0.0, 1.0);
-            let neighbor_weight = (inertia * (0.58 - 0.30 * confidence)).clamp(0.0, 0.48);
+            let confidence = sample_confidence(&samples[index]);
+            let neighbor_weight = (inertia * (1.25 - 0.95 * confidence)).clamp(0.0, 0.48);
             let neighbor = previous[left].lerp(previous[right], 0.5);
             let candidate = raw[index].lerp(neighbor, neighbor_weight.clamp(0.0, 0.48));
             smooth[index] =
@@ -1080,12 +1164,76 @@ fn regularize_corner_trajectory(
                 };
         }
     }
+    if smooth.len() >= 13 {
+        let coefficients = [
+            -11.0, 0.0, 9.0, 16.0, 21.0, 24.0, 25.0, 24.0, 21.0, 16.0, 9.0, 0.0, -11.0,
+        ];
+        let threshold = plaque
+            .width
+            .hypot(plaque.height)
+            .mul_add(0.006, 0.0)
+            .clamp(2.0, 5.0);
+        for _ in 0..4 {
+            let previous = smooth.clone();
+            for index in 0..smooth.len() {
+                if index == reference_frame {
+                    smooth[index] = raw[index];
+                    continue;
+                }
+                let mut coordinates = [[0.0; 2]; 4];
+                for (offset, coefficient) in (-6_i32..=6).zip(coefficients) {
+                    let candidate = index as i32 + offset;
+                    let neighbor = if loop_closed {
+                        candidate.rem_euclid(previous.len() as i32) as usize
+                    } else {
+                        candidate.clamp(0, previous.len() as i32 - 1) as usize
+                    };
+                    for (corner, point) in previous[neighbor].points().into_iter().enumerate() {
+                        coordinates[corner][0] += coefficient * point.x / 143.0;
+                        coordinates[corner][1] += coefficient * point.y / 143.0;
+                    }
+                }
+                let filtered = GeoQuad::new(
+                    GeoPoint::new(coordinates[0][0], coordinates[0][1]),
+                    GeoPoint::new(coordinates[1][0], coordinates[1][1]),
+                    GeoPoint::new(coordinates[2][0], coordinates[2][1]),
+                    GeoPoint::new(coordinates[3][0], coordinates[3][1]),
+                );
+                let confidence = sample_confidence(&samples[index]);
+                let deviation = mean_quad_distance(previous[index], filtered);
+                let weight = if deviation > threshold {
+                    0.65 + 0.25 * (1.0 - confidence)
+                } else {
+                    inertia.clamp(0.0, 0.75)
+                };
+                let candidate = previous[index].lerp(filtered, weight);
+                if candidate.validate("globally regularized plaque").is_ok()
+                    && candidate.orientation() > 0.0
+                {
+                    smooth[index] = candidate;
+                }
+            }
+        }
+    }
     for (sample, quad) in samples.iter_mut().zip(smooth) {
         quad.validate("temporally regularized plaque")?;
         let matrix = homography(source, quad)?;
         sample.transform = Mat3 { values: matrix.m };
     }
     Ok(())
+}
+
+fn mean_quad_distance(left: GeoQuad, right: GeoQuad) -> f64 {
+    left.points()
+        .into_iter()
+        .zip(right.points())
+        .map(|(a, b)| (a.x - b.x).hypot(a.y - b.y))
+        .sum::<f64>()
+        / 4.0
+}
+
+fn sample_confidence(sample: &MotionSample) -> f64 {
+    (sample.inlier_ratio * (-sample.reprojection_error.min(20.0) / 5.0).exp()).clamp(0.0, 1.0)
 }
 
 fn plaque_corners(plaque: RectF) -> [PointF; 4] {
@@ -1133,43 +1281,24 @@ fn write_tracking_diagnostics(
     Ok(())
 }
 
-struct Estimate {
-    matrix: Mat3,
-    inlier_ratio: f64,
-    error: f64,
-    ecc: Option<f64>,
-}
-
-#[allow(clippy::too_many_arguments)]
 fn estimate_reference_transform(
     reference_keypoints: &Vector<KeyPoint>,
     reference_descriptors: &Mat,
     keypoints: &Vector<KeyPoint>,
     descriptors: &Mat,
     requested_model: MotionModel,
+    allow_static: bool,
 ) -> Result<Estimate> {
     if descriptors.empty() || keypoints.len() < 12 {
         bail!("insufficient frame descriptors");
     }
 
-    let matcher = features2d::BFMatcher::create(core::NORM_L2, false)?;
-    let mut matches = Vector::<Vector<DMatch>>::new();
-    matcher.knn_train_match_def(reference_descriptors, descriptors, &mut matches, 2)?;
-
-    let mut source = Vector::<Point2f>::new();
-    let mut destination = Vector::<Point2f>::new();
-    for pair in matches {
-        if pair.len() < 2 {
-            continue;
-        }
-        let first = pair.get(0)?;
-        let second = pair.get(1)?;
-        if first.distance >= 0.72 * second.distance {
-            continue;
-        }
-        source.push(reference_keypoints.get(first.query_idx as usize)?.pt());
-        destination.push(keypoints.get(first.train_idx as usize)?.pt());
-    }
+    let (source, destination, coverage) = mutual_correspondences(
+        reference_keypoints,
+        reference_descriptors,
+        keypoints,
+        descriptors,
+    )?;
 
     if source.len() < 8 {
         bail!("insufficient robust feature matches");
@@ -1184,16 +1313,22 @@ fn estimate_reference_transform(
         model => vec![model],
     };
 
-    let mut best: Option<(f64, Estimate)> = None;
+    let mut best = if allow_static && matches!(requested_model, MotionModel::Adaptive) {
+        static_estimate(&source, &destination, coverage)?
+            .map(|estimate| (estimate_objective(&estimate, 0.0), estimate))
+    } else {
+        None
+    };
     for model in models {
-        let estimate = estimate_model(&source, &destination, model)?;
+        let mut estimate = estimate_model(&source, &destination, model)?;
+        estimate.inlier_ratio *= 0.55 + 0.45 * coverage;
         let complexity_penalty = match model {
             MotionModel::Similarity => 0.0,
             MotionModel::Affine => 0.15,
             MotionModel::Projective => 0.35,
             MotionModel::Adaptive => unreachable!(),
         };
-        let objective = estimate.error + complexity_penalty + (1.0 - estimate.inlier_ratio) * 2.0;
+        let objective = estimate_objective(&estimate, complexity_penalty);
         let replace = best
             .as_ref()
             .map(|(current_objective, _)| objective < *current_objective)
@@ -1205,6 +1340,112 @@ fn estimate_reference_transform(
 
     best.map(|(_, estimate)| estimate)
         .context("no motion model could be estimated")
+}
+
+fn estimate_objective(estimate: &Estimate, complexity_penalty: f64) -> f64 {
+    estimate.error + complexity_penalty + (1.0 - estimate.inlier_ratio) * 2.0
+}
+
+fn mutual_correspondences(
+    reference_keypoints: &Vector<KeyPoint>,
+    reference_descriptors: &Mat,
+    keypoints: &Vector<KeyPoint>,
+    descriptors: &Mat,
+) -> Result<(Vector<Point2f>, Vector<Point2f>, f64)> {
+    let matcher = features2d::BFMatcher::create(core::NORM_L2, false)?;
+    let mut forward = Vector::<Vector<DMatch>>::new();
+    let mut reverse = Vector::<Vector<DMatch>>::new();
+    matcher.knn_train_match_def(reference_descriptors, descriptors, &mut forward, 2)?;
+    matcher.knn_train_match_def(descriptors, reference_descriptors, &mut reverse, 2)?;
+
+    let mut reverse_pairs = std::collections::HashSet::new();
+    for pair in reverse {
+        if pair.len() < 2 {
+            continue;
+        }
+        let first = pair.get(0)?;
+        let second = pair.get(1)?;
+        if first.distance < 0.78 * second.distance {
+            reverse_pairs.insert((first.query_idx, first.train_idx));
+        }
+    }
+
+    let mut source = Vector::<Point2f>::new();
+    let mut destination = Vector::<Point2f>::new();
+    for pair in forward {
+        if pair.len() < 2 {
+            continue;
+        }
+        let first = pair.get(0)?;
+        let second = pair.get(1)?;
+        if first.distance >= 0.72 * second.distance
+            || !reverse_pairs.contains(&(first.train_idx, first.query_idx))
+        {
+            continue;
+        }
+        source.push(reference_keypoints.get(first.query_idx as usize)?.pt());
+        destination.push(keypoints.get(first.train_idx as usize)?.pt());
+    }
+    let coverage = match_coverage(reference_keypoints, &source)?;
+    Ok((source, destination, coverage))
+}
+
+fn match_coverage(reference: &Vector<KeyPoint>, matched: &Vector<Point2f>) -> Result<f64> {
+    if reference.is_empty() || matched.is_empty() {
+        return Ok(0.0);
+    }
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for index in 0..reference.len() {
+        let point = reference.get(index)?.pt();
+        min_x = min_x.min(point.x);
+        min_y = min_y.min(point.y);
+        max_x = max_x.max(point.x);
+        max_y = max_y.max(point.y);
+    }
+    let center_x = (min_x + max_x) * 0.5;
+    let center_y = (min_y + max_y) * 0.5;
+    let mut occupied = [false; 4];
+    let mut matched_min_x = f32::INFINITY;
+    let mut matched_min_y = f32::INFINITY;
+    let mut matched_max_x = f32::NEG_INFINITY;
+    let mut matched_max_y = f32::NEG_INFINITY;
+    for point in matched {
+        let index = usize::from(point.x >= center_x) + 2 * usize::from(point.y >= center_y);
+        occupied[index] = true;
+        matched_min_x = matched_min_x.min(point.x);
+        matched_min_y = matched_min_y.min(point.y);
+        matched_max_x = matched_max_x.max(point.x);
+        matched_max_y = matched_max_y.max(point.y);
+    }
+    let quadrants = occupied.into_iter().filter(|value| *value).count() as f64 / 4.0;
+    let horizontal = f64::from((matched_max_x - matched_min_x) / (max_x - min_x).max(1.0));
+    let vertical = f64::from((matched_max_y - matched_min_y) / (max_y - min_y).max(1.0));
+    Ok((0.6 * quadrants + 0.2 * horizontal.min(1.0) + 0.2 * vertical.min(1.0)).clamp(0.0, 1.0))
+}
+
+fn static_estimate(
+    source: &Vector<Point2f>,
+    destination: &Vector<Point2f>,
+    coverage: f64,
+) -> Result<Option<Estimate>> {
+    if coverage < 0.55 {
+        return Ok(None);
+    }
+    let errors = correspondence_errors(source, destination, Mat3::IDENTITY)?;
+    let inliers =
+        errors.iter().filter(|error| **error <= 1.25).count() as f64 / errors.len().max(1) as f64;
+    let error = median(errors);
+    Ok((inliers >= 0.70 && error <= 0.75).then_some(Estimate {
+        matrix: Mat3::IDENTITY,
+        inlier_ratio: inliers * (0.55 + 0.45 * coverage),
+        error,
+        ecc: None,
+        source: "static",
+        static_model: true,
+    }))
 }
 
 fn estimate_model(
@@ -1250,7 +1491,7 @@ fn estimate_model(
     }
 
     let matrix = mat_to_mat3(&initial)?;
-    let error = reprojection_error(source, destination, matrix)?;
+    let error = symmetric_reprojection_error(source, destination, matrix)?;
 
     let inlier_ratio = if inliers.empty() {
         0.0
@@ -1263,6 +1504,8 @@ fn estimate_model(
         inlier_ratio,
         error,
         ecc: None,
+        source: "feature",
+        static_model: false,
     })
 }
 
@@ -1283,35 +1526,14 @@ fn plaque_feature_mask(width: i32, height: i32, plaque: RectF) -> Result<Mat> {
     plaque_feature_mask_for_transform(width, height, plaque, Mat3::IDENTITY)
 }
 
-/// Repairs isolated registration failures without smoothing legitimate camera
-/// acceleration. Each plaque corner is compared with the coordinate-wise
-/// median of a six-frame temporal neighborhood. Only gross impulses are
-/// replaced, and consecutive impulses are interpolated as a block.
-#[allow(clippy::needless_range_loop)]
-fn repair_temporal_outliers(samples: &mut [MotionSample], plaque: RectF) -> usize {
+/// Interpolates low-confidence temporal impulses without altering valid motion.
+pub(crate) fn repair_outliers(samples: &mut [MotionSample], plaque: RectF) -> usize {
     if samples.len() < 5 {
         return 0;
     }
 
-    let source_corners = [
-        crate::model::PointF {
-            x: plaque.x,
-            y: plaque.y,
-        },
-        crate::model::PointF {
-            x: plaque.x + plaque.width,
-            y: plaque.y,
-        },
-        crate::model::PointF {
-            x: plaque.x + plaque.width,
-            y: plaque.y + plaque.height,
-        },
-        crate::model::PointF {
-            x: plaque.x,
-            y: plaque.y + plaque.height,
-        },
-    ];
-    let projected: Vec<[crate::model::PointF; 4]> = samples
+    let source_corners = plaque_corners(plaque);
+    let projected: Vec<[PointF; 4]> = samples
         .iter()
         .map(|sample| source_corners.map(|point| sample.transform.transform(point)))
         .collect();
@@ -1319,10 +1541,10 @@ fn repair_temporal_outliers(samples: &mut [MotionSample], plaque: RectF) -> usiz
     let threshold = plaque
         .width
         .hypot(plaque.height)
-        .mul_add(0.025, 0.0)
-        .clamp(8.0, 24.0);
+        .mul_add(0.015, 0.0)
+        .clamp(5.0, 14.0);
     let mut bad = Vec::new();
-    for index in 0..samples.len() {
+    for (index, sample) in samples.iter().enumerate() {
         let start = index.saturating_sub(3);
         let end = (index + 4).min(samples.len());
         if end - start < 4 {
@@ -1333,12 +1555,12 @@ fn repair_temporal_outliers(samples: &mut [MotionSample], plaque: RectF) -> usiz
         for corner in 0..4 {
             let mut xs = Vec::with_capacity(end - start - 1);
             let mut ys = Vec::with_capacity(end - start - 1);
-            for neighbor in start..end {
+            for (neighbor, points) in projected.iter().enumerate().take(end).skip(start) {
                 if neighbor == index {
                     continue;
                 }
-                xs.push(projected[neighbor][corner].x);
-                ys.push(projected[neighbor][corner].y);
+                xs.push(points[corner].x);
+                ys.push(points[corner].y);
             }
             let expected_x = median(xs);
             let expected_y = median(ys);
@@ -1346,8 +1568,7 @@ fn repair_temporal_outliers(samples: &mut [MotionSample], plaque: RectF) -> usiz
                 .hypot(projected[index][corner].y - expected_y);
         }
         deviation /= 4.0;
-        let trustworthy =
-            samples[index].inlier_ratio >= 0.22 && samples[index].reprojection_error <= 5.0;
+        let trustworthy = sample.inlier_ratio >= 0.22 && sample.reprojection_error <= 5.0;
         if deviation > threshold && !trustworthy {
             bad.push((index, deviation));
         }
@@ -1365,15 +1586,14 @@ fn repair_temporal_outliers(samples: &mut [MotionSample], plaque: RectF) -> usiz
             let left = samples[first - 1].transform;
             let right = samples[last + 1].transform;
             let span = (last - first + 2) as f64;
-            for frame in first..=last {
-                let t = (frame - first + 1) as f64 / span;
-                samples[frame].transform =
+            for (offset, sample) in samples[first..=last].iter_mut().enumerate() {
+                let t = (offset + 1) as f64 / span;
+                sample.transform =
                     interpolate_plaque_transform(plaque, left, right, t).unwrap_or(left);
-                samples[frame].inlier_ratio = 0.0;
-                samples[frame].reprojection_error = samples[frame]
-                    .reprojection_error
-                    .max(bad[group_start + frame - first].1);
-                samples[frame].ecc = None;
+                sample.inlier_ratio = 0.0;
+                sample.reprojection_error =
+                    sample.reprojection_error.max(bad[group_start + offset].1);
+                sample.ecc = None;
             }
         }
         cursor += 1;
@@ -1392,7 +1612,6 @@ fn interpolate_plaque_transform(plaque: RectF, left: Mat3, right: Mat3, t: f64) 
 
 fn should_close_loop(
     mode: LoopClosure,
-    reference: &Mat,
     capture: &mut VideoCapture,
     frame_count: usize,
 ) -> Result<bool> {
@@ -1411,7 +1630,6 @@ fn should_close_loop(
             let mut difference = Mat::default();
             core::absdiff(&first, &last, &mut difference)?;
             let mean = core::mean(&difference, &core::no_array())?.0[0];
-            let _ = reference;
             Ok(mean < 18.0)
         }
     }
@@ -1431,17 +1649,36 @@ fn mat_to_mat3(matrix: &Mat) -> Result<Mat3> {
     Ok(Mat3 { values })
 }
 
-fn reprojection_error(
+fn symmetric_reprojection_error(
     source: &Vector<Point2f>,
     destination: &Vector<Point2f>,
     matrix: Mat3,
 ) -> Result<f64> {
+    let forward = correspondence_errors(source, destination, matrix)?;
+    let inverse = matrix
+        .inverse()
+        .context("estimated transform is singular")?;
+    let reverse = correspondence_errors(destination, source, inverse)?;
+    Ok(median(
+        forward
+            .into_iter()
+            .zip(reverse)
+            .map(|(a, b)| (a + b) * 0.5)
+            .collect(),
+    ))
+}
+
+fn correspondence_errors(
+    source: &Vector<Point2f>,
+    destination: &Vector<Point2f>,
+    matrix: Mat3,
+) -> Result<Vec<f64>> {
     let count = source.len().min(destination.len());
     let mut errors = Vec::with_capacity(count);
     for index in 0..count {
         let source = source.get(index)?;
         let destination = destination.get(index)?;
-        let projected = matrix.transform(crate::model::PointF {
+        let projected = matrix.transform(PointF {
             x: source.x as f64,
             y: source.y as f64,
         });
@@ -1451,29 +1688,11 @@ fn reprojection_error(
             .sqrt(),
         );
     }
-    Ok(median(errors))
+    Ok(errors)
 }
 
 fn draw_diagnostic(mut frame: Mat, plaque: RectF, transform: Mat3) -> Result<Mat> {
-    let corners = [
-        crate::model::PointF {
-            x: plaque.x,
-            y: plaque.y,
-        },
-        crate::model::PointF {
-            x: plaque.x + plaque.width,
-            y: plaque.y,
-        },
-        crate::model::PointF {
-            x: plaque.x + plaque.width,
-            y: plaque.y + plaque.height,
-        },
-        crate::model::PointF {
-            x: plaque.x,
-            y: plaque.y + plaque.height,
-        },
-    ];
-    let transformed = corners.map(|point| transform.transform(point));
+    let transformed = plaque_corners(plaque).map(|point| transform.transform(point));
     let mut contour = Vector::<Point>::new();
     for point in transformed {
         contour.push(Point::new(point.x.round() as i32, point.y.round() as i32));
@@ -1538,8 +1757,8 @@ pub fn median(mut values: Vec<f64>) -> f64 {
 mod tests {
     use super::{
         TrackingResult, apply_human_track, apply_human_visibility_constraints, human_loop_closed,
-        oriented_rect_quad, plaque_feature_mask, plaque_transform_is_valid,
-        reapply_locked_human_constraints, transformed_quad,
+        optimize_trajectory, oriented_rect_quad, plaque_feature_mask, plaque_transform_is_valid,
+        reapply_locked_human_constraints, static_estimate, transformed_quad,
     };
     use crate::{
         cli::LoopClosure,
@@ -1547,7 +1766,10 @@ mod tests {
         metadata::{CoordinateSystem, HumanMotionTrack, MotionKeyframe},
         model::{Mat3, MotionSample, RectF},
     };
-    use opencv::prelude::MatTraitConst;
+    use opencv::{
+        core::{Point2f, Vector},
+        prelude::MatTraitConst,
+    };
 
     #[test]
     fn plaque_feature_mask_uses_border_not_background_or_cavity() {
@@ -1590,6 +1812,59 @@ mod tests {
         assert!((quad.orientation() - 6_400.0).abs() < 1e-6);
         assert!((quad.tl.x - 120.0).abs() < 1e-6);
         assert!((quad.br.x - 280.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn static_model_requires_stationary_well_distributed_matches() {
+        let source = Vector::<Point2f>::from_iter([
+            Point2f::new(10.0, 10.0),
+            Point2f::new(90.0, 10.0),
+            Point2f::new(90.0, 50.0),
+            Point2f::new(10.0, 50.0),
+            Point2f::new(50.0, 10.0),
+            Point2f::new(50.0, 50.0),
+            Point2f::new(10.0, 30.0),
+            Point2f::new(90.0, 30.0),
+        ]);
+        let stationary = source.clone();
+        let moving = Vector::from_iter(
+            source
+                .iter()
+                .map(|point| Point2f::new(point.x + 3.0, point.y)),
+        );
+
+        assert!(
+            static_estimate(&source, &stationary, 1.0)
+                .unwrap()
+                .is_some()
+        );
+        assert!(static_estimate(&source, &moving, 1.0).unwrap().is_none());
+    }
+
+    #[test]
+    fn trajectory_optimizer_reduces_an_isolated_jump() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let mut samples = (0..9)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::translation(if frame == 4 { 8.0 } else { 0.0 }, 0.0),
+                inlier_ratio: if frame == 4 { 0.0 } else { 1.0 },
+                reprojection_error: if frame == 4 { 12.0 } else { 0.0 },
+                ecc: None,
+                plaque_visibility: 1.0,
+                occluder_coverage: 0.0,
+            })
+            .collect::<Vec<_>>();
+
+        optimize_trajectory(&mut samples, plaque, 0, 0.35, false).unwrap();
+
+        assert!(samples[4].transform.values[0][2] < 5.0);
+        assert_eq!(samples[0].transform.values, Mat3::IDENTITY.values);
     }
 
     #[test]

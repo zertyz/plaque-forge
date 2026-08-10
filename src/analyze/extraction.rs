@@ -2,9 +2,14 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use image::{GrayImage, ImageBuffer, Luma, RgbaImage};
+use opencv::{
+    core::{self, Mat, Scalar},
+    prelude::*,
+    video::{self as cv_video, ECCParametersTrait},
+};
 
 use crate::{
-    geometry::{Point, Quad, homography},
+    geometry::{Point, Quad},
     metadata::HumanMotionTrack,
     model::{Mat3, MotionSample, RectF},
     progress::ProgressReporter,
@@ -55,25 +60,47 @@ pub fn recover(
 
     progress.start(5, 7, "Plaque structural lock", Some(info.frames));
     if refine_automatic_track {
-        refine_motion_from_border(
-            ffmpeg,
-            input,
-            info,
-            rect,
-            motion,
-            &median,
-            &structural_mask,
-            local_refinement_radius.max(0),
-            reference_frame,
-            tracking_inertia,
-            loop_closed,
-            progress,
-        )?;
-        regularize_refined_motion(motion, rect, reference_frame, tracking_inertia, loop_closed)?;
-        if let Some(track) = human_track {
-            tracking::reapply_locked_human_constraints(motion, track, rect)?;
+        for pass in 0..2 {
+            refine_motion_from_border(
+                ffmpeg,
+                input,
+                info,
+                rect,
+                motion,
+                &median,
+                &structural_mask,
+                local_refinement_radius.max(0),
+                reference_frame,
+                progress,
+            )?;
+            tracking::repair_outliers(motion, rect);
+            tracking::optimize_trajectory(
+                motion,
+                rect,
+                reference_frame,
+                tracking_inertia,
+                loop_closed,
+            )?;
+            if let Some(track) = human_track {
+                tracking::reapply_locked_human_constraints(motion, track, rect)?;
+            }
+            if pass == 0 {
+                samples = decode_rectified_samples(
+                    ffmpeg,
+                    input,
+                    info,
+                    rect,
+                    motion,
+                    &sample_indices,
+                    progress,
+                )?;
+                let model = robust_median(&samples)?;
+                median = model.0;
+                content_mask = detect_content_cavity(&median);
+                structural_mask = detect_structural_mask(&median, &content_mask, &model.1);
+            }
         }
-        progress.finish("subpixel refinement, smoothing, and human constraints");
+        progress.finish("two-pass structural refinement");
     } else {
         progress.update(
             info.frames,
@@ -316,18 +343,13 @@ fn refine_motion_from_border(
     structural_mask: &[u8],
     radius: i32,
     reference_frame: usize,
-    inertia: f64,
-    loop_closed: bool,
     progress: &mut ProgressReporter,
 ) -> Result<()> {
     let Some(matcher) = StructuralMatcher::new(template, structural_mask) else {
         return Ok(());
     };
-    let width = template.width() as usize;
-    let height = template.height() as usize;
-
     let mut decoder = Decoder::spawn(ffmpeg, input, info)?;
-    let mut corrections = vec![(0.0_f64, 0.0_f64, 1.0_f64); motion.len().min(info.frames)];
+    let mut corrections = vec![Mat3::IDENTITY; motion.len().min(info.frames)];
     for frame_index in 0..motion.len().min(info.frames) {
         let Some(frame) = decoder.next_frame()? else {
             break;
@@ -341,182 +363,44 @@ fn refine_motion_from_border(
             .measure(&current, radius)
             .context("rectified plaque dimensions changed during structural lock")?;
         if result.after + 0.25 < result.before {
-            corrections[frame_index] = (result.dx, result.dy, result.scale);
+            corrections[frame_index] = result.transform;
             motion[frame_index].reprojection_error =
                 motion[frame_index].reprojection_error.min(result.after);
+            motion[frame_index].ecc = result.ecc;
         }
         progress.update(
             frame_index + 1,
-            format!("residual {:.2}px", result.displacement()),
+            format!(
+                "residual {:.2}px",
+                result.displacement(template.width(), template.height())
+            ),
         );
     }
     decoder.finish()?;
 
-    let corrections = regularize_similarity_corrections(
-        &corrections,
-        reference_frame,
-        inertia,
-        loop_closed,
-        width,
-        height,
-    );
-    let cx = rect.x + rect.width * 0.5;
-    let cy = rect.y + rect.height * 0.5;
-    for (sample, &(dx, dy, scale)) in motion.iter_mut().zip(&corrections) {
-        let correction = Mat3::translation(cx, cy)
-            .multiply(Mat3::translation(dx, dy))
-            .multiply(Mat3::scale(scale, scale))
-            .multiply(Mat3::translation(-cx, -cy));
+    if let Some(reference) = corrections.get_mut(reference_frame) {
+        *reference = Mat3::IDENTITY;
+    }
+    for (sample, correction) in motion.iter_mut().zip(corrections) {
+        let correction = Mat3::translation(rect.x, rect.y)
+            .multiply(correction)
+            .multiply(Mat3::translation(-rect.x, -rect.y));
         sample.transform = sample.transform.multiply(correction);
     }
     Ok(())
 }
 
-fn regularize_similarity_corrections(
-    raw: &[(f64, f64, f64)],
-    reference_frame: usize,
-    inertia: f64,
-    loop_closed: bool,
-    width: usize,
-    height: usize,
-) -> Vec<(f64, f64, f64)> {
-    if raw.len() < 3 || inertia <= 0.0 {
-        let mut result = raw.to_vec();
-        if let Some(reference) = result.get_mut(reference_frame) {
-            *reference = (0.0, 0.0, 1.0);
-        }
-        return result;
-    }
-    let half_diagonal = (width as f64).hypot(height as f64) * 0.5;
-    let median_at = |index: usize, component: usize| {
-        let mut values = Vec::with_capacity(5);
-        for offset in -2_i32..=2 {
-            let candidate = index as i32 + offset;
-            let neighbor = if loop_closed {
-                candidate.rem_euclid(raw.len() as i32) as usize
-            } else {
-                candidate.clamp(0, raw.len() as i32 - 1) as usize
-            };
-            let value = match component {
-                0 => raw[neighbor].0,
-                1 => raw[neighbor].1,
-                _ => raw[neighbor].2,
-            };
-            values.push(value);
-        }
-        median_f64(values)
-    };
-    let mut result = Vec::with_capacity(raw.len());
-    for (index, &(dx, dy, scale)) in raw.iter().enumerate() {
-        let median = (
-            median_at(index, 0),
-            median_at(index, 1),
-            median_at(index, 2),
-        );
-        let correction_deviation = (dx - median.0)
-            .hypot(dy - median.1)
-            .hypot((scale - median.2).abs() * half_diagonal);
-        let weight = if correction_deviation > 1.5 {
-            1.0
-        } else {
-            inertia.clamp(0.0, 0.85)
-        };
-        result.push((
-            dx + (median.0 - dx) * weight,
-            dy + (median.1 - dy) * weight,
-            scale + (median.2 - scale) * weight,
-        ));
-    }
-    if let Some(reference) = result.get_mut(reference_frame) {
-        *reference = (0.0, 0.0, 1.0);
-    }
-    result
-}
-
-fn regularize_refined_motion(
-    samples: &mut [MotionSample],
-    plaque: RectF,
-    reference_frame: usize,
-    inertia: f64,
-    loop_closed: bool,
-) -> Result<()> {
-    if samples.len() < 13 || inertia <= 0.0 {
-        return Ok(());
-    }
-
-    let source = Quad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
-    let raw = samples
-        .iter()
-        .map(|sample| transformed_rect(plaque, sample.transform))
-        .collect::<Vec<_>>();
-    let mut smooth = raw.clone();
-    let coefficients = [
-        -11.0, 0.0, 9.0, 16.0, 21.0, 24.0, 25.0, 24.0, 21.0, 16.0, 9.0, 0.0, -11.0,
-    ];
-    let strength = inertia.clamp(0.0, 0.98);
-    for _ in 0..8 {
-        let previous = smooth.clone();
-        for index in 0..previous.len() {
-            let mut coordinates = [[0.0_f64; 2]; 4];
-            for (offset, coefficient) in (-6_i32..=6).zip(coefficients) {
-                let candidate = index as i32 + offset;
-                let neighbor = if loop_closed {
-                    candidate.rem_euclid(previous.len() as i32) as usize
-                } else {
-                    candidate.clamp(0, previous.len() as i32 - 1) as usize
-                };
-                for (corner, point) in previous[neighbor].points().into_iter().enumerate() {
-                    coordinates[corner][0] += coefficient * point.x / 143.0;
-                    coordinates[corner][1] += coefficient * point.y / 143.0;
-                }
-            }
-            let filtered = Quad::new(
-                Point::new(coordinates[0][0], coordinates[0][1]),
-                Point::new(coordinates[1][0], coordinates[1][1]),
-                Point::new(coordinates[2][0], coordinates[2][1]),
-                Point::new(coordinates[3][0], coordinates[3][1]),
-            );
-            let candidate = previous[index].lerp(filtered, strength);
-            if candidate.validate("all-frame smoothed plaque").is_ok() {
-                smooth[index] = candidate;
-            }
-        }
-    }
-
-    let reference_frame = reference_frame.min(samples.len() - 1);
-    let raw_reference = raw[reference_frame].points();
-    let smooth_reference = smooth[reference_frame].points();
-    let offsets = std::array::from_fn::<_, 4, _>(|corner| {
-        Point::new(
-            raw_reference[corner].x - smooth_reference[corner].x,
-            raw_reference[corner].y - smooth_reference[corner].y,
-        )
-    });
-    for (sample, quad) in samples.iter_mut().zip(smooth) {
-        let points = quad.points();
-        let aligned = Quad::new(
-            Point::new(points[0].x + offsets[0].x, points[0].y + offsets[0].y),
-            Point::new(points[1].x + offsets[1].x, points[1].y + offsets[1].y),
-            Point::new(points[2].x + offsets[2].x, points[2].y + offsets[2].y),
-            Point::new(points[3].x + offsets[3].x, points[3].y + offsets[3].y),
-        );
-        aligned.validate("reference-aligned smoothed plaque")?;
-        let matrix = homography(source, aligned)?;
-        sample.transform = Mat3 { values: matrix.m };
-    }
-    Ok(())
-}
-
 pub(crate) struct StructuralRegistration {
-    pub dx: f64,
-    pub dy: f64,
-    pub scale: f64,
+    pub transform: Mat3,
     pub before: f64,
     pub after: f64,
+    pub ecc: Option<f64>,
 }
 
 pub(crate) struct StructuralMatcher {
     template_gray: Vec<u8>,
+    template_mat: Mat,
+    mask_mat: Mat,
     width: usize,
     height: usize,
     stable_points: Vec<(usize, usize)>,
@@ -529,9 +413,15 @@ impl StructuralMatcher {
         if structural_mask.len() != width * height {
             return None;
         }
+        let template_gray = grayscale(template);
         let stable_points = select_structural_points(structural_mask, width, 768);
-        (stable_points.len() >= 80).then(|| Self {
-            template_gray: grayscale(template),
+        if stable_points.len() < 80 {
+            return None;
+        }
+        Some(Self {
+            template_mat: luma_mat(&template_gray, width, height).ok()?,
+            mask_mat: luma_mat(structural_mask, width, height).ok()?,
+            template_gray,
             width,
             height,
             stable_points,
@@ -542,20 +432,87 @@ impl StructuralMatcher {
         if current.width() as usize != self.width || current.height() as usize != self.height {
             return None;
         }
-        Some(search_similarity(
+        let current = grayscale(current);
+        let current_mat = luma_mat(&current, self.width, self.height).ok()?;
+        let similarity = search_similarity(
             &self.template_gray,
-            &grayscale(current),
+            &current,
             self.width,
             self.height,
             &self.stable_points,
             radius,
-        ))
+        );
+        Some(self.refine_ecc(&current, &current_mat, radius, similarity))
+    }
+
+    fn refine_ecc(
+        &self,
+        current: &[u8],
+        current_mat: &Mat,
+        radius: i32,
+        initial: StructuralRegistration,
+    ) -> StructuralRegistration {
+        if radius <= 0 || self.width < 32 || self.height < 32 {
+            return initial;
+        }
+
+        let before = initial.before;
+        let mut best = initial;
+        let mut best_objective = best.after;
+        for (motion, penalty) in [
+            (cv_video::MOTION_AFFINE, 0.12),
+            (cv_video::MOTION_HOMOGRAPHY, 0.30),
+        ] {
+            let Ok(mut warp) = warp_mat(best.transform, motion) else {
+                continue;
+            };
+            let Ok(mut parameters) = cv_video::ECCParameters::default() else {
+                continue;
+            };
+            parameters.set_motion_type(motion);
+            parameters.set_nlevels(3);
+            let Ok(ecc) = cv_video::find_transform_ecc_multi_scale(
+                &self.template_mat,
+                current_mat,
+                &mut warp,
+                &parameters,
+                &self.mask_mat,
+                &core::no_array(),
+            ) else {
+                continue;
+            };
+            let Ok(transform) = mat3_from_warp(&warp) else {
+                continue;
+            };
+            if !valid_correction(transform, self.width, self.height, radius) {
+                continue;
+            }
+            let after = registration_cost(
+                &self.template_gray,
+                current,
+                self.width,
+                self.height,
+                &self.stable_points,
+                transform,
+            );
+            let objective = after + penalty;
+            if objective < best_objective {
+                best_objective = objective;
+                best = StructuralRegistration {
+                    transform,
+                    before,
+                    after,
+                    ecc: Some(ecc),
+                };
+            }
+        }
+        best
     }
 }
 
 impl StructuralRegistration {
-    fn displacement(&self) -> f64 {
-        self.dx.hypot(self.dy)
+    fn displacement(&self, width: u32, height: u32) -> f64 {
+        correction_displacement(self.transform, f64::from(width), f64::from(height))
     }
 }
 
@@ -590,72 +547,144 @@ fn search_similarity(
 ) -> StructuralRegistration {
     let center_x = (width.saturating_sub(1)) as f64 * 0.5;
     let center_y = (height.saturating_sub(1)) as f64 * 0.5;
-    let cost = |dx: f64, dy: f64, scale: f64| -> f64 {
-        let mut errors = Vec::with_capacity(points.len());
-        for &(x, y) in points {
-            let source = template[y * width + x] as f64;
-            let sample_x = center_x + (x as f64 - center_x) * scale + dx;
-            let sample_y = center_y + (y as f64 - center_y) * scale + dy;
-            if let Some(value) = sample_gray(current, width, height, sample_x, sample_y) {
-                errors.push((source - value).abs());
-            }
-        }
-        if errors.len() < points.len() / 3 {
-            f64::INFINITY
-        } else {
-            median_f64(errors)
-        }
+    let transform = |dx: f64, dy: f64, scale: f64| {
+        Mat3::translation(center_x + dx, center_y + dy)
+            .multiply(Mat3::scale(scale, scale))
+            .multiply(Mat3::translation(-center_x, -center_y))
     };
-
-    let before = cost(0.0, 0.0, 1.0);
+    let before = registration_cost(template, current, width, height, points, Mat3::IDENTITY);
     let mut best = StructuralRegistration {
-        dx: 0.0,
-        dy: 0.0,
-        scale: 1.0,
+        transform: Mat3::IDENTITY,
         before,
         after: before,
+        ecc: None,
     };
+    let mut best_parameters = (0.0, 0.0, 1.0);
     let radius = radius.max(0);
     for scale_step in -4..=4 {
         let scale = 1.0 + scale_step as f64 * 0.005;
         for dy in (-radius..=radius).step_by(2) {
             for dx in (-radius..=radius).step_by(2) {
-                let value = cost(dx as f64, dy as f64, scale);
+                let matrix = transform(dx as f64, dy as f64, scale);
+                let value = registration_cost(template, current, width, height, points, matrix);
                 if value < best.after {
                     best = StructuralRegistration {
-                        dx: dx as f64,
-                        dy: dy as f64,
-                        scale,
+                        transform: matrix,
                         before,
                         after: value,
+                        ecc: None,
                     };
+                    best_parameters = (dx as f64, dy as f64, scale);
                 }
             }
         }
     }
-    let coarse_dx = best.dx;
-    let coarse_dy = best.dy;
-    let coarse_scale = best.scale;
+    let (coarse_dx, coarse_dy, coarse_scale) = best_parameters;
     for scale_step in -4..=4 {
         let scale = coarse_scale + scale_step as f64 * 0.001;
         for dy_step in -4..=4 {
             let dy = coarse_dy + dy_step as f64 * 0.25;
             for dx_step in -4..=4 {
                 let dx = coarse_dx + dx_step as f64 * 0.25;
-                let value = cost(dx, dy, scale);
+                let matrix = transform(dx, dy, scale);
+                let value = registration_cost(template, current, width, height, points, matrix);
                 if value < best.after {
                     best = StructuralRegistration {
-                        dx,
-                        dy,
-                        scale,
+                        transform: matrix,
                         before,
                         after: value,
+                        ecc: None,
                     };
                 }
             }
         }
     }
     best
+}
+
+fn registration_cost(
+    template: &[u8],
+    current: &[u8],
+    width: usize,
+    height: usize,
+    points: &[(usize, usize)],
+    transform: Mat3,
+) -> f64 {
+    let mut errors = Vec::with_capacity(points.len());
+    for &(x, y) in points {
+        let mapped = transform.transform(crate::model::PointF {
+            x: x as f64,
+            y: y as f64,
+        });
+        if let Some(value) = sample_gray(current, width, height, mapped.x, mapped.y) {
+            errors.push((template[y * width + x] as f64 - value).abs());
+        }
+    }
+    if errors.len() < points.len() / 3 {
+        f64::INFINITY
+    } else {
+        median_f64(errors)
+    }
+}
+
+fn luma_mat(data: &[u8], width: usize, height: usize) -> Result<Mat> {
+    if data.len() != width * height {
+        bail!("invalid luma buffer dimensions");
+    }
+    let mut mat = Mat::new_rows_cols_with_default(
+        height as i32,
+        width as i32,
+        core::CV_8UC1,
+        Scalar::all(0.0),
+    )?;
+    mat.data_bytes_mut()?.copy_from_slice(data);
+    Ok(mat)
+}
+
+fn warp_mat(transform: Mat3, motion: i32) -> Result<Mat> {
+    if motion == cv_video::MOTION_HOMOGRAPHY {
+        Ok(Mat::from_slice_2d(
+            &transform.values.map(|row| row.map(|value| value as f32)),
+        )?)
+    } else {
+        Ok(Mat::from_slice_2d(&[
+            transform.values[0].map(|value| value as f32),
+            transform.values[1].map(|value| value as f32),
+        ])?)
+    }
+}
+
+fn mat3_from_warp(warp: &Mat) -> Result<Mat3> {
+    let mut values = Mat3::IDENTITY.values;
+    for row in 0..warp.rows() {
+        for column in 0..warp.cols() {
+            values[row as usize][column as usize] = if warp.typ() == core::CV_32F {
+                f64::from(*warp.at_2d::<f32>(row, column)?)
+            } else {
+                *warp.at_2d::<f64>(row, column)?
+            };
+        }
+    }
+    Ok(Mat3 { values })
+}
+
+fn valid_correction(transform: Mat3, width: usize, height: usize, radius: i32) -> bool {
+    if transform.inverse().is_none() {
+        return false;
+    }
+    let maximum = f64::from(radius.max(0)) * 1.75 + 2.0;
+    correction_displacement(transform, width as f64, height as f64) <= maximum
+}
+
+fn correction_displacement(transform: Mat3, width: f64, height: f64) -> f64 {
+    [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+        .into_iter()
+        .map(|(x, y)| {
+            let mapped = transform.transform(crate::model::PointF { x, y });
+            (mapped.x - x).hypot(mapped.y - y)
+        })
+        .sum::<f64>()
+        / 4.0
 }
 
 fn sample_gray(data: &[u8], width: usize, height: usize, x: f64, y: f64) -> Option<f64> {
@@ -769,54 +798,7 @@ fn save_luma_png(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        regularize_refined_motion, regularize_similarity_corrections, structural_area_score,
-        transformed_rect,
-    };
-    use crate::model::{Mat3, MotionSample, RectF};
-
-    #[test]
-    fn correction_regularization_removes_an_isolated_scale_translation_spike() {
-        let mut corrections = vec![(0.25, -0.25, 1.001); 9];
-        corrections[4] = (8.0, -7.0, 1.03);
-
-        let regularized = regularize_similarity_corrections(&corrections, 0, 0.35, false, 458, 268);
-
-        assert_eq!(regularized[0], (0.0, 0.0, 1.0));
-        assert!((regularized[4].0 - 0.25).abs() < 1.0e-9);
-        assert!((regularized[4].1 + 0.25).abs() < 1.0e-9);
-        assert!((regularized[4].2 - 1.001).abs() < 1.0e-9);
-    }
-
-    #[test]
-    fn all_frame_regularization_removes_frame_to_frame_motion_bounce() {
-        let rect = RectF {
-            x: 10.0,
-            y: 20.0,
-            width: 100.0,
-            height: 50.0,
-        };
-        let mut samples = (0..25)
-            .map(|frame| MotionSample {
-                frame,
-                transform: Mat3::translation(frame as f64 + (frame % 2) as f64 * 4.0, 0.0),
-                inlier_ratio: 1.0,
-                reprojection_error: 0.0,
-                ecc: Some(1.0),
-                plaque_visibility: 1.0,
-                occluder_coverage: 0.0,
-            })
-            .collect::<Vec<_>>();
-
-        regularize_refined_motion(&mut samples, rect, 0, 0.35, false).unwrap();
-
-        for frame in 1..samples.len() - 1 {
-            let before = transformed_rect(rect, samples[frame - 1].transform).tl.x;
-            let current = transformed_rect(rect, samples[frame].transform).tl.x;
-            let after = transformed_rect(rect, samples[frame + 1].transform).tl.x;
-            assert!((current - (before + after) * 0.5).abs() < 0.2);
-        }
-    }
+    use super::structural_area_score;
 
     #[test]
     fn structureless_candidate_has_zero_confidence() {

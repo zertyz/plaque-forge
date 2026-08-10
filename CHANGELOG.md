@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Improved automatic plaque selection and stabilized static, affine, and projective tracking.
 - Added detector-populated TOML sidecars with commented alternatives, portable prompts, and layer declarations.
 - Added mixed guided and locked human motion constraints, dense authoritative track import, and guided-by-default title-pack track export.
 - Added human-input provenance and semantic cache invalidation in title-pack format 4.
