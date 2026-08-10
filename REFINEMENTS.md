@@ -115,4 +115,6 @@ plaque-forge segment \
   --force
 ```
 
+`--force` replaces that layer only after the new segmentation succeeds.
+
 Available backends are `sam2-vitmatte`, `cutie-vitmatte`, `sam2-cutie-vitmatte`, and `matanyone2`.

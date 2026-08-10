@@ -554,6 +554,14 @@ def write_output(request, output, probabilities, version):
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
 
+def remove_owned_directory(root, path):
+    root = root.resolve()
+    path = path.resolve()
+    if path == root or root not in path.parents:
+        raise RuntimeError(f"refusing to delete path outside {root}: {path}")
+    shutil.rmtree(path)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--request", type=Path, required=True)
@@ -589,11 +597,11 @@ def main():
         )
 
     if frame_dir.exists():
-        shutil.rmtree(frame_dir)
+        remove_owned_directory(args.output, frame_dir)
     write_output(request, args.output, probabilities, version)
     cache_root = args.output / ".worker-cache"
     if cache_root.exists():
-        shutil.rmtree(cache_root)
+        remove_owned_directory(args.output, cache_root)
 
 
 if __name__ == "__main__":

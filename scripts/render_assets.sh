@@ -1,45 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
-font="${FONT:-$(fc-match -f '%{file}\n' 'DejaVu Sans' | head -n 1)}"
-text="${TITLE_TEXT:-Analises desta 3a. feira, 1 de Agosto}"
-stage="$(mktemp -d /tmp/plaque-forge-render.XXXXXX)"
-trap 'rm -rf "$stage"' EXIT
+# Replaces only the selected output/*.hevc.mkv files.
+source "$(dirname "$0")/render_common.sh"
+pf_configure "$@"
 
-cd "$root"
-cargo build --release
-rm -rf assets/analysis output
-mkdir -p assets/analysis output
+cd "$PF_ROOT"
+cargo build --release --quiet
+mkdir -p output
 
-if (( $# )); then
-  cases=("$@")
-else
-  cases=()
-  for input in assets/*.mp4; do
-    cases+=("$(basename "$input" .mp4)")
-  done
-fi
+stage="$(mktemp -d "$PF_ROOT/output/.plaque-forge-render.XXXXXX")"
+cleanup() {
+  # This path is created by mktemp above and contains only this run's intermediates.
+  if [[ "$stage" == "$PF_ROOT"/output/.plaque-forge-render.* ]]; then
+    rm -rf -- "$stage"
+  fi
+}
+trap cleanup EXIT
 
-for name in "${cases[@]}"; do
+encoder_args=(
+  --encoder-arg=-c:v --encoder-arg=libx265
+  --encoder-arg=-preset --encoder-arg=medium
+  --encoder-arg=-crf --encoder-arg=20
+  --encoder-arg=-pix_fmt --encoder-arg=yuv420p
+  --encoder-arg=-c:a --encoder-arg=copy
+  --encoder-arg=-shortest
+)
+
+for name in "${PF_CASES[@]}"; do
   input="assets/$name.mp4"
-  lossless="$stage/$name.mkv"
+  staged="$stage/$name.hevc.mkv"
   final="output/$name.hevc.mkv"
 
-  target/release/plaque-forge render \
-    --input "$input" --output "$lossless" \
-    --text "$text" --font "$font" --reanalyze --progress always
-
-  if [[ -c /dev/dri/renderD128 ]]; then
-    ffmpeg -hide_banner -loglevel warning -vaapi_device /dev/dri/renderD128 \
-      -i "$lossless" -map 0:v:0 -map '0:a:0?' -vf 'format=nv12,hwupload' \
-      -c:v hevc_vaapi -preset veryslow -qp 26 -c:a copy -y "$final"
-  else
-    ffmpeg -hide_banner -loglevel warning -i "$lossless" \
-      -map 0:v:0 -map '0:a:0?' -c:v libx265 -preset medium -crf 20 \
-      -pix_fmt yuv420p -c:a copy -y "$final"
+  if [[ ! -f "$input" ]]; then
+    printf 'input video not found: %s\n' "$input" >&2
+    exit 1
   fi
-
-  cp "${lossless%.mkv}.verification.json" "output/$name.verification.json"
+  target/release/plaque-forge render \
+    --input "$input" --output "$staged" \
+    "${PF_RENDER_OPTIONS[@]}" "${encoder_args[@]}" --progress always
+  mv -f -- "$staged" "$final"
   printf '%s\n' "$final"
 done

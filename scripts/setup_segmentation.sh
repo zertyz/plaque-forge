@@ -3,13 +3,29 @@ set -euo pipefail
 
 root="/tmp/plaque-forge-python"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+reinstall=false
 
-if [[ -f "$root/.complete" && -x "$root/venv/bin/python" ]]; then
+if (( $# > 1 )) || { (( $# == 1 )) && [[ "$1" != --reinstall ]]; }; then
+  printf 'usage: %s [--reinstall]\n' "$0" >&2
+  exit 2
+fi
+if [[ "${1:-}" == --reinstall ]]; then
+  reinstall=true
+fi
+
+if [[ "$reinstall" == false && -f "$root/.complete" && -x "$root/venv/bin/python" ]]; then
   printf 'already installed: %s\n' "$root"
   exit 0
 fi
 
-rm -rf "$root"
+if [[ -e "$root" ]]; then
+  if [[ "$reinstall" == false ]]; then
+    printf 'incomplete Python environment: %s\nrerun with --reinstall to delete and replace it\n' "$root" >&2
+    exit 1
+  fi
+  printf 'deleting Python environment for explicit reinstall: %s\n' "$root" >&2
+  rm -rf -- "$root"
+fi
 mkdir -p "$root"/{bin,cache,config,data,home,python,src,tmp}
 export HOME="$root/home"
 export XDG_CACHE_HOME="$root/cache/xdg"

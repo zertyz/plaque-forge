@@ -187,7 +187,7 @@ pub fn extract(
     if !has_occluder {
         // Candidate masks remain visible in diagnostics, but are not allowed to
         // contaminate rendering when temporal evidence is weak.
-        let _ = fs::remove_dir_all(&masks_dir);
+        crate::staged_output::remove_child(output_root, &masks_dir)?;
         for sample in motion.iter_mut() {
             sample.occluder_coverage = 0.0;
         }

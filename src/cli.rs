@@ -19,7 +19,7 @@ pub enum Command {
     ExportMotion(ExportMotionArgs),
     /// Generate a declared refinement layer with an external segmentation worker.
     Segment(SegmentArgs),
-    /// Analyze when needed, render, and verify the result.
+    /// Render from an existing analysis cache.
     Render(Box<RenderArgs>),
     /// Verify an existing rendered video.
     Verify(VerifyArgs),
@@ -34,6 +34,7 @@ pub struct RefineArgs {
     #[arg(long)]
     pub output: Option<PathBuf>,
 
+    /// Replace the refinement file if it already exists.
     #[arg(long)]
     pub force: bool,
 
@@ -69,6 +70,7 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub diagnostics: Option<PathBuf>,
 
+    /// Delete and replace the existing analysis output after a successful rebuild.
     #[arg(long)]
     pub force: bool,
 
@@ -116,6 +118,7 @@ pub struct ExportMotionArgs {
     #[arg(long)]
     pub plaque: Option<String>,
 
+    /// Replace the motion refinement file if it already exists.
     #[arg(long)]
     pub force: bool,
 
@@ -155,6 +158,7 @@ pub struct SegmentArgs {
     #[arg(long)]
     pub output: Option<PathBuf>,
 
+    /// Delete and replace the existing segmentation output after a successful run.
     #[arg(long)]
     pub force: bool,
 
@@ -167,7 +171,7 @@ pub struct RenderArgs {
     #[arg(long)]
     pub input: PathBuf,
 
-    /// Defaults to output/<source>.mkv.
+    /// Rendered video. Replaces an existing file. Defaults to output/<source>.mkv.
     #[arg(long)]
     pub output: Option<PathBuf>,
 
@@ -236,12 +240,6 @@ pub struct RenderArgs {
     #[arg(long, value_enum, default_value_t = VerticalAlign::Center)]
     pub vertical_align: VerticalAlign,
 
-    #[arg(long)]
-    pub reanalyze: bool,
-
-    #[arg(long)]
-    pub skip_verify: bool,
-
     #[arg(long = "encoder-arg", allow_hyphen_values = true)]
     pub encoder_args: Vec<String>,
 
@@ -260,7 +258,10 @@ pub struct RenderArgs {
 
 #[derive(Debug)]
 pub struct ComposeArgs {
+    pub input: PathBuf,
     pub analysis: PathBuf,
+    pub refinement: Option<PathBuf>,
+    pub plaque: Option<String>,
     pub text: Option<String>,
     pub text_file: Option<PathBuf>,
     pub font: PathBuf,
@@ -298,6 +299,7 @@ pub struct VerifyArgs {
     #[arg(long)]
     pub original: Option<PathBuf>,
 
+    /// Verification report. Replaces an existing file.
     #[arg(long)]
     pub report: Option<PathBuf>,
 
@@ -321,35 +323,12 @@ pub struct VerifyArgs {
 }
 
 impl RenderArgs {
-    pub fn as_analyze_args(&self, output: PathBuf) -> AnalyzeArgs {
-        AnalyzeArgs {
-            input: self.input.clone(),
-            output: Some(output),
-            refinement: self.refinement.clone(),
-            plaque: self.plaque.clone(),
-            minimum_analysis_confidence: 0.70,
-            allow_low_confidence: false,
-            diagnostics: self.diagnostics.clone(),
-            force: self.reanalyze,
-            progress: self.progress,
-            progress_interval_ms: self.progress_interval_ms,
-            ffmpeg: self.ffmpeg.clone(),
-            ffprobe: self.ffprobe.clone(),
-            plaque_hint: None,
-            plaque_frame: None,
-            anchor_interval: 24,
-            tracking_inertia: 0.35,
-            candidate_samples: 24,
-            extraction_samples: 72,
-            local_refinement_radius: 12,
-            occlusion_sensitivity: 1.0,
-            disable_occlusion: false,
-        }
-    }
-
     pub fn as_compose_args(&self, analysis: PathBuf, output: PathBuf) -> ComposeArgs {
         ComposeArgs {
+            input: self.input.clone(),
             analysis,
+            refinement: self.refinement.clone(),
+            plaque: self.plaque.clone(),
             text: self.text.clone(),
             text_file: self.text_file.clone(),
             font: self.font.clone(),
@@ -370,21 +349,6 @@ impl RenderArgs {
             text_align: self.text_align,
             vertical_align: self.vertical_align,
             encoder_args: self.encoder_args.clone(),
-            progress: self.progress,
-            progress_interval_ms: self.progress_interval_ms,
-            ffmpeg: self.ffmpeg.clone(),
-            ffprobe: self.ffprobe.clone(),
-        }
-    }
-
-    pub fn as_verify_args(&self, analysis: PathBuf, output: PathBuf) -> VerifyArgs {
-        VerifyArgs {
-            analysis,
-            rendered: output.clone(),
-            original: Some(self.input.clone()),
-            report: Some(output.with_extension("verification.json")),
-            diagnostics: self.diagnostics.clone(),
-            minimum_score: 0.95,
             progress: self.progress,
             progress_interval_ms: self.progress_interval_ms,
             ffmpeg: self.ffmpeg.clone(),

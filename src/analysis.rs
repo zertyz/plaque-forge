@@ -205,11 +205,11 @@ impl Analysis {
     }
 
     pub fn require_current_analyzer(&self) -> Result<()> {
-        if self.manifest.analyzer_build != crate::build_info::SOURCE_FINGERPRINT {
+        if self.manifest.analyzer_build != crate::build_info::ANALYZER_CACHE_VERSION {
             bail!(
-                "analysis was produced by source build {}; current build is {}\nhelp: re-run analyze or render --reanalyze",
+                "analysis was produced by analyzer {}; current analyzer is {}\nhelp: rebuild it explicitly with `plaque-forge analyze --force`",
                 self.manifest.analyzer_build,
-                crate::build_info::SOURCE_FINGERPRINT
+                crate::build_info::ANALYZER_CACHE_VERSION
             );
         }
         Ok(())
@@ -230,22 +230,4 @@ pub fn sequence_path(pattern: &Path, frame: usize) -> PathBuf {
             .to_string_lossy()
             .replace("%06d", &format!("{frame:06}")),
     )
-}
-
-pub fn is_analysis(path: &Path) -> bool {
-    let manifest_path = path.join(MANIFEST_FILE);
-    let Ok(text) = fs::read_to_string(manifest_path) else {
-        return false;
-    };
-    let Ok(manifest) = toml::from_str::<AnalysisManifest>(&text) else {
-        return false;
-    };
-    manifest.schema_version == ANALYSIS_SCHEMA_VERSION
-        && manifest.status == AnalysisStatus::Complete
-        && manifest.source_is_text_free
-        && manifest.analyzer_build == crate::build_info::SOURCE_FINGERPRINT
-        && path.join(MOTION_FILE).is_file()
-        && path.join(CONTENT_MASK_FILE).is_file()
-        && path.join(STRUCTURAL_MASK_FILE).is_file()
-        && path.join(STRUCTURAL_TEMPLATE_FILE).is_file()
 }

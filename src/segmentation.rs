@@ -124,12 +124,19 @@ pub fn run(args: SegmentArgs) -> Result<()> {
             .and_then(|path| path.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| workspace::layer_path(&refinement_path, &layer.id))
     });
-    prepare_output(&output, args.force)?;
-    let partial = partial_path(&output);
-    if partial.exists() {
-        fs::remove_dir_all(&partial)?;
+    if output.exists() && !args.force {
+        bail!(
+            "segmentation output already exists: {}\nhelp: use --force to delete and replace it after a successful run",
+            output.display()
+        );
     }
-    fs::create_dir_all(&partial)?;
+    if output.exists() {
+        eprintln!(
+            "replacing segmentation after successful run: {}",
+            output.display()
+        );
+    }
+    let partial = crate::staged_output::create(&output)?;
 
     let request = WorkerRequest {
         schema_version: WORKER_PROTOCOL_VERSION,
@@ -178,10 +185,9 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         );
     }
     validate_worker_output(&partial, &args.backend, &args.model, &info)?;
-    fs::remove_file(&request_path)?;
-    fs::remove_file(partial.join("result.json"))?;
-    fs::rename(&partial, &output)
-        .with_context(|| format!("failed to commit segmentation bundle {}", output.display()))?;
+    crate::staged_output::remove_child(&partial, &request_path)?;
+    crate::staged_output::remove_child(&partial, &partial.join("result.json"))?;
+    crate::staged_output::commit(&partial, &output, args.force)?;
     println!("layer artifact: {}", output.join("artifact.toml").display());
     Ok(())
 }
@@ -259,27 +265,4 @@ fn ensure_same_file(left: &Path, right: &Path) -> Result<()> {
         );
     }
     Ok(())
-}
-
-fn prepare_output(output: &Path, force: bool) -> Result<()> {
-    if !output.exists() {
-        return Ok(());
-    }
-    if !force {
-        bail!("segmentation output already exists: {}", output.display());
-    }
-    if output.is_dir() {
-        fs::remove_dir_all(output)?;
-    } else {
-        fs::remove_file(output)?;
-    }
-    Ok(())
-}
-
-fn partial_path(output: &Path) -> std::path::PathBuf {
-    let name = output
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("segmentation");
-    output.with_file_name(format!("{name}.partial-{}", std::process::id()))
 }

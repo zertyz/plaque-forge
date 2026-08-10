@@ -38,7 +38,13 @@ pub struct RenderManifest {
 pub fn run(args: ComposeArgs) -> Result<()> {
     let mut progress = ProgressReporter::new(args.progress, args.progress_interval_ms);
     progress.start(1, 3, "Open analysis and validate source", None);
-    let pack = Analysis::open(&args.analysis)?;
+    let pack = Analysis::open(&args.analysis).with_context(|| {
+        format!(
+            "analysis cache is unavailable: {}\nhelp: create it explicitly with `plaque-forge analyze --input {}`",
+            args.analysis.display(),
+            args.input.display()
+        )
+    })?;
     pack.require_current_analyzer()?;
     if !pack.manifest.analysis_gate_passed {
         eprintln!("warning: this analysis was accepted below the confidence threshold");
@@ -50,20 +56,34 @@ pub fn run(args: ComposeArgs) -> Result<()> {
         (None, None) => bail!("provide --text or --text-file"),
         (Some(_), Some(_)) => unreachable!(),
     };
-    let source = pack.source_path();
-    if !source.is_file() {
-        bail!(
-            "analysis source video does not exist: {}\nhelp: restore it or re-run analyze",
-            source.display()
-        );
+    if !args.input.is_file() {
+        bail!("input video does not exist: {}", args.input.display());
     }
-    let current_sha = video::sha256(&source)?;
+    let current_sha = video::sha256(&args.input)?;
     if current_sha != pack.manifest.source.sha256 {
         bail!(
-            "source video differs from the file used for analysis: {}\nhelp: re-run analyze or render --reanalyze",
-            source.display()
+            "input video differs from the file used for analysis: {}\nhelp: rebuild the cache explicitly with `plaque-forge analyze --input {} --force`",
+            args.input.display(),
+            args.input.display()
         );
     }
+    let current_refinement = crate::refinement::current_refinement_provenance(
+        &args.input,
+        args.refinement.as_deref(),
+        args.plaque.as_deref(),
+    )?;
+    let refinements_match = match (&pack.manifest.refinements, &current_refinement) {
+        (None, None) => true,
+        (Some(cached), Some(current)) => cached.content_matches(current),
+        _ => false,
+    };
+    if !refinements_match {
+        bail!(
+            "analysis cache does not include the current refinements\nhelp: rebuild it explicitly with `plaque-forge analyze --input {} --force`",
+            args.input.display()
+        );
+    }
+    let source = args.input;
     let info = video::probe(&args.ffprobe, &source)?;
     let mask = load_luma(
         &pack.require_asset(CONTENT_MASK_FILE)?,

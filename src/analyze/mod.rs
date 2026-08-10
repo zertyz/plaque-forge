@@ -3,10 +3,7 @@ pub(crate) mod extraction;
 mod occlusion;
 mod tracking;
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 
@@ -72,33 +69,19 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         .clone()
         .map(Ok)
         .unwrap_or_else(|| workspace::analysis_path(&args.input))?;
+    if output.exists() && !args.force {
+        bail!(
+            "analysis output already exists: {}\nhelp: use --force to delete and replace it after a successful rebuild",
+            output.display()
+        );
+    }
     if output.exists() {
-        if !args.force {
-            bail!(
-                "analysis output already exists: {}\nhelp: use --force or render --reanalyze",
-                output.display()
-            );
-        }
-        if output.is_dir() {
-            fs::remove_dir_all(&output)
-                .with_context(|| format!("failed to remove old analysis {}", output.display()))?;
-        } else {
-            fs::remove_file(&output)
-                .with_context(|| format!("failed to remove old output {}", output.display()))?;
-        }
+        eprintln!(
+            "replacing analysis after successful rebuild: {}",
+            output.display()
+        );
     }
-
-    let partial = partial_path(&output);
-    if partial.exists() {
-        fs::remove_dir_all(&partial).with_context(|| {
-            format!(
-                "failed to remove stale partial analysis {}",
-                partial.display()
-            )
-        })?;
-    }
-    fs::create_dir_all(&partial)
-        .with_context(|| format!("failed to create partial analysis {}", partial.display()))?;
+    let partial = crate::staged_output::create(&output)?;
 
     let diagnostics = match &args.diagnostics {
         Some(path) => path.clone(),
@@ -299,11 +282,11 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         if authoritative_foreground {
             occlusion.has_occluder = false;
             if automatic_exclusions.is_dir() {
-                fs::remove_dir_all(&automatic_exclusions)?;
+                crate::staged_output::remove_child(&partial, &automatic_exclusions)?;
             }
         }
         if has_refinement_exclusions {
-            fs::remove_dir_all(&combined_exclusions)?;
+            crate::staged_output::remove_child(&partial, &combined_exclusions)?;
         }
         if args.disable_occlusion
             && let Some(refinement_track) = &refinements.motion_track
@@ -406,7 +389,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             schema_version: ANALYSIS_SCHEMA_VERSION,
             status: AnalysisStatus::Complete,
             source_is_text_free: true,
-            analyzer_build: crate::build_info::SOURCE_FINGERPRINT.to_string(),
+            analyzer_build: crate::build_info::ANALYZER_CACHE_VERSION.to_string(),
             source: SourceInfo {
                 path: relative_reference(&output.join("manifest.toml"), &args.input)?,
                 sha256: source_sha256.clone(),
@@ -449,13 +432,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     };
 
     drop(pack);
-    fs::rename(&partial, &output).with_context(|| {
-        format!(
-            "analysis succeeded but could not be committed from {} to {}",
-            partial.display(),
-            output.display()
-        )
-    })?;
+    crate::staged_output::commit(&partial, &output, args.force)?;
     let pack = Analysis::open(&output)?;
     println!("analysis: {}", pack.root.display());
     println!(
@@ -660,14 +637,6 @@ fn quad_bounds(quad: [[f64; 2]; 4]) -> [f64; 4] {
         .map(|point| point[1])
         .fold(f64::NEG_INFINITY, f64::max);
     [min_x, min_y, max_x - min_x, max_y - min_y]
-}
-
-fn partial_path(output: &std::path::Path) -> PathBuf {
-    let name = output
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("analysis.analysis");
-    output.with_file_name(format!("{name}.partial-{}", std::process::id()))
 }
 
 fn geometric_mean(values: &[f64]) -> f64 {
