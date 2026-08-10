@@ -8,6 +8,7 @@ use crate::{
     cli::VerifyArgs,
     color::Rgba,
     image_io::{load_luma, load_rgba},
+    layers::{ForegroundReader, merge_mask},
     model::{MotionSample, RectF},
     progress::ProgressReporter,
     render::RenderMetadata,
@@ -128,6 +129,8 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     )?;
     let structural_template = load_rgba(&pack.require_asset(STRUCTURAL_TEMPLATE_FILE)?)?;
     let structural_matcher = StructuralMatcher::new(&structural_template, &structural_mask);
+    let foregrounds = ForegroundReader::open(&pack)?;
+    let has_any_occluder = pack.manifest.has_occluder || !foregrounds.is_empty();
     progress.finish("dimensions, timing, metadata and masks are valid");
 
     progress.start(2, 2, "Verify every frame", Some(original_info.frames));
@@ -217,45 +220,51 @@ pub fn run(args: VerifyArgs) -> Result<()> {
                 structural_count += 3;
             }
         }
-        let frame_tracking_score = if sample.plaque_visibility >= 0.5 {
-            let alignment = structural_edge_alignment(
-                &original_canonical,
-                &structural_template,
-                &structural_mask,
-            );
-            structural_alignment_sum += alignment;
-            structural_alignment_count += 1;
-            let correction = structural_matcher
-                .as_ref()
-                .and_then(|matcher| matcher.measure(&original_canonical, 4))
-                .map(|registration| {
-                    if registration.after + 0.25 < registration.before {
-                        registration_correction_pixels(
-                            &registration,
-                            original_canonical.width(),
-                            original_canonical.height(),
-                        )
-                    } else {
-                        0.0
-                    }
-                })
-                .unwrap_or(f64::INFINITY);
-            maximum_tracking_correction = maximum_tracking_correction.max(correction);
-            let score = tracking_lock_score(correction, alignment);
-            tracking_score_sum += score;
-            if score < worst_tracking.1 {
-                worst_tracking = (frame_index, score);
-                worst_tracking_preview = Some((
-                    original_frame.clone(),
-                    transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
-                ));
-            }
-            score
-        } else {
-            1.0
-        };
+        let frame_tracking_score =
+            if sample.plaque_visibility >= 0.5 && sample.occluder_coverage < 0.04 {
+                let alignment = structural_edge_alignment(
+                    &original_canonical,
+                    &structural_template,
+                    &structural_mask,
+                );
+                structural_alignment_sum += alignment;
+                structural_alignment_count += 1;
+                let correction = match &structural_matcher {
+                    Some(matcher) => matcher
+                        .measure(&original_canonical, 4)
+                        .map(|registration| {
+                            if registration.after + 0.25 < registration.before {
+                                registration_correction_pixels(
+                                    &registration,
+                                    original_canonical.width(),
+                                    original_canonical.height(),
+                                )
+                            } else {
+                                0.0
+                            }
+                        })
+                        .unwrap_or(0.0),
+                    None => f64::INFINITY,
+                };
+                maximum_tracking_correction = maximum_tracking_correction.max(correction);
+                let score = tracking_lock_score(correction, alignment);
+                tracking_score_sum += score;
+                if score < worst_tracking.1 {
+                    worst_tracking = (frame_index, score);
+                    worst_tracking_preview = Some((
+                        original_frame.clone(),
+                        transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+                    ));
+                }
+                score
+            } else {
+                1.0
+            };
 
-        let canonical_occluder = if pack.manifest.has_occluder {
+        let mut source_occluder = foregrounds
+            .frame_mask(frame_index, sample.transform)?
+            .unwrap_or_default();
+        if pack.manifest.has_occluder {
             let path = pack
                 .root
                 .join(OCCLUDER_DIR)
@@ -266,38 +275,38 @@ pub fn run(args: VerifyArgs) -> Result<()> {
                     mask.width() == original_info.width && mask.height() == original_info.height,
                     "occluder mask dimensions differ from source at frame {frame_index}"
                 );
-                for ((&alpha, source), rendered) in mask
-                    .as_raw()
-                    .iter()
-                    .zip(original_frame.pixels().chunks_exact(4))
-                    .zip(rendered_frame.pixels().chunks_exact(4))
-                {
-                    if alpha >= 250 {
-                        occlusion_error += (0..3)
-                            .map(|channel| source[channel].abs_diff(rendered[channel]) as u64)
-                            .sum::<u64>();
-                        occlusion_count += 3;
-                    }
-                }
-                let full_mask = Surface::from_alpha_mask(
-                    original_info.width,
-                    original_info.height,
-                    mask.as_raw(),
-                    Rgba::new(255, 255, 255, 255),
-                )?;
-                Some(
-                    rectify(
-                        &full_mask,
-                        pack.manifest.source_plaque_rect,
-                        sample.transform,
-                    )?
-                    .alpha_mask(),
-                )
-            } else {
-                None
+                merge_mask(&mut source_occluder, mask.as_raw());
             }
-        } else {
+        }
+        for ((&alpha, source), rendered) in source_occluder
+            .iter()
+            .zip(original_frame.pixels().chunks_exact(4))
+            .zip(rendered_frame.pixels().chunks_exact(4))
+        {
+            if alpha >= 250 {
+                occlusion_error += (0..3)
+                    .map(|channel| source[channel].abs_diff(rendered[channel]) as u64)
+                    .sum::<u64>();
+                occlusion_count += 3;
+            }
+        }
+        let canonical_occluder = if source_occluder.is_empty() {
             None
+        } else {
+            let full_mask = Surface::from_alpha_mask(
+                original_info.width,
+                original_info.height,
+                &source_occluder,
+                Rgba::new(255, 255, 255, 255),
+            )?;
+            Some(
+                rectify(
+                    &full_mask,
+                    pack.manifest.source_plaque_rect,
+                    sample.transform,
+                )?
+                .alpha_mask(),
+            )
         };
 
         let rendered_canonical = rectify(
@@ -403,11 +412,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     );
     let temporal_stability = trajectory.temporal_score;
     let occlusion_restore = if occlusion_count == 0 {
-        if pack.manifest.has_occluder {
-            0.40
-        } else {
-            1.0
-        }
+        if has_any_occluder { 0.40 } else { 1.0 }
     } else {
         (-(occlusion_error as f64 / occlusion_count as f64) / 1.5)
             .exp()

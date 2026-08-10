@@ -17,12 +17,53 @@ pub enum Command {
     Analyze(AnalyzeArgs),
     /// Export a title-pack trajectory as an editable motion track.
     ExportTrack(ExportTrackArgs),
+    /// Run an external segmentation worker for a declared layer.
+    Segment(SegmentArgs),
     /// Render new typography using an existing title-pack.
     Render(RenderArgs),
     /// Compare a rendered video with the source and issue sanity scores and remedies.
     Verify(VerifyArgs),
     /// Convenience command: analyze if needed, render, then verify.
     Replace(Box<ReplaceArgs>),
+}
+
+#[derive(Debug, Args)]
+pub struct SegmentArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+
+    #[arg(long)]
+    pub metadata: PathBuf,
+
+    #[arg(long)]
+    pub plaque: Option<String>,
+
+    #[arg(long)]
+    pub layer: String,
+
+    /// Executable implementing the Plaque Forge segmentation-worker protocol.
+    #[arg(long)]
+    pub worker: PathBuf,
+
+    /// Worker backend, for example sam2-cutie-vitmatte or matanyone2.
+    #[arg(long)]
+    pub backend: String,
+
+    #[arg(long)]
+    pub model: String,
+
+    #[arg(long, default_value = "auto")]
+    pub device: String,
+
+    /// Worker bundle directory containing artifact.toml and its masks.
+    #[arg(long)]
+    pub output: PathBuf,
+
+    #[arg(long)]
+    pub force: bool,
+
+    #[arg(long, default_value = "ffprobe")]
+    pub ffprobe: PathBuf,
 }
 
 #[derive(Debug, Args)]

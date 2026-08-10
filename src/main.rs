@@ -9,11 +9,13 @@ mod cli;
 mod color;
 mod geometry;
 mod image_io;
+mod layers;
 mod metadata;
 mod metadata_commands;
 mod model;
 mod progress;
 mod render;
+mod segmentation;
 mod surface;
 mod titlepack;
 mod verify;
@@ -40,6 +42,7 @@ fn run() -> Result<()> {
         Command::Init(args) => metadata_commands::init(args),
         Command::Analyze(args) => analyze::run(args),
         Command::ExportTrack(args) => metadata_commands::export_track(args),
+        Command::Segment(args) => segmentation::run(args),
         Command::Render(args) => render::run(args),
         Command::Verify(args) => verify::run(args),
         Command::Replace(args) => {

@@ -46,18 +46,16 @@ pub fn extract(
     // is therefore the canonical plaque appearance; no synthetic blanking is done.
     let model = extraction.median.pixels();
     let mut decoder = Decoder::spawn(ffmpeg, input, info)?;
-    let mut coverages = Vec::with_capacity(info.frames);
-    let mut content_coverages = Vec::with_capacity(info.frames);
     let mut structural_scores = Vec::with_capacity(info.frames);
-    let mut previous: Option<Vec<u8>> = None;
-    let mut temporal_agreement = Vec::new();
+    let mut residuals = Vec::with_capacity(info.frames);
+    let mut canonical_masks = Vec::with_capacity(info.frames);
     let structural_guard = dilate(&extraction.structural_mask, width, height, 4);
 
-    for frame_index in 0..info.frames.min(motion.len()) {
+    for (frame_index, sample) in motion.iter().take(info.frames).enumerate() {
         let Some(frame) = decoder.next_frame()? else {
             break;
         };
-        let transform = motion[frame_index].transform;
+        let transform = sample.transform;
         let rectified = rectify(&frame, rect, transform)?;
         let structural_score = structural_match_score(
             rectified.pixels(),
@@ -67,8 +65,8 @@ pub fn extract(
             height,
         );
         structural_scores.push(structural_score.max(tracking_presence(
-            motion[frame_index].inlier_ratio,
-            motion[frame_index].reprojection_error,
+            sample.inlier_ratio,
+            sample.reprojection_error,
         )));
         let mut residual = vec![0u8; width * height];
         for (pixel, residual_value) in residual.iter_mut().enumerate() {
@@ -96,22 +94,36 @@ pub fn extract(
         }
         let selected =
             select_foreground_components(&residual, &extraction.content_mask, width, height);
-        let softened = blur_mask(&selected, width, height, 3);
-        if let Some(prev) = &previous
-            && let Some(iou) = mask_iou(prev, &softened)
+        let candidate_coverage = selected.iter().filter(|&&value| value > 0).count() as f64
+            / selected.len().max(1) as f64;
+        residuals.push(residual);
+        canonical_masks.push(selected);
+        progress.update(
+            frame_index + 1,
+            format!("candidate coverage {:.3}%", candidate_coverage * 100.0),
+        );
+    }
+    decoder.finish()?;
+
+    let canonical_masks = recover_temporal_details(&canonical_masks, &residuals, width, height);
+    let mut coverages = Vec::with_capacity(canonical_masks.len());
+    let mut content_coverages = Vec::with_capacity(canonical_masks.len());
+    let mut temporal_agreement = Vec::new();
+    let content_weight = extraction
+        .content_mask
+        .iter()
+        .map(|&value| value as f64 / 255.0)
+        .sum::<f64>()
+        .max(1.0);
+    for (frame_index, softened) in canonical_masks.iter().enumerate() {
+        if frame_index > 0
+            && let Some(iou) = mask_iou(&canonical_masks[frame_index - 1], softened)
         {
             temporal_agreement.push(iou);
         }
-        previous = Some(softened.clone());
         coverages.push(
             softened.iter().map(|&v| v as f64 / 255.0).sum::<f64>() / softened.len().max(1) as f64,
         );
-        let content_weight = extraction
-            .content_mask
-            .iter()
-            .map(|&value| value as f64 / 255.0)
-            .sum::<f64>()
-            .max(1.0);
         let content_coverage = softened
             .iter()
             .zip(&extraction.content_mask)
@@ -124,26 +136,22 @@ pub fn extract(
         let canonical = Surface::from_alpha_mask(
             width as u32,
             height as u32,
-            &softened,
+            softened,
             Rgba::new(255, 255, 255, 255),
         )?;
         let mut full = Surface::new(info.width, info.height);
-        full.warp_blend(&canonical, transformed_rect(rect, transform), 1.0)?;
+        full.warp_blend(
+            &canonical,
+            transformed_rect(rect, motion[frame_index].transform),
+            1.0,
+        )?;
         save_luma(
             info.width,
             info.height,
             &full.alpha_mask(),
             &masks_dir.join(format!("{frame_index:06}.png")),
         )?;
-        progress.update(
-            frame_index + 1,
-            format!(
-                "candidate coverage {:.3}%",
-                coverages.last().copied().unwrap_or(0.0) * 100.0
-            ),
-        );
     }
-    decoder.finish()?;
 
     let max_coverage = coverages.iter().copied().fold(0.0, f64::max);
     let mean_coverage = mean(&coverages);
@@ -423,6 +431,44 @@ fn neighbors(x: usize, y: usize, w: usize, h: usize) -> impl Iterator<Item = (us
     }
     v.into_iter()
 }
+
+fn recover_temporal_details(
+    selected: &[Vec<u8>],
+    residuals: &[Vec<u8>],
+    width: usize,
+    height: usize,
+) -> Vec<Vec<u8>> {
+    selected
+        .iter()
+        .enumerate()
+        .map(|(frame, current)| {
+            let mut support = vec![0_u8; current.len()];
+            for neighbor in [
+                frame.checked_sub(1),
+                (frame + 1 < selected.len()).then_some(frame + 1),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let expanded = dilate(&selected[neighbor], width, height, 6);
+                for (value, candidate) in support.iter_mut().zip(expanded) {
+                    *value = (*value).max(candidate);
+                }
+            }
+            let residual = residuals.get(frame).map(Vec::as_slice).unwrap_or(&[]);
+            let mut recovered = current.clone();
+            for ((value, &candidate), &supported) in
+                recovered.iter_mut().zip(residual).zip(&support)
+            {
+                if candidate > 0 && supported > 0 {
+                    *value = 255;
+                }
+            }
+            blur_mask(&morph_close(&recovered, width, height, 1), width, height, 2)
+        })
+        .collect()
+}
+
 fn morph_open(src: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
     dilate(&erode(src, w, h, r), w, h, r)
 }
@@ -518,8 +564,8 @@ fn save_luma(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_occluder, mask_iou, select_foreground_components, smooth_visibility,
-        structural_match_score, tracking_presence,
+        classify_occluder, mask_iou, recover_temporal_details, select_foreground_components,
+        smooth_visibility, structural_match_score, tracking_presence,
     };
 
     fn cavity(width: usize, height: usize) -> Vec<u8> {
@@ -598,6 +644,28 @@ mod tests {
         assert!(classify_occluder(0.29, 0.42, 0.60, 0.058));
         assert!(!classify_occluder(0.29, 0.01, 0.60, 0.50));
         assert!(!classify_occluder(0.29, 0.42, 0.02, 0.50));
+    }
+
+    #[test]
+    fn temporal_support_recovers_thin_connected_detail() {
+        let (width, height) = (40, 20);
+        let mut selected = vec![vec![0_u8; width * height]; 3];
+        let mut residuals = selected.clone();
+        for frame in 0..3 {
+            for y in 6..14 {
+                for x in 10 + frame..18 + frame {
+                    selected[frame][y * width + x] = 255;
+                    residuals[frame][y * width + x] = 255;
+                }
+            }
+        }
+        for x in 18..25 {
+            residuals[1][10 * width + x] = 255;
+        }
+
+        let recovered = recover_temporal_details(&selected, &residuals, width, height);
+
+        assert!(recovered[1][10 * width + 22] > 0);
     }
 
     #[test]

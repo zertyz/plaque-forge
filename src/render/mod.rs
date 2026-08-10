@@ -10,6 +10,7 @@ use crate::{
     analyze::extraction::transformed_rect,
     cli::RenderArgs,
     image_io::load_luma,
+    layers::{ForegroundReader, merge_mask},
     model::TypographyMetrics,
     progress::ProgressReporter,
     titlepack::{CONTENT_MASK_FILE, OCCLUDER_DIR, TitlePack},
@@ -27,6 +28,8 @@ pub struct RenderMetadata {
     pub typography: TypographyMetrics,
     pub frames: usize,
     pub used_occluder_masks: bool,
+    #[serde(default)]
+    pub human_foreground_layers: usize,
     pub source_sha256: String,
     pub canonical_text_mask: String,
     #[serde(default)]
@@ -145,6 +148,13 @@ pub fn run(args: RenderArgs) -> Result<()> {
     let mut encoder = Encoder::spawn(&args.ffmpeg, source, &args.output, &info, &encoder_args)?;
     let masks_dir = pack.root.join(OCCLUDER_DIR);
     let use_masks = pack.manifest.has_occluder && masks_dir.is_dir();
+    let foregrounds = ForegroundReader::open(&pack)?;
+    let human_foreground_layers = pack
+        .manifest
+        .layers
+        .iter()
+        .filter(|layer| layer.role == crate::metadata::LayerRole::Foreground)
+        .count();
     let mut frame_index = 0usize;
     let diagnostic_indices = evenly_spaced(info.frames, 12);
     let mut diagnostic_frames = Vec::with_capacity(diagnostic_indices.len());
@@ -169,12 +179,20 @@ pub fn run(args: RenderArgs) -> Result<()> {
             transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
             sample.plaque_visibility.clamp(0.0, 1.0) as f32,
         )?;
+        let mut restore = foregrounds
+            .frame_mask(frame_index, sample.transform)?
+            .unwrap_or_default();
         if use_masks {
             let path = masks_dir.join(format!("{frame_index:06}.png"));
             if path.exists() {
-                let restore = load_full_luma(&path, info.width, info.height)?;
-                frame.restore_from_mask(&original, &restore)?;
+                merge_mask(
+                    &mut restore,
+                    &load_full_luma(&path, info.width, info.height)?,
+                );
             }
+        }
+        if !restore.is_empty() {
+            frame.restore_from_mask(&original, &restore)?;
         }
         if diagnostic_indices
             .get(diagnostic_frames.len())
@@ -223,7 +241,8 @@ pub fn run(args: RenderArgs) -> Result<()> {
         analyzer_build: pack.manifest.analyzer_build.clone(),
         typography: text_render.metrics,
         frames: frame_index,
-        used_occluder_masks: use_masks,
+        used_occluder_masks: use_masks || !foregrounds.is_empty(),
+        human_foreground_layers,
         source_sha256: pack.manifest.source.sha256.clone(),
         canonical_text_mask: canonical_text_mask_path
             .canonicalize()

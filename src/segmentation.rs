@@ -1,0 +1,278 @@
+use std::{fs, path::Path, process::Command};
+
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    cli::SegmentArgs,
+    metadata::{
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, SourceMetadata,
+        resolve_relative,
+    },
+    video,
+};
+
+const WORKER_PROTOCOL_VERSION: u32 = 1;
+
+#[derive(Serialize)]
+struct WorkerRequest {
+    schema_version: u32,
+    backend: String,
+    model: String,
+    device: String,
+    source: WorkerSource,
+    plaque: WorkerPlaque,
+    layer: WorkerLayer,
+}
+
+#[derive(Serialize)]
+struct WorkerSource {
+    path: std::path::PathBuf,
+    sha256: String,
+    width: u32,
+    height: u32,
+    fps: f64,
+    frames: usize,
+}
+
+#[derive(Serialize)]
+struct WorkerPlaque {
+    id: String,
+    reference_frame: Option<usize>,
+    bounds: Option<[f64; 4]>,
+    motion_track: Option<std::path::PathBuf>,
+}
+
+#[derive(Serialize)]
+struct WorkerLayer {
+    id: String,
+    role: LayerRole,
+    affects_layout: bool,
+    active_frames: Option<[usize; 2]>,
+    prompts: Vec<crate::metadata::SegmentationPrompt>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkerResult {
+    schema_version: u32,
+    backend: String,
+    model: String,
+    version: String,
+    frames: usize,
+    mean_confidence: f64,
+    minimum_confidence: f64,
+}
+
+pub fn run(args: SegmentArgs) -> Result<()> {
+    if !args.input.is_file() {
+        bail!("input video does not exist: {}", args.input.display());
+    }
+    if !args.worker.is_file() {
+        bail!(
+            "segmentation worker does not exist: {}",
+            args.worker.display()
+        );
+    }
+    let metadata = SourceMetadata::load(&args.metadata)?;
+    let declared_source = resolve_relative(&args.metadata, &metadata.source);
+    ensure_same_file(&declared_source, &args.input)?;
+    let plaque = metadata.select_plaque(args.plaque.as_deref())?;
+    let layer = metadata
+        .layers
+        .iter()
+        .find(|layer| layer.id == args.layer && layer.plaque == plaque.id)
+        .with_context(|| {
+            format!(
+                "metadata does not declare layer {:?} for plaque {:?}",
+                args.layer, plaque.id
+            )
+        })?;
+    if layer.prompts.is_empty() {
+        bail!("layer {:?} has no segmentation prompts", layer.id);
+    }
+
+    let info = video::probe(&args.ffprobe, &args.input)?;
+    for prompt in &layer.prompts {
+        if prompt.frame >= info.frames {
+            bail!(
+                "layer {:?} prompt frame {} exceeds the {}-frame source",
+                layer.id,
+                prompt.frame,
+                info.frames
+            );
+        }
+    }
+    if let Some([_, last]) = layer.active_frames
+        && last >= info.frames
+    {
+        bail!(
+            "layer {:?} active_frames exceed the {}-frame source",
+            layer.id,
+            info.frames
+        );
+    }
+    prepare_output(&args.output, args.force)?;
+    let partial = partial_path(&args.output);
+    if partial.exists() {
+        fs::remove_dir_all(&partial)?;
+    }
+    fs::create_dir_all(&partial)?;
+
+    let request = WorkerRequest {
+        schema_version: WORKER_PROTOCOL_VERSION,
+        backend: args.backend.clone(),
+        model: args.model.clone(),
+        device: args.device,
+        source: WorkerSource {
+            path: args.input.canonicalize().unwrap_or(args.input.clone()),
+            sha256: video::sha256(&args.input)?,
+            width: info.width,
+            height: info.height,
+            fps: info.fps,
+            frames: info.frames,
+        },
+        plaque: WorkerPlaque {
+            id: plaque.id.clone(),
+            reference_frame: plaque.reference_frame,
+            bounds: plaque.bounds,
+            motion_track: plaque
+                .motion_track
+                .as_ref()
+                .map(|path| resolve_relative(&args.metadata, path)),
+        },
+        layer: WorkerLayer {
+            id: layer.id.clone(),
+            role: layer.role,
+            affects_layout: layer.affects_layout,
+            active_frames: layer.active_frames,
+            prompts: layer.prompts.clone(),
+        },
+    };
+    let request_path = partial.join("request.json");
+    fs::write(&request_path, serde_json::to_vec_pretty(&request)?)?;
+
+    let status = Command::new(&args.worker)
+        .arg("--request")
+        .arg(&request_path)
+        .arg("--output")
+        .arg(&partial)
+        .status()
+        .with_context(|| format!("failed to start worker {}", args.worker.display()))?;
+    if !status.success() {
+        bail!(
+            "segmentation worker exited with {status}; partial output retained at {}",
+            partial.display()
+        );
+    }
+    validate_worker_output(&partial, &args.backend, &args.model, &info)?;
+    fs::rename(&partial, &args.output).with_context(|| {
+        format!(
+            "failed to commit segmentation bundle {}",
+            args.output.display()
+        )
+    })?;
+    println!(
+        "layer artifact: {}",
+        args.output.join("artifact.toml").display()
+    );
+    Ok(())
+}
+
+fn validate_worker_output(
+    root: &Path,
+    backend: &str,
+    model: &str,
+    info: &video::VideoInfo,
+) -> Result<()> {
+    let result_path = root.join("result.json");
+    let result: WorkerResult = serde_json::from_slice(
+        &fs::read(&result_path)
+            .with_context(|| format!("worker did not create {}", result_path.display()))?,
+    )?;
+    if result.schema_version != WORKER_PROTOCOL_VERSION
+        || result.backend != backend
+        || result.model != model
+        || result.version.trim().is_empty()
+        || result.frames != info.frames
+        || ![result.mean_confidence, result.minimum_confidence]
+            .iter()
+            .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+    {
+        bail!("worker result.json does not match the request or source");
+    }
+    let artifact_path = root.join("artifact.toml");
+    let artifact = LayerArtifact::load(&artifact_path)?;
+    if artifact.kind != LayerArtifactKind::AlphaSequence
+        || artifact.coordinates != LayerCoordinates::SourcePixels
+        || artifact.first_frame != Some(0)
+        || artifact.last_frame != Some(info.frames.saturating_sub(1))
+    {
+        bail!("segmentation worker must produce a complete source-pixel alpha sequence");
+    }
+    let generator = artifact
+        .generator
+        .as_ref()
+        .context("worker artifact is missing generator provenance")?;
+    if generator.backend != backend
+        || generator.model != model
+        || generator.version != result.version
+    {
+        bail!("artifact generator provenance differs from result.json");
+    }
+    for path in artifact.referenced_paths(&artifact_path) {
+        let image = image::open(&path)
+            .with_context(|| format!("failed to load worker mask {}", path.display()))?;
+        if image.width() != info.width || image.height() != info.height {
+            bail!(
+                "worker mask {} is {}x{}, expected {}x{}",
+                path.display(),
+                image.width(),
+                image.height(),
+                info.width,
+                info.height
+            );
+        }
+    }
+    Ok(())
+}
+
+fn ensure_same_file(left: &Path, right: &Path) -> Result<()> {
+    let left = left
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", left.display()))?;
+    let right = right
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", right.display()))?;
+    if left != right {
+        bail!(
+            "metadata source {} differs from input {}",
+            left.display(),
+            right.display()
+        );
+    }
+    Ok(())
+}
+
+fn prepare_output(output: &Path, force: bool) -> Result<()> {
+    if !output.exists() {
+        return Ok(());
+    }
+    if !force {
+        bail!("segmentation output already exists: {}", output.display());
+    }
+    if output.is_dir() {
+        fs::remove_dir_all(output)?;
+    } else {
+        fs::remove_file(output)?;
+    }
+    Ok(())
+}
+
+fn partial_path(output: &Path) -> std::path::PathBuf {
+    let name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("segmentation");
+    output.with_file_name(format!("{name}.partial-{}", std::process::id()))
+}

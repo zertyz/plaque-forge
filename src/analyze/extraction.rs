@@ -359,9 +359,10 @@ fn refine_motion_from_border(
             continue;
         }
         let current = rectify(&frame, rect, motion[frame_index].transform)?;
-        let result = matcher
-            .measure(&current, radius)
-            .context("rectified plaque dimensions changed during structural lock")?;
+        let Some(result) = matcher.measure(&current, radius) else {
+            progress.update(frame_index + 1, "foreground-contaminated evidence rejected");
+            continue;
+        };
         if result.after + 0.25 < result.before {
             corrections[frame_index] = result.transform;
             motion[frame_index].reprojection_error =
@@ -400,10 +401,9 @@ pub(crate) struct StructuralRegistration {
 pub(crate) struct StructuralMatcher {
     template_gray: Vec<u8>,
     template_mat: Mat,
-    mask_mat: Mat,
+    structural_mask: Vec<u8>,
     width: usize,
     height: usize,
-    stable_points: Vec<(usize, usize)>,
 }
 
 impl StructuralMatcher {
@@ -420,11 +420,10 @@ impl StructuralMatcher {
         }
         Some(Self {
             template_mat: luma_mat(&template_gray, width, height).ok()?,
-            mask_mat: luma_mat(structural_mask, width, height).ok()?,
+            structural_mask: structural_mask.to_vec(),
             template_gray,
             width,
             height,
-            stable_points,
         })
     }
 
@@ -434,21 +433,53 @@ impl StructuralMatcher {
         }
         let current = grayscale(current);
         let current_mat = luma_mat(&current, self.width, self.height).ok()?;
+        let initial_points = select_structural_points(&self.structural_mask, self.width, 768);
+        let initial = search_similarity(
+            &self.template_gray,
+            &current,
+            self.width,
+            self.height,
+            &initial_points,
+            radius,
+        );
+        let visible_mask = visible_structural_mask(
+            &self.template_gray,
+            &current,
+            &self.structural_mask,
+            self.width,
+            self.height,
+            initial.transform,
+            radius.clamp(2, 8),
+        );
+        let stable_points = select_structural_points(&visible_mask, self.width, 768);
+        if !spatially_balanced(&stable_points, self.width, self.height) {
+            return None;
+        }
+        let mask_mat = luma_mat(&visible_mask, self.width, self.height).ok()?;
         let similarity = search_similarity(
             &self.template_gray,
             &current,
             self.width,
             self.height,
-            &self.stable_points,
+            &stable_points,
             radius,
         );
-        Some(self.refine_ecc(&current, &current_mat, radius, similarity))
+        Some(self.refine_ecc(
+            &current,
+            &current_mat,
+            &stable_points,
+            &mask_mat,
+            radius,
+            similarity,
+        ))
     }
 
     fn refine_ecc(
         &self,
         current: &[u8],
         current_mat: &Mat,
+        stable_points: &[(usize, usize)],
+        mask_mat: &Mat,
         radius: i32,
         initial: StructuralRegistration,
     ) -> StructuralRegistration {
@@ -476,7 +507,7 @@ impl StructuralMatcher {
                 current_mat,
                 &mut warp,
                 &parameters,
-                &self.mask_mat,
+                mask_mat,
                 &core::no_array(),
             ) else {
                 continue;
@@ -492,7 +523,7 @@ impl StructuralMatcher {
                 current,
                 self.width,
                 self.height,
-                &self.stable_points,
+                stable_points,
                 transform,
             );
             let objective = after + penalty;
@@ -535,6 +566,98 @@ fn select_structural_points(mask: &[u8], width: usize, maximum: usize) -> Vec<(u
         .step_by(stride)
         .take(maximum)
         .collect()
+}
+
+fn visible_structural_mask(
+    template: &[u8],
+    current: &[u8],
+    structural: &[u8],
+    width: usize,
+    height: usize,
+    alignment: Mat3,
+    search_radius: i32,
+) -> Vec<u8> {
+    let mut visible = vec![0_u8; structural.len()];
+    if template.len() != structural.len()
+        || current.len() != structural.len()
+        || width < 3
+        || height < 3
+    {
+        return visible;
+    }
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            let index = y * width + x;
+            if structural[index] <= 96 {
+                continue;
+            }
+            let mapped = alignment.transform(crate::model::PointF {
+                x: x as f64,
+                y: y as f64,
+            });
+            let tx = template[index + 1] as f64 - template[index - 1] as f64;
+            let ty = template[index + width] as f64 - template[index - width] as f64;
+            let template_gradient = tx.hypot(ty);
+            'search: for dy in -search_radius..=search_radius {
+                for dx in -search_radius..=search_radius {
+                    let sample_x = (mapped.x + f64::from(dx)).round();
+                    let sample_y = (mapped.y + f64::from(dy)).round();
+                    let Some(center) = sample_gray(current, width, height, sample_x, sample_y)
+                    else {
+                        continue;
+                    };
+                    let Some(left) = sample_gray(current, width, height, sample_x - 1.0, sample_y)
+                    else {
+                        continue;
+                    };
+                    let Some(right) = sample_gray(current, width, height, sample_x + 1.0, sample_y)
+                    else {
+                        continue;
+                    };
+                    let Some(top) = sample_gray(current, width, height, sample_x, sample_y - 1.0)
+                    else {
+                        continue;
+                    };
+                    let Some(bottom) =
+                        sample_gray(current, width, height, sample_x, sample_y + 1.0)
+                    else {
+                        continue;
+                    };
+                    let cx = right - left;
+                    let cy = bottom - top;
+                    let current_gradient = cx.hypot(cy);
+                    let direction =
+                        (tx * cx + ty * cy) / (template_gradient * current_gradient).max(1.0);
+                    let ratio = current_gradient / template_gradient.max(1.0);
+                    let photometric_match = (template[index] as f64 - center).abs() <= 42.0;
+                    let edge_match = direction >= 0.55 && (0.25..=4.0).contains(&ratio);
+                    if photometric_match || edge_match {
+                        visible[index] = structural[index];
+                        break 'search;
+                    }
+                }
+            }
+        }
+    }
+    visible
+}
+
+fn spatially_balanced(points: &[(usize, usize)], width: usize, height: usize) -> bool {
+    if points.len() < 48 || width == 0 || height == 0 {
+        return false;
+    }
+    let min_x = points.iter().map(|point| point.0).min().unwrap_or(width);
+    let max_x = points.iter().map(|point| point.0).max().unwrap_or(0);
+    let min_y = points.iter().map(|point| point.1).min().unwrap_or(height);
+    let max_y = points.iter().map(|point| point.1).max().unwrap_or(0);
+    if max_x.saturating_sub(min_x) * 2 < width || max_y.saturating_sub(min_y) * 3 < height {
+        return false;
+    }
+    let mut quadrants = [0_usize; 4];
+    for &(x, y) in points {
+        quadrants[usize::from(x >= width / 2) + usize::from(y >= height / 2) * 2] += 1;
+    }
+    quadrants.iter().filter(|&&count| count >= 12).count() >= 3
 }
 
 fn search_similarity(
@@ -798,12 +921,47 @@ fn save_luma_png(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::structural_area_score;
+    use super::{spatially_balanced, structural_area_score, visible_structural_mask};
+    use crate::model::Mat3;
 
     #[test]
     fn structureless_candidate_has_zero_confidence() {
         assert_eq!(structural_area_score(0.0), 0.0);
         assert_eq!(structural_area_score(0.0009), 0.0);
         assert!(structural_area_score(0.003) > 0.99);
+    }
+
+    #[test]
+    fn foreground_pixels_are_removed_from_structural_evidence() {
+        let (width, height) = (40, 20);
+        let template = vec![180_u8; width * height];
+        let mut current = template.clone();
+        let structural = vec![255_u8; width * height];
+        for y in 2..18 {
+            for x in 10..30 {
+                current[y * width + x] = 0;
+            }
+        }
+
+        let visible = visible_structural_mask(
+            &template,
+            &current,
+            &structural,
+            width,
+            height,
+            Mat3::IDENTITY,
+            4,
+        );
+
+        assert_eq!(visible[10 * width + 20], 0);
+        assert_eq!(visible[10 * width + 3], 255);
+    }
+
+    #[test]
+    fn one_sided_evidence_is_not_spatially_balanced() {
+        let one_side = (0..100)
+            .map(|index| (index % 10, index / 10))
+            .collect::<Vec<_>>();
+        assert!(!spatially_balanced(&one_side, 100, 40));
     }
 }

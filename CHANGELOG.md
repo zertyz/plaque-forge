@@ -5,10 +5,13 @@
 - Improved automatic plaque selection and stabilized static, affine, and projective tracking.
 - Added detector-populated TOML sidecars with commented alternatives, portable prompts, and layer declarations.
 - Added mixed guided and locked human motion constraints, dense authoritative track import, and guided-by-default title-pack track export.
-- Added human-input provenance and semantic cache invalidation in title-pack format 4.
+- Added human-input provenance and semantic cache invalidation in title-pack format 5.
 - Included explicit plaque bounds and legacy CSV contents in cache identity.
 - Preserved authored visibility after occlusion analysis and honored loop-closure overrides for human tracks.
 - Made track export inherit the analyzed plaque id by default.
+- Added canonical and per-frame human foreground masks plus external segmentation workers.
+- Excluded foreground-contaminated evidence from tracking and bridged occluded intervals.
+- Preserved soft foreground and shadow alpha, with authored layers overriding heuristic occlusion.
 
 ## 0.3.0
 

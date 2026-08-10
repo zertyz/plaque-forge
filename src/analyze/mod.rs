@@ -12,20 +12,23 @@ use anyhow::{Context, Result, bail};
 
 use crate::{
     cli::AnalyzeArgs,
+    layers::{self, LayerInput},
     metadata::{
-        HumanInputProvenance, HumanMotionTrack, find_source_metadata, resolve_relative,
-        semantic_provenance,
+        HumanInputProvenance, HumanMotionTrack, find_source_metadata, layer_artifact_provenance,
+        resolve_relative, selected_layer_artifacts, semantic_provenance,
     },
     model::AnalysisConfidence,
     progress::ProgressReporter,
     titlepack::{
-        CURRENT_FORMAT_VERSION, MOTION_FILE, PackStatus, SourceInfo, TitlePack, TitlePackManifest,
+        CURRENT_FORMAT_VERSION, MOTION_FILE, OCCLUDER_DIR, PackStatus, SourceInfo, TitlePack,
+        TitlePackManifest,
     },
     video,
 };
 
 struct HumanAnalysisInputs {
     motion_track: Option<HumanMotionTrack>,
+    layers: Vec<LayerInput>,
     provenance: Option<HumanInputProvenance>,
 }
 
@@ -155,7 +158,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             track
         };
 
-        let extraction = extraction::recover(
+        let mut extraction = extraction::recover(
             &args.ffmpeg,
             &args.input,
             &info,
@@ -175,7 +178,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         .context("canonical plaque structure analysis failed")?;
 
         progress.start(7, 7, "Analyze foreground occlusion", Some(info.frames));
-        let occlusion = if args.disable_occlusion {
+        let mut occlusion = if args.disable_occlusion {
             occlusion::OcclusionResult {
                 has_occluder: false,
                 confidence: 0.80,
@@ -198,6 +201,120 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             )
             .context("foreground occlusion extraction failed")?
         };
+        let automatic_exclusions = partial.join(OCCLUDER_DIR);
+        let combined_exclusions = partial.join("tracking-exclusions");
+        let authoritative_foreground = layers::has_authored_foreground(&human_inputs.layers);
+        let empty_exclusions = partial.join("no-automatic-exclusions");
+        let automatic_tracking_exclusions = if authoritative_foreground {
+            &empty_exclusions
+        } else {
+            &automatic_exclusions
+        };
+        let has_human_exclusions = layers::build_tracking_exclusions(
+            &human_inputs.layers,
+            automatic_tracking_exclusions,
+            &combined_exclusions,
+            info.width,
+            info.height,
+            info.frames,
+        )
+        .context("failed to combine human and automatic tracking exclusions")?;
+        let tracking_exclusions = if has_human_exclusions {
+            &combined_exclusions
+        } else if authoritative_foreground {
+            &empty_exclusions
+        } else {
+            &automatic_exclusions
+        };
+        let stabilized_frames = if !args.disable_occlusion
+            && args.track_csv.is_none()
+            && !human_inputs.has_dense_locked_track(info.frames)
+            && (has_human_exclusions || (!authoritative_foreground && occlusion.has_occluder))
+        {
+            let mut refined = tracking::retrack_masked(
+                &args,
+                &info,
+                candidate.rect,
+                track.reference_frame,
+                &diagnostics,
+                &mut progress,
+                tracking_exclusions,
+            )
+            .context("failed to retrack the plaque with foreground masks")?;
+            if let Some(human_track) = &human_inputs.motion_track {
+                tracking::apply_human_track(
+                    &mut refined,
+                    human_track,
+                    candidate.rect,
+                    args.loop_closure,
+                )?;
+            }
+            for (sample, previous) in refined.samples.iter_mut().zip(&track.samples) {
+                sample.occluder_coverage = previous.occluder_coverage;
+            }
+            track = tracking::select_masked_refinement(track, refined);
+            let repaired = tracking::stabilize_occluded_intervals(
+                &mut track.samples,
+                candidate.rect,
+                track.reference_frame,
+            );
+            if let Some(human_track) = &human_inputs.motion_track {
+                tracking::reapply_locked_human_constraints(
+                    &mut track.samples,
+                    human_track,
+                    candidate.rect,
+                )?;
+            }
+            track
+                .model_name
+                .push_str(&format!("-occlusion-bridge-{repaired}"));
+            extraction = extraction::recover(
+                &args.ffmpeg,
+                &args.input,
+                &info,
+                candidate.rect,
+                &mut track.samples,
+                &partial,
+                &diagnostics,
+                args.extraction_samples,
+                args.local_refinement_radius,
+                false,
+                human_inputs.motion_track.as_ref(),
+                track.reference_frame,
+                args.tracking_inertia,
+                track.loop_closed,
+                &mut progress,
+            )
+            .context("failed to rebuild the plaque model after masked tracking")?;
+            progress.start(7, 7, "Rebuild foreground occlusion", Some(info.frames));
+            occlusion = occlusion::extract(
+                &args.ffmpeg,
+                &args.input,
+                &info,
+                candidate.rect,
+                &mut track.samples,
+                &extraction,
+                &partial,
+                &diagnostics,
+                args.occlusion_sensitivity,
+                track.loop_closed,
+                human_inputs.motion_track.as_ref(),
+                &mut progress,
+            )
+            .context("failed to rebuild foreground masks after masked tracking")?;
+            repaired
+        } else {
+            0
+        };
+        if authoritative_foreground {
+            occlusion.has_occluder = false;
+            if automatic_exclusions.is_dir() {
+                fs::remove_dir_all(&automatic_exclusions)?;
+            }
+        }
+        if has_human_exclusions {
+            fs::remove_dir_all(&combined_exclusions)?;
+        }
         if args.disable_occlusion
             && let Some(human_track) = &human_inputs.motion_track
         {
@@ -213,6 +330,19 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             },
             occlusion.confidence
         ));
+
+        let packed_layers = layers::package(
+            &human_inputs.layers,
+            &partial,
+            candidate.canonical_width,
+            candidate.canonical_height,
+            info.width,
+            info.height,
+            candidate.rect,
+            &track.samples,
+            &mut extraction.content_mask,
+        )
+        .context("failed to import human layer artifacts")?;
 
         let overall = geometric_mean(&[
             candidate.confidence,
@@ -249,6 +379,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 "structural_area": extraction.structural_area,
                 "occlusion_confidence": occlusion.confidence,
                 "occluder_mean_coverage": occlusion.mean_coverage,
+                "occlusion_stabilized_frames": stabilized_frames,
                 "overall": overall,
                 "minimum_analysis_confidence": args.minimum_analysis_confidence,
                 "component_gate_passed": component_gate_passed,
@@ -302,6 +433,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             motion_model: track.model_name,
             loop_closed: track.loop_closed,
             has_occluder: occlusion.has_occluder,
+            layers: packed_layers,
             human_inputs: human_inputs.provenance.clone(),
             analysis_gate_passed,
             confidence: AnalysisConfidence {
@@ -361,6 +493,7 @@ fn resolve_human_inputs(
     }
     let mut selected_id = None;
     let mut referenced_track = None;
+    let mut layer_inputs = Vec::new();
 
     if let Some(loaded) = &loaded {
         let declared_source = resolve_relative(&loaded.path, &loaded.document.source);
@@ -402,6 +535,39 @@ fn resolve_human_inputs(
                     info.frames
                 );
             }
+        }
+        for layer in loaded
+            .document
+            .layers
+            .iter()
+            .filter(|layer| layer.plaque == selected.id)
+        {
+            for prompt in &layer.prompts {
+                if prompt.frame >= info.frames {
+                    bail!(
+                        "layer {:?} prompt frame {} is outside the {}-frame source",
+                        layer.id,
+                        prompt.frame,
+                        info.frames
+                    );
+                }
+            }
+            if layer.artifact.is_none() && !layer.prompts.is_empty() {
+                bail!(
+                    "layer {:?} has segmentation prompts but no artifact; run segment first",
+                    layer.id
+                );
+            }
+        }
+        for (metadata, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
+            identity
+                .layer_artifacts
+                .push(layer_artifact_provenance(&path, &artifact)?);
+            layer_inputs.push(LayerInput {
+                metadata,
+                artifact_path: path,
+                artifact,
+            });
         }
         referenced_track = selected
             .motion_track
@@ -482,6 +648,7 @@ fn resolve_human_inputs(
     };
     Ok(HumanAnalysisInputs {
         motion_track,
+        layers: layer_inputs,
         provenance,
     })
 }

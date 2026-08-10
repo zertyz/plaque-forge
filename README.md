@@ -22,6 +22,7 @@ This contract removes the most destructive and least general part of earlier ver
 init      detect plaque candidates and create an editable source metadata sidecar
 analyze   inspect the video once and create a reusable .titlepack
 export-track  export generated motion as a commented human-owned track
+segment   run an external video-segmentation worker for a declared layer
 render    render a title using a cached title-pack
 verify    score tracking, scene preservation, typography, occlusion and loop continuity
 replace   analyze when needed, render, then verify
@@ -43,7 +44,7 @@ Create the portable sidecar for a source video:
 This creates `video.plaque.toml` with the best automatic `reference_frame` and
 `bounds` proposal as active values. Distinct alternatives and editing guidance
 remain comments. The sidecar supports multiple named plaques, segmentation
-prompts, human motion tracks, and future dense layer artifacts. Plaque Forge
+prompts, human motion tracks, and foreground/writing-surface masks. Plaque Forge
 refuses to replace it unless `--force` is supplied.
 
 To turn generated all-frame motion into an editable track:
@@ -64,8 +65,8 @@ The plaque id is copied from the title-pack; `--plaque` is only needed to
 override it or name a pack that was analyzed without metadata.
 Fonts are required by `render` and `replace`, not by these metadata commands.
 
-See [`METADATA.md`](METADATA.md) for the schema, ownership rules, precedence,
-track export, and the boundary between implemented inputs and future layers.
+See [`METADATA.md`](METADATA.md) for the schemas and worker command.
+Its Python worker setup keeps the optional model runtime outside the Rust build.
 
 ## Build on CachyOS / Arch Linux
 
@@ -142,13 +143,13 @@ Force reanalysis when you want to discard a compatible cache:
 ./target/release/plaque-forge replace ... --reanalyze
 ```
 
-A title-pack is reused only when its complete version-4 manifest and required
+A title-pack is reused only when its complete version-6 manifest and required
 assets exist, its analyzer build matches the running binary, and its source
 SHA-256 matches `replace --input`. `replace` automatically reanalyzes an
 incompatible cache. Direct `render` refuses one with a missing, unknown, or
 different analyzer build instead of silently using stale motion. Human metadata
-and motion-track hashes, explicit plaque bounds, and legacy CSV contents are also
-part of cache identity. Other analysis-setting changes require `--reanalyze`.
+motion-track, layer contents, explicit plaque bounds, and legacy CSV contents are
+also part of cache identity. Other analysis-setting changes require `--reanalyze`.
 
 ## Tracking model
 
@@ -164,6 +165,8 @@ plaque-border feature mask, following the plaque rather than the scene
 independent plaque-outline geometry, constraining feature drift
        +
 plaque-local structural lock in canonical space
+       +
+foreground-contaminated evidence rejection and interval bridging
        +
 all-frame zero-phase smoothing over all four corners
 ```
@@ -344,6 +347,7 @@ structural-mask.png
 structural-template.png
 analysis-summary.json
 occluder/                 optional per-frame masks
+layers/                   optional human or worker alpha masks
 diagnostics/
 ```
 
@@ -357,8 +361,8 @@ every title then reuses the same immutable track. The title-pack also stores exp
 per-frame plaque visibility and full-frame occluder masks, so rendering is already
 separated from inference and those artifacts can be reviewed.
 
-Lossless RGBA foreground mattes and a reusable material/style profile are the next
-production interfaces. They are not implemented yet. Today the art direction
+Canonical and per-frame foreground mattes are supported through the sidecar.
+A reusable material/style profile remains future work. Today the art direction
 surface is a static text/stroke/glow style; it cannot reproduce an arbitrary
 animated plaque material by itself. See
 [`PROJECT-OBJECTIVE.md`](PROJECT-OBJECTIVE.md) for that boundary.

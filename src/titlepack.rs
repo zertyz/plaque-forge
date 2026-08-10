@@ -6,7 +6,9 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::metadata::HumanInputProvenance;
+use crate::metadata::{
+    HumanInputProvenance, LayerArtifactKind, LayerCoordinates, LayerGenerator, LayerRole,
+};
 use crate::model::{AnalysisConfidence, MotionSample, RectF};
 
 pub const MANIFEST_FILE: &str = "manifest.toml";
@@ -15,7 +17,8 @@ pub const CONTENT_MASK_FILE: &str = "content-mask.png";
 pub const STRUCTURAL_MASK_FILE: &str = "structural-mask.png";
 pub const STRUCTURAL_TEMPLATE_FILE: &str = "structural-template.png";
 pub const OCCLUDER_DIR: &str = "occluder";
-pub const CURRENT_FORMAT_VERSION: u32 = 4;
+pub const LAYERS_DIR: &str = "layers";
+pub const CURRENT_FORMAT_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -35,6 +38,19 @@ pub struct SourceInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerAsset {
+    pub id: String,
+    pub role: LayerRole,
+    pub coordinates: LayerCoordinates,
+    pub kind: LayerArtifactKind,
+    pub affects_layout: bool,
+    pub path: PathBuf,
+    pub first_frame: Option<usize>,
+    pub last_frame: Option<usize>,
+    pub generator: Option<LayerGenerator>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TitlePackManifest {
     pub format_version: u32,
     pub status: PackStatus,
@@ -50,6 +66,8 @@ pub struct TitlePackManifest {
     pub motion_model: String,
     pub loop_closed: bool,
     pub has_occluder: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<LayerAsset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub human_inputs: Option<HumanInputProvenance>,
     #[serde(default = "gate_passed_by_default")]
@@ -141,6 +159,24 @@ impl TitlePack {
         pack.require_asset(CONTENT_MASK_FILE)?;
         pack.require_asset(STRUCTURAL_MASK_FILE)?;
         pack.require_asset(STRUCTURAL_TEMPLATE_FILE)?;
+        for layer in &pack.manifest.layers {
+            match layer.kind {
+                LayerArtifactKind::AlphaImage => {
+                    pack.require_asset_path(&layer.path)?;
+                }
+                LayerArtifactKind::AlphaSequence => {
+                    let first = layer
+                        .first_frame
+                        .context("layer sequence missing first frame")?;
+                    let last = layer
+                        .last_frame
+                        .context("layer sequence missing last frame")?;
+                    for frame in first..=last {
+                        pack.require_asset_path(&sequence_path(&layer.path, frame))?;
+                    }
+                }
+            }
+        }
         Ok(pack)
     }
 
@@ -166,12 +202,19 @@ impl TitlePack {
         Ok(())
     }
 
-    pub fn asset(&self, name: &str) -> PathBuf {
-        self.root.join(name)
+    pub fn require_asset(&self, name: &str) -> Result<PathBuf> {
+        self.require_asset_path(Path::new(name))
     }
 
-    pub fn require_asset(&self, name: &str) -> Result<PathBuf> {
-        let path = self.asset(name);
+    pub fn require_asset_path(&self, name: &Path) -> Result<PathBuf> {
+        if name.is_absolute()
+            || name
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            bail!("title-pack asset path is not relative: {}", name.display());
+        }
+        let path = self.root.join(name);
         if !path.is_file() {
             bail!("title-pack is missing required asset {}", path.display());
         }
@@ -188,6 +231,14 @@ impl TitlePack {
         }
         Ok(())
     }
+}
+
+pub fn sequence_path(pattern: &Path, frame: usize) -> PathBuf {
+    PathBuf::from(
+        pattern
+            .to_string_lossy()
+            .replace("%06d", &format!("{frame:06}")),
+    )
 }
 
 pub fn is_titlepack(path: &Path) -> bool {
@@ -213,10 +264,10 @@ mod tests {
     use super::TitlePackManifest;
 
     #[test]
-    fn existing_format_four_manifest_defaults_new_provenance_fields() {
+    fn format_five_manifest_defaults_new_provenance_fields() {
         let manifest: TitlePackManifest = toml::from_str(
             r#"
-                format_version = 4
+                format_version = 5
                 status = "complete"
                 source_is_text_free = true
                 analyzer_build = "build"

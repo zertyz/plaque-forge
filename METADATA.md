@@ -46,7 +46,7 @@ values for that invocation.
 
 ## Segmentation prompts
 
-Prompts are reserved for segmentation workers such as SAM 2:
+Prompts seed external segmentation workers:
 
 ```toml
 [[plaques.prompts]]
@@ -56,10 +56,8 @@ positive_points = [[400.0, 220.0]]
 negative_points = [[40.0, 40.0]]
 ```
 
-A positive point belongs to the target. A negative point marks nearby content
-that must be excluded. Boxes, polygons, and four-corner quads are also accepted.
-Prompts are validated in schema version 1 but are not yet sent to a segmentation
-backend.
+A positive point belongs to the target. A negative point excludes nearby content.
+Boxes, polygons, and quads are also accepted.
 
 ## Human motion tracks
 
@@ -113,23 +111,105 @@ complete exported trajectory has already been reviewed and should be authoritati
 The plaque id defaults to the id recorded in the title-pack, then to `main` for a
 pack without plaque metadata. `--plaque <id>` explicitly overrides that choice.
 
-## Layer declarations
+## Layer artifacts
 
 The sidecar can reserve portable references for dense foreground and material
 artifacts:
 
 ```toml
 [[layers]]
-id = "foreground-branch"
+id = "foreground-moss"
 role = "foreground"
 plaque = "main"
 in_front_of = "main"
-artifact = "video.plaque-assets/foreground-branch.toml"
+artifact = "video.plaque-assets/foreground-moss.toml"
+affects_layout = true
+active_frames = [20, 180]
+
+[[layers.prompts]]
+frame = 51
+object = "moss-left"
+box_bounds = [65.0, 6.0, 200.0, 120.0]
 ```
 
-Roles are `foreground`, `background`, `reflection`, `shadow`, or `modulation`.
-Schema version 1 validates these declarations. Dense RGBA/alpha artifact loading
-and compositing are the next roadmap milestone and are not active yet.
+`foreground` restores source pixels over the title and supersedes automatic
+occlusion masks. `shadow` restores partial source alpha without changing layout.
+`writing-surface` is an inclusion mask used only for layout. Other roles remain
+reserved. Set `affects_layout = false` when text may run behind a foreground
+layer. Prompts sharing an `object` name correct the same target over time;
+different names produce one combined layer mask. `active_frames` bounds an
+intermittent object's propagation and emits zero alpha outside the interval.
+
+A plaque-attached mask uses one canonical PNG:
+
+```toml
+schema_version = 1
+kind = "alpha-image"
+coordinates = "plaque-canonical"
+path = "foreground-moss.png"
+affects_layout = true
+```
+
+Moving foreground uses source-sized frames:
+
+```toml
+schema_version = 1
+kind = "alpha-sequence"
+coordinates = "source-pixels"
+pattern = "foreground/%06d.png"
+first_frame = 0
+last_frame = 239
+```
+
+```bash
+plaque-forge segment --input video.mp4 --metadata video.plaque.toml \
+  --layer foreground-branch --worker tools/segmentation_worker.py \
+  --backend sam2-cutie-vitmatte --model facebook/sam2.1-hiera-large \
+  --device auto \
+  --output video.plaque-assets/foreground-branch
+```
+
+The worker supports `sam2-vitmatte`, `cutie-vitmatte`,
+`sam2-cutie-vitmatte`, and the human-matting `matanyone2` backend. It writes
+`artifact.toml`, `result.json`, and the alpha sequence. Model dependencies stay
+outside the Rust build.
+
+### Python worker setup
+
+This example keeps Python, sources, weights, and caches under one removable root:
+
+```bash
+ROOT=/tmp/plaque-forge-python
+mkdir -p "$ROOT"/{bin,cache,config,data,home,src,tmp}
+export HOME="$ROOT/home" XDG_CACHE_HOME="$ROOT/cache/xdg"
+export XDG_CONFIG_HOME="$ROOT/config" XDG_DATA_HOME="$ROOT/data"
+export UV_CACHE_DIR="$ROOT/cache/uv" UV_PYTHON_INSTALL_DIR="$ROOT/python"
+export UV_PYTHON_BIN_DIR="$ROOT/bin" PIP_CACHE_DIR="$ROOT/cache/pip"
+export HF_HOME="$ROOT/cache/huggingface" TORCH_HOME="$ROOT/cache/torch"
+export MPLCONFIGDIR="$ROOT/cache/matplotlib" TRITON_CACHE_DIR="$ROOT/cache/triton"
+export TORCHINDUCTOR_CACHE_DIR="$ROOT/cache/torchinductor" TMPDIR="$ROOT/tmp"
+
+uv python install 3.10
+uv venv --python 3.10 --seed "$ROOT/venv"
+PY="$ROOT/venv/bin/python"
+"$PY" -m pip install torch==2.13.0+xpu torchvision==0.28.0+xpu \
+  --index-url https://download.pytorch.org/whl/xpu
+"$PY" -m pip install -r tools/segmentation-requirements.txt
+
+git clone https://github.com/facebookresearch/sam2.git "$ROOT/src/sam2"
+git -C "$ROOT/src/sam2" checkout 2b90b9f5ceec907a1c18123530e92e794ad901a4
+SAM2_BUILD_CUDA=0 "$PY" -m pip install --no-deps --no-build-isolation -e "$ROOT/src/sam2"
+git clone https://github.com/hkchengrex/Cutie.git "$ROOT/src/Cutie"
+git -C "$ROOT/src/Cutie" checkout ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a
+"$PY" -m pip install --no-deps -e "$ROOT/src/Cutie"
+git clone https://github.com/pq-yang/MatAnyone2.git "$ROOT/src/MatAnyone2"
+git -C "$ROOT/src/MatAnyone2" checkout 0079197acd6d16a741f71558809c06c586c579e0
+"$PY" -m pip install --no-deps -e "$ROOT/src/MatAnyone2"
+
+"$PY" "$ROOT/src/Cutie/cutie/utils/download_models.py"
+"$PY" -c 'from huggingface_hub import snapshot_download as d; [d(repo_id=x) for x in ("facebook/sam2.1-hiera-large", "hustvl/vitmatte-small-composition-1k", "PeiqingYang/MatAnyone2")]'
+export PATH="$ROOT/venv/bin:$PATH"
+```
 
 ## Precedence and cache identity
 
@@ -146,8 +226,8 @@ For TOML motion tracks:
 2. selected sidecar plaque
 3. automatic tracking
 
-Legacy `--track-csv` overrides TOML tracks for compatibility. Normalized sidecar
-and TOML-track hashes, explicit command-line plaque bounds, and the raw legacy
-CSV hash are stored in title-pack format 4. Semantic changes cause `replace` to
+Legacy `--track-csv` overrides TOML tracks. Normalized sidecar, track, and layer
+content hashes, explicit plaque bounds, and legacy CSV contents are stored in
+title-pack format 6. Semantic changes cause `replace` to
 reanalyze; comment-only TOML edits do not invalidate motion. Other analysis
 controls still require `replace --reanalyze` when changing an existing cache.

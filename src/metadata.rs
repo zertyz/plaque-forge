@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 
 pub const SIDECAR_FORMAT_VERSION: u32 = 1;
 pub const MOTION_TRACK_FORMAT_VERSION: u32 = 2;
+pub const LAYER_ARTIFACT_FORMAT_VERSION: u32 = 1;
 const LEGACY_MOTION_TRACK_FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy)]
@@ -34,6 +35,7 @@ pub struct PlaqueMetadata {
 #[serde(deny_unknown_fields)]
 pub struct SegmentationPrompt {
     pub frame: usize,
+    pub object: Option<String>,
     pub box_bounds: Option<[f64; 4]>,
     #[serde(default)]
     pub positive_points: Vec<[f64; 2]>,
@@ -47,11 +49,53 @@ pub struct SegmentationPrompt {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum LayerRole {
+    WritingSurface,
     Foreground,
     Background,
     Reflection,
     Shadow,
     Modulation,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayerArtifactKind {
+    AlphaImage,
+    AlphaSequence,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayerCoordinates {
+    PlaqueCanonical,
+    SourcePixels,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LayerGenerator {
+    pub backend: String,
+    pub model: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayerArtifact {
+    pub schema_version: u32,
+    pub kind: LayerArtifactKind,
+    pub coordinates: LayerCoordinates,
+    pub path: Option<PathBuf>,
+    pub pattern: Option<PathBuf>,
+    pub first_frame: Option<usize>,
+    pub last_frame: Option<usize>,
+    #[serde(default = "default_true")]
+    pub affects_layout: bool,
+    pub generator: Option<LayerGenerator>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +106,9 @@ pub struct LayerMetadata {
     pub plaque: String,
     pub in_front_of: Option<String>,
     pub artifact: Option<PathBuf>,
+    pub active_frames: Option<[usize; 2]>,
+    #[serde(default = "default_true")]
+    pub affects_layout: bool,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
 }
@@ -127,6 +174,8 @@ pub struct HumanInputProvenance {
     pub motion_track: Option<InputFileProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track_csv: Option<InputFileProvenance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layer_artifacts: Vec<InputFileProvenance>,
     pub locked_keyframes: usize,
     pub guide_keyframes: usize,
 }
@@ -139,9 +188,21 @@ impl HumanInputProvenance {
             && file_hash(&self.metadata) == file_hash(&other.metadata)
             && file_hash(&self.motion_track) == file_hash(&other.motion_track)
             && file_hash(&self.track_csv) == file_hash(&other.track_csv)
+            && file_hash_list(&self.layer_artifacts) == file_hash_list(&other.layer_artifacts)
             && self.locked_keyframes == other.locked_keyframes
             && self.guide_keyframes == other.guide_keyframes
     }
+}
+
+fn file_hash_list(files: &[InputFileProvenance]) -> Vec<&str> {
+    files
+        .iter()
+        .map(|file| {
+            file.semantic_sha256
+                .as_deref()
+                .unwrap_or(file.sha256.as_str())
+        })
+        .collect()
 }
 
 fn file_hash(file: &Option<InputFileProvenance>) -> Option<&str> {
@@ -225,6 +286,18 @@ impl SourceMetadata {
             if let Some(path) = &layer.artifact {
                 require_relative(path, &format!("layer {:?} artifact", layer.id))?;
             }
+            if let Some([first, last]) = layer.active_frames {
+                if first > last {
+                    bail!("layer {:?} active_frames are reversed", layer.id);
+                }
+                if layer
+                    .prompts
+                    .iter()
+                    .any(|prompt| !(first..=last).contains(&prompt.frame))
+                {
+                    bail!("layer {:?} has a prompt outside active_frames", layer.id);
+                }
+            }
             for prompt in &layer.prompts {
                 prompt.validate(&format!("layer {:?} prompt", layer.id))?;
             }
@@ -250,6 +323,9 @@ impl SourceMetadata {
 
 impl SegmentationPrompt {
     fn validate(&self, description: &str) -> Result<()> {
+        if let Some(object) = &self.object {
+            validate_id(object, &format!("{description} object"))?;
+        }
         if let Some(bounds) = self.box_bounds {
             validate_rect(bounds, &format!("{description} box_bounds"))?;
         }
@@ -277,6 +353,106 @@ impl SegmentationPrompt {
             bail!("{description} does not contain a box, point, polygon, or quad");
         }
         Ok(())
+    }
+}
+
+impl LayerArtifact {
+    pub fn load(path: &Path) -> Result<Self> {
+        let text = fs::read_to_string(path)
+            .with_context(|| format!("failed to read layer artifact {}", path.display()))?;
+        let artifact: Self = toml::from_str(&text)
+            .with_context(|| format!("failed to parse layer artifact {}", path.display()))?;
+        artifact
+            .validate()
+            .with_context(|| format!("invalid layer artifact {}", path.display()))?;
+        Ok(artifact)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != LAYER_ARTIFACT_FORMAT_VERSION {
+            bail!(
+                "unsupported layer-artifact schema {}; expected {}",
+                self.schema_version,
+                LAYER_ARTIFACT_FORMAT_VERSION
+            );
+        }
+        match self.kind {
+            LayerArtifactKind::AlphaImage => {
+                let path = self
+                    .path
+                    .as_ref()
+                    .context("alpha-image artifact requires path")?;
+                require_relative(path, "layer artifact path")?;
+                if self.pattern.is_some() || self.first_frame.is_some() || self.last_frame.is_some()
+                {
+                    bail!("alpha-image artifact cannot declare pattern or frame range");
+                }
+            }
+            LayerArtifactKind::AlphaSequence => {
+                if self.coordinates != LayerCoordinates::SourcePixels {
+                    bail!("alpha-sequence artifacts require source-pixels coordinates");
+                }
+                let pattern = self
+                    .pattern
+                    .as_ref()
+                    .context("alpha-sequence artifact requires pattern")?;
+                require_relative(pattern, "layer artifact pattern")?;
+                let pattern = pattern.to_string_lossy();
+                if pattern.matches("%06d").count() != 1 {
+                    bail!("alpha-sequence pattern must contain one %06d placeholder");
+                }
+                let first = self
+                    .first_frame
+                    .context("alpha-sequence artifact requires first_frame")?;
+                let last = self
+                    .last_frame
+                    .context("alpha-sequence artifact requires last_frame")?;
+                if first > last {
+                    bail!("alpha-sequence first_frame must not exceed last_frame");
+                }
+                if self.path.is_some() {
+                    bail!("alpha-sequence artifact cannot declare path");
+                }
+            }
+        }
+        if let Some(generator) = &self.generator
+            && [
+                generator.backend.as_str(),
+                generator.model.as_str(),
+                generator.version.as_str(),
+            ]
+            .iter()
+            .any(|value| value.trim().is_empty())
+        {
+            bail!("layer artifact generator fields cannot be empty");
+        }
+        Ok(())
+    }
+
+    pub fn referenced_paths(&self, owner: &Path) -> Vec<PathBuf> {
+        match self.kind {
+            LayerArtifactKind::AlphaImage => self
+                .path
+                .as_ref()
+                .map(|path| vec![resolve_relative(owner, path)])
+                .unwrap_or_default(),
+            LayerArtifactKind::AlphaSequence => {
+                let Some(pattern) = &self.pattern else {
+                    return Vec::new();
+                };
+                let pattern = pattern.to_string_lossy();
+                let first = self.first_frame.unwrap_or(0);
+                let last = self.last_frame.unwrap_or(first);
+                (first..=last)
+                    .map(|frame| {
+                        resolve_relative(
+                            owner,
+                            Path::new(&pattern.replace("%06d", &format!("{frame:06}"))),
+                        )
+                    })
+                    .collect()
+            }
+        }
     }
 }
 
@@ -427,6 +603,41 @@ pub fn semantic_provenance<T: Serialize>(path: &Path, value: &T) -> Result<Input
     Ok(output)
 }
 
+pub fn layer_artifact_provenance(
+    path: &Path,
+    artifact: &LayerArtifact,
+) -> Result<InputFileProvenance> {
+    let mut output = provenance(path)?;
+    let mut digest = Sha256::new();
+    digest.update(serde_json::to_vec(artifact)?);
+    for asset in artifact.referenced_paths(path) {
+        let bytes = fs::read(&asset)
+            .with_context(|| format!("failed to read layer asset {}", asset.display()))?;
+        digest.update(asset.file_name().unwrap_or_default().as_encoded_bytes());
+        digest.update(bytes);
+    }
+    output.semantic_sha256 = Some(format!("{:x}", digest.finalize()));
+    Ok(output)
+}
+
+pub fn selected_layer_artifacts(
+    metadata: &LoadedSourceMetadata,
+    plaque_id: &str,
+) -> Result<Vec<(LayerMetadata, PathBuf, LayerArtifact)>> {
+    metadata
+        .document
+        .layers
+        .iter()
+        .filter(|layer| layer.plaque == plaque_id)
+        .filter_map(|layer| {
+            layer.artifact.as_ref().map(|artifact| {
+                let path = resolve_relative(&metadata.path, artifact);
+                LayerArtifact::load(&path).map(|document| (layer.clone(), path, document))
+            })
+        })
+        .collect()
+}
+
 pub fn current_human_input_provenance(
     input: &Path,
     explicit_metadata: Option<&Path>,
@@ -449,6 +660,11 @@ pub fn current_human_input_provenance(
         let selected = loaded.document.select_plaque(requested_plaque)?;
         identity.metadata = Some(semantic_provenance(&loaded.path, &loaded.document)?);
         identity.plaque_id = Some(selected.id.clone());
+        for (_, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
+            identity
+                .layer_artifacts
+                .push(layer_artifact_provenance(&path, &artifact)?);
+        }
         if track_csv.is_none() {
             referenced_track = selected
                 .motion_track
@@ -841,6 +1057,37 @@ mod tests {
         metadata.validate().unwrap();
         assert_eq!(metadata.select_plaque(None).unwrap().id, "right");
         assert_eq!(metadata.select_plaque(Some("left")).unwrap().id, "left");
+    }
+
+    #[test]
+    fn layer_artifacts_distinguish_canonical_images_and_source_sequences() {
+        let image: LayerArtifact = toml::from_str(
+            r#"
+                schema_version = 1
+                kind = "alpha-image"
+                coordinates = "plaque-canonical"
+                path = "moss.png"
+            "#,
+        )
+        .unwrap();
+        let sequence: LayerArtifact = toml::from_str(
+            r#"
+                schema_version = 1
+                kind = "alpha-sequence"
+                coordinates = "source-pixels"
+                pattern = "masks/%06d.png"
+                first_frame = 0
+                last_frame = 9
+            "#,
+        )
+        .unwrap();
+
+        image.validate().unwrap();
+        sequence.validate().unwrap();
+        assert_eq!(
+            sequence.referenced_paths(Path::new("artifact.toml")).len(),
+            10
+        );
     }
 
     #[test]

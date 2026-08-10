@@ -275,6 +275,18 @@ pub struct TrackingResult {
     pub loop_closed: bool,
 }
 
+pub fn select_masked_refinement(
+    mut baseline: TrackingResult,
+    refinement: TrackingResult,
+) -> TrackingResult {
+    if refinement.confidence >= baseline.confidence {
+        refinement
+    } else {
+        baseline.model_name.push_str("-masked-retrack-rejected");
+        baseline
+    }
+}
+
 pub fn load_dense_human(
     args: &AnalyzeArgs,
     info: &VideoInfo,
@@ -405,6 +417,49 @@ pub fn track(
     diagnostics: &Path,
     progress: &mut ProgressReporter,
 ) -> Result<TrackingResult> {
+    track_with_exclusions(
+        args,
+        info,
+        plaque,
+        reference_frame,
+        diagnostics,
+        progress,
+        None,
+    )
+}
+
+pub fn retrack_masked(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    reference_frame: usize,
+    diagnostics: &Path,
+    progress: &mut ProgressReporter,
+    occluder_masks: &Path,
+) -> Result<TrackingResult> {
+    let mut result = track_with_exclusions(
+        args,
+        info,
+        plaque,
+        reference_frame,
+        diagnostics,
+        progress,
+        Some(occluder_masks),
+    )?;
+    result.model_name.push_str("-masked-occluders");
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn track_with_exclusions(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    reference_frame: usize,
+    diagnostics: &Path,
+    progress: &mut ProgressReporter,
+    occluder_masks: Option<&Path>,
+) -> Result<TrackingResult> {
     if !(0.0..0.98).contains(&args.tracking_inertia) {
         bail!("--tracking-inertia must be in [0, 0.98)");
     }
@@ -423,12 +478,19 @@ pub fn track(
 
     let mut sift = features2d::SIFT::create(1_800, 3, 0.025, 12.0, 1.6, true)?;
     let reference_gray = read_gray(&mut capture, reference_frame)?;
+    let reference_exclusion = load_exclusion(
+        occluder_masks,
+        reference_frame,
+        reference_gray.cols(),
+        reference_gray.rows(),
+    )?;
     let root = make_anchor(
         &mut sift,
         reference_frame,
         reference_gray,
         plaque,
         Mat3::IDENTITY,
+        reference_exclusion.as_ref(),
     )?;
     let root_contour = detect_plaque_contour(&root.gray, plaque, Mat3::IDENTITY)?;
     if root.descriptors.empty() || root.keypoints.len() < 20 {
@@ -441,9 +503,14 @@ pub fn track(
     }
 
     let loop_closed = should_close_loop(args.loop_closure, &mut capture, frame_count)?;
-    if let Some(confidence) =
-        detect_static_plaque(&mut capture, &mut sift, &root, plaque, frame_count)?
-    {
+    if let Some(confidence) = detect_static_plaque(
+        &mut capture,
+        &mut sift,
+        &root,
+        plaque,
+        frame_count,
+        occluder_masks,
+    )? {
         progress.start(3, 7, "Static plaque validation", Some(frame_count));
         let samples = (0..frame_count)
             .map(|frame| MotionSample {
@@ -494,6 +561,7 @@ pub fn track(
             &mut raw,
             &mut completed,
             progress,
+            occluder_masks,
         )?;
     }
     if reference_frame > 0 {
@@ -509,6 +577,7 @@ pub fn track(
             &mut raw,
             &mut completed,
             progress,
+            occluder_masks,
         )?;
     }
 
@@ -579,6 +648,7 @@ fn process_direction(
     output: &mut [Option<MotionSample>],
     completed: &mut usize,
     progress: &mut ProgressReporter,
+    occluder_masks: Option<&Path>,
 ) -> Result<usize> {
     let mut anchor = clone_anchor(root)?;
     let mut last_transform = root.transform;
@@ -605,27 +675,33 @@ fn process_direction(
         } else {
             last_transform
         };
-        let current_mask =
+        let mut current_mask =
             plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, predicted)?;
-        let contour = root_contour
-            .zip(
-                detect_plaque_contour(&gray, plaque, predicted)
-                    .ok()
-                    .flatten(),
-            )
-            .and_then(|(reference, current)| {
-                homography(reference.quad, current.quad)
-                    .ok()
-                    .map(|matrix| Estimate {
-                        matrix: Mat3 { values: matrix.m },
-                        inlier_ratio: current.confidence,
-                        error: (1.0 - current.confidence) * 2.0,
-                        ecc: None,
-                        source: "geometry",
-                        static_model: false,
+        let exclusion = load_exclusion(occluder_masks, frame_index, gray.cols(), gray.rows())?;
+        let excluded = apply_exclusion(&mut current_mask, exclusion.as_ref())?;
+        let contour = (excluded < 0.01)
+            .then(|| {
+                root_contour
+                    .zip(
+                        detect_plaque_contour(&gray, plaque, predicted)
+                            .ok()
+                            .flatten(),
+                    )
+                    .and_then(|(reference, current)| {
+                        homography(reference.quad, current.quad)
+                            .ok()
+                            .map(|matrix| Estimate {
+                                matrix: Mat3 { values: matrix.m },
+                                inlier_ratio: current.confidence,
+                                error: (1.0 - current.confidence) * 2.0,
+                                ecc: None,
+                                source: "geometry",
+                                static_model: false,
+                            })
                     })
+                    .filter(|estimate| plaque_transform_is_valid(estimate.matrix, plaque))
             })
-            .filter(|estimate| plaque_transform_is_valid(estimate.matrix, plaque));
+            .flatten();
         let mut keypoints = Vector::<KeyPoint>::new();
         let mut descriptors = Mat::default();
         sift.detect_and_compute(
@@ -696,8 +772,15 @@ fn process_direction(
             .clamp(12.0, 32.0);
         let due = frame_index.abs_diff(anchor.frame) >= args.anchor_interval
             || anchor_motion >= motion_refresh;
-        if trustworthy && due {
-            anchor = make_anchor(sift, frame_index, gray, plaque, estimate.matrix)?;
+        if trustworthy && due && excluded < 0.01 {
+            anchor = make_anchor(
+                sift,
+                frame_index,
+                gray,
+                plaque,
+                estimate.matrix,
+                exclusion.as_ref(),
+            )?;
             anchors_added += 1;
         }
 
@@ -719,17 +802,20 @@ fn detect_static_plaque(
     root: &FeatureAnchor,
     plaque: RectF,
     frame_count: usize,
+    occluder_masks: Option<&Path>,
 ) -> Result<Option<f64>> {
     let mut displacements = Vec::new();
     let mut qualities = Vec::new();
-    for slot in 0..5 {
-        let frame = slot * frame_count.saturating_sub(1) / 4;
+    for slot in 0..11 {
+        let frame = slot * frame_count.saturating_sub(1) / 10;
         if frame == root.frame {
             continue;
         }
         let gray = read_gray(capture, frame)?;
-        let mask =
+        let mut mask =
             plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, Mat3::IDENTITY)?;
+        let exclusion = load_exclusion(occluder_masks, frame, gray.cols(), gray.rows())?;
+        apply_exclusion(&mut mask, exclusion.as_ref())?;
         let mut keypoints = Vector::<KeyPoint>::new();
         let mut descriptors = Mat::default();
         sift.detect_and_compute(&gray, &mask, &mut keypoints, &mut descriptors, false)?;
@@ -753,10 +839,20 @@ fn detect_static_plaque(
         ));
         qualities.push(estimate.inlier_ratio * (-estimate.error / 2.0).exp());
     }
-    if displacements.len() < 3 || displacements.iter().any(|value| *value > 1.25) {
+    if displacements.len() < 6 {
         return Ok(None);
     }
-    Ok(Some(median(qualities).clamp(0.80, 0.99)))
+    displacements.sort_by(f64::total_cmp);
+    let stationary = displacements
+        .iter()
+        .filter(|&&displacement| displacement <= 1.50)
+        .count();
+    let robust_limit = displacements[displacements.len() * 4 / 5];
+    if stationary * 4 < displacements.len() * 3 || robust_limit > 2.50 {
+        return Ok(None);
+    }
+    let support = stationary as f64 / displacements.len() as f64;
+    Ok(Some((median(qualities) * support).clamp(0.80, 0.99)))
 }
 
 struct Estimate {
@@ -1027,8 +1123,10 @@ fn make_anchor(
     gray: Mat,
     plaque: RectF,
     transform: Mat3,
+    exclusion: Option<&Mat>,
 ) -> Result<FeatureAnchor> {
-    let mask = plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, transform)?;
+    let mut mask = plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, transform)?;
+    apply_exclusion(&mut mask, exclusion)?;
     let mut keypoints = Vector::<KeyPoint>::new();
     let mut descriptors = Mat::default();
     sift.detect_and_compute(&gray, &mask, &mut keypoints, &mut descriptors, false)?;
@@ -1039,6 +1137,53 @@ fn make_anchor(
         descriptors,
         transform,
     })
+}
+
+fn load_exclusion(
+    root: Option<&Path>,
+    frame: usize,
+    width: i32,
+    height: i32,
+) -> Result<Option<Mat>> {
+    let Some(root) = root else {
+        return Ok(None);
+    };
+    let path = root.join(format!("{frame:06}.png"));
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let mask = imgcodecs::imread(&path.to_string_lossy(), imgcodecs::IMREAD_GRAYSCALE)
+        .with_context(|| format!("failed to read occluder mask {}", path.display()))?;
+    if mask.cols() != width || mask.rows() != height {
+        bail!("occluder mask dimensions differ from tracking frame");
+    }
+    let mut binary = Mat::default();
+    imgproc::threshold(&mask, &mut binary, 8.0, 255.0, imgproc::THRESH_BINARY)?;
+    let mut expanded = Mat::default();
+    imgproc::dilate(
+        &binary,
+        &mut expanded,
+        &Mat::default(),
+        Point::new(-1, -1),
+        2,
+        core::BORDER_CONSTANT,
+        imgproc::morphology_default_border_value()?,
+    )?;
+    Ok(Some(expanded))
+}
+
+fn apply_exclusion(mask: &mut Mat, exclusion: Option<&Mat>) -> Result<f64> {
+    let Some(exclusion) = exclusion else {
+        return Ok(0.0);
+    };
+    let before = core::count_non_zero(mask)?.max(1) as f64;
+    let mut allowed = Mat::default();
+    core::bitwise_not(exclusion, &mut allowed, &core::no_array())?;
+    let mut filtered = Mat::default();
+    core::bitwise_and(mask, &allowed, &mut filtered, &core::no_array())?;
+    let after = core::count_non_zero(&filtered)? as f64;
+    *mask = filtered;
+    Ok((1.0 - after / before).clamp(0.0, 1.0))
 }
 
 fn clone_anchor(anchor: &FeatureAnchor) -> Result<FeatureAnchor> {
@@ -1602,6 +1747,85 @@ pub(crate) fn repair_outliers(samples: &mut [MotionSample], plaque: RectF) -> us
     bad.len()
 }
 
+/// Bridges intervals where a foreground crossing can dominate plaque evidence.
+pub(crate) fn stabilize_occluded_intervals(
+    samples: &mut [MotionSample],
+    plaque: RectF,
+    reference_frame: usize,
+) -> usize {
+    if samples.len() < 5 {
+        return 0;
+    }
+    let peak = samples
+        .iter()
+        .map(|sample| sample.occluder_coverage)
+        .fold(0.0_f64, f64::max);
+    if peak < 0.04 {
+        return 0;
+    }
+    let threshold = (peak * 0.18).max(0.015);
+    let active = samples
+        .iter()
+        .enumerate()
+        .filter_map(|(frame, sample)| (sample.occluder_coverage >= threshold).then_some(frame))
+        .collect::<Vec<_>>();
+    let mut repaired = 0;
+    let mut cursor = 0;
+    while cursor < active.len() {
+        let start = cursor;
+        while cursor + 1 < active.len() && active[cursor + 1] <= active[cursor] + 2 {
+            cursor += 1;
+        }
+        let active_frames = &active[start..=cursor];
+        let integrated_coverage = active_frames
+            .iter()
+            .map(|&frame| samples[frame].occluder_coverage)
+            .sum::<f64>();
+        if active_frames.len() < 5 || integrated_coverage < 0.75 {
+            cursor += 1;
+            continue;
+        }
+        let first_active = active[start];
+        let last_active = active[cursor];
+        let first = first_active.saturating_sub(4);
+        let last = (last_active + 18).min(samples.len() - 1);
+        let mut anchors = Vec::with_capacity(3);
+        if first > 0 {
+            anchors.push((first - 1, samples[first - 1].transform));
+        }
+        if (first..=last).contains(&reference_frame) {
+            anchors.push((reference_frame, samples[reference_frame].transform));
+        }
+        if last + 1 < samples.len() {
+            anchors.push((last + 1, samples[last + 1].transform));
+        }
+        anchors.sort_by_key(|anchor| anchor.0);
+        anchors.dedup_by_key(|anchor| anchor.0);
+        for (frame, sample) in samples.iter_mut().enumerate().take(last + 1).skip(first) {
+            if anchors.iter().any(|anchor| anchor.0 == frame) {
+                continue;
+            }
+            let left = anchors.iter().rev().find(|anchor| anchor.0 < frame);
+            let right = anchors.iter().find(|anchor| anchor.0 > frame);
+            let transform = match (left, right) {
+                (Some(&(left_frame, left)), Some(&(right_frame, right))) => {
+                    let t = (frame - left_frame) as f64 / (right_frame - left_frame) as f64;
+                    interpolate_plaque_transform(plaque, left, right, t)
+                }
+                (Some(&(_, transform)), None) | (None, Some(&(_, transform))) => Some(transform),
+                (None, None) => None,
+            };
+            if let Some(transform) = transform {
+                sample.transform = transform;
+                sample.ecc = None;
+                repaired += 1;
+            }
+        }
+        cursor += 1;
+    }
+    repaired
+}
+
 fn interpolate_plaque_transform(plaque: RectF, left: Mat3, right: Mat3, t: f64) -> Option<Mat3> {
     let source = GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
     let target = transformed_plaque(plaque, left).lerp(transformed_plaque(plaque, right), t);
@@ -1758,7 +1982,8 @@ mod tests {
     use super::{
         TrackingResult, apply_human_track, apply_human_visibility_constraints, human_loop_closed,
         optimize_trajectory, oriented_rect_quad, plaque_feature_mask, plaque_transform_is_valid,
-        reapply_locked_human_constraints, static_estimate, transformed_quad,
+        reapply_locked_human_constraints, select_masked_refinement, stabilize_occluded_intervals,
+        static_estimate, transformed_quad,
     };
     use crate::{
         cli::LoopClosure,
@@ -1770,6 +1995,50 @@ mod tests {
         core::{Point2f, Vector},
         prelude::MatTraitConst,
     };
+
+    #[test]
+    fn masked_retracking_cannot_replace_a_more_confident_track() {
+        let result = select_masked_refinement(
+            tracking_result("baseline", 0.82, 1.0),
+            tracking_result("masked", 0.48, 9.0),
+        );
+
+        assert_eq!(result.confidence, 0.82);
+        assert_eq!(result.samples[0].transform.values[0][2], 1.0);
+        assert!(result.model_name.ends_with("-masked-retrack-rejected"));
+    }
+
+    #[test]
+    fn masked_retracking_replaces_a_weaker_track() {
+        let result = select_masked_refinement(
+            tracking_result("baseline", 0.48, 1.0),
+            tracking_result("masked", 0.82, 9.0),
+        );
+
+        assert_eq!(result.confidence, 0.82);
+        assert_eq!(result.samples[0].transform.values[0][2], 9.0);
+        assert_eq!(result.model_name, "masked");
+    }
+
+    fn tracking_result(model: &str, confidence: f64, translation: f64) -> TrackingResult {
+        TrackingResult {
+            samples: vec![MotionSample {
+                frame: 0,
+                transform: Mat3 {
+                    values: [[1.0, 0.0, translation], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                },
+                inlier_ratio: confidence,
+                reprojection_error: 0.0,
+                ecc: Some(1.0),
+                plaque_visibility: 1.0,
+                occluder_coverage: 0.0,
+            }],
+            model_name: model.into(),
+            reference_frame: 0,
+            confidence,
+            loop_closed: false,
+        }
+    }
 
     #[test]
     fn plaque_feature_mask_uses_border_not_background_or_cavity() {
@@ -1865,6 +2134,140 @@ mod tests {
 
         assert!(samples[4].transform.values[0][2] < 5.0);
         assert_eq!(samples[0].transform.values, Mat3::IDENTITY.values);
+    }
+
+    #[test]
+    fn foreground_interval_is_bridged_from_clean_endpoints() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let mut samples = (0..50)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::translation(
+                    if (10..=25).contains(&frame) {
+                        40.0
+                    } else {
+                        0.0
+                    },
+                    0.0,
+                ),
+                inlier_ratio: 0.8,
+                reprojection_error: 0.5,
+                ecc: Some(1.0),
+                plaque_visibility: 1.0,
+                occluder_coverage: if (10..=15).contains(&frame) {
+                    0.20
+                } else {
+                    0.0
+                },
+            })
+            .collect::<Vec<_>>();
+
+        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 0);
+
+        assert!(repaired >= 20);
+        assert!(samples[15].transform.values[0][2].abs() < 1.0e-9);
+        assert!(samples[25].transform.values[0][2].abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn brief_residual_does_not_replace_valid_motion() {
+        let plaque = RectF {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let mut samples = (0..50)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::translation(frame as f64, 0.0),
+                inlier_ratio: 0.8,
+                reprojection_error: 0.5,
+                ecc: Some(1.0),
+                plaque_visibility: 1.0,
+                occluder_coverage: if (20..=21).contains(&frame) {
+                    0.15
+                } else {
+                    0.0
+                },
+            })
+            .collect::<Vec<_>>();
+
+        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 0);
+
+        assert_eq!(repaired, 0);
+        assert_eq!(samples[20].transform.values[0][2], 20.0);
+    }
+
+    #[test]
+    fn reference_inside_foreground_interval_remains_an_anchor() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let mut samples = (0..50)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::translation(
+                    if (10..=35).contains(&frame) {
+                        40.0
+                    } else {
+                        0.0
+                    },
+                    0.0,
+                ),
+                inlier_ratio: 0.8,
+                reprojection_error: 0.5,
+                ecc: Some(1.0),
+                plaque_visibility: 1.0,
+                occluder_coverage: if (10..=20).contains(&frame) {
+                    0.20
+                } else {
+                    0.0
+                },
+            })
+            .collect::<Vec<_>>();
+        samples[25].transform = Mat3::IDENTITY;
+
+        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 25);
+
+        assert!(repaired >= 30);
+        assert_eq!(samples[25].transform.values, Mat3::IDENTITY.values);
+        assert!(samples[20].transform.values[0][2].abs() < 1.0e-9);
+        assert!(samples[35].transform.values[0][2].abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn trailing_foreground_interval_holds_the_last_clean_transform() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let mut samples = (0..40)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::translation(if frame >= 30 { 40.0 } else { 0.0 }, 0.0),
+                inlier_ratio: 0.8,
+                reprojection_error: 0.5,
+                ecc: Some(1.0),
+                plaque_visibility: 1.0,
+                occluder_coverage: if frame >= 30 { 0.20 } else { 0.0 },
+            })
+            .collect::<Vec<_>>();
+
+        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 0);
+
+        assert!(repaired >= 10);
+        assert!(samples[39].transform.values[0][2].abs() < 1.0e-9);
     }
 
     #[test]
