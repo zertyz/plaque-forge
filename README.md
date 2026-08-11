@@ -24,35 +24,35 @@ cargo build --release
 
 ## Production render
 
-Render every asset with another title:
+Render every asset with another title. Unset variables use the default shown beside them:
 
 ```bash
-TITLE_TEXT='Custom title' FONT="$(fc-match -f '%{file}\n' 'DejaVu Sans' | head -n 1)" ./scripts/render_assets.sh
+(
+  export FONT="$(fc-match -f '%{file}\n' 'Noto Serif')" # Default: fontconfig's DejaVu Sans match.
+  export TITLE_TEXT='New text'                          # Default: Analises desta 3a. feira, 1 de Agosto.
+
+  export FIT=balanced       # Default: maximize. balanced targets TARGET_FILL; fixed requires FONT_SIZE.
+  unset FONT_SIZE           # Default: unset, giving automatic sizing with no user-provided limit.
+  export SUPERSAMPLING=4    # Default: 4. Renders at 1-4x before downsampling for smoother edges.
+  export TARGET_FILL=0.82   # Default: 0.82. Target text-block area used only by FIT=balanced.
+  export MAX_LINES=3        # Default: 3. Maximum number of automatically wrapped lines.
+  export PADDING=0.05       # Default: 0.05. Inset from the writing-area bounds.
+  export LINE_HEIGHT=1.16   # Default: 1.16. Line spacing relative to font size.
+
+  export TEXT_COLOR='#EBFFFFFF'   # Default: #EBFFFFFF. Text fill in #RRGGBBAA.
+  export STROKE_WIDTH=0.025        # Default: 0, which disables the outline. Fraction of font size.
+  export STROKE_COLOR='#03181ED2' # Default: #03181ED2. Outline color in #RRGGBBAA.
+  export GLOW_RADIUS=4             # Default: 4. Blur radius in pixels; 0 disables glow.
+  export GLOW_COLOR='#69F2FA48'   # Default: #69F2FA48. Glow color and opacity.
+
+  export TEXT_ALIGN=center     # Default: center. Allowed: left, center, right.
+  export VERTICAL_ALIGN=center # Default: center. Allowed: top, center, bottom.
+
+  ./scripts/render_assets.sh
+)
 ```
 
-The complete typography interface is:
-
-```bash
-TITLE_TEXT='Custom title' \
-FONT="$(fc-match -f '%{file}\n' 'DejaVu Sans' | head -n 1)" \
-FIT=balanced \
-FONT_SIZE=96 \
-SUPERSAMPLING=4 \
-TARGET_FILL=0.82 \
-MAX_LINES=3 \
-PADDING=0.05 \
-LINE_HEIGHT=1.16 \
-STROKE_WIDTH=0.025 \
-TEXT_COLOR='#EBFFFFFF' \
-STROKE_COLOR='#03181ED2' \
-GLOW_COLOR='#69F2FA48' \
-GLOW_RADIUS=4 \
-TEXT_ALIGN=center \
-VERTICAL_ALIGN=center \
-./scripts/render_assets.sh
-```
-
-Colors use `#RRGGBBAA`. `FIT` is `maximize`, `balanced`, or `fixed`; `fixed` requires `FONT_SIZE`. The available effects are fill color, stroke, and glow.
+Colors use `#RRGGBBAA`. The available effects are fill color, stroke, and glow.
 
 Pass source stems to render only selected assets:
 
