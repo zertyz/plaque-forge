@@ -35,9 +35,39 @@ pub struct PlaqueRefinement {
     pub bounds: Option<[f64; 4]>,
     #[serde(default)]
     pub writable_region: Option<WritableRegion>,
+    /// Optional source for the visual plaque. Omit for a surface already present in video.
+    #[serde(default)]
+    pub surface: Option<PlaqueSurface>,
     pub motion_track: Option<PathBuf>,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum PlaqueSurface {
+    Source,
+    Injected {
+        image: PathBuf,
+        #[serde(default)]
+        motion: InjectedMotion,
+        /// [left, top, right, bottom] fractional inset used when writable_region is omitted.
+        #[serde(default = "default_injected_inset")]
+        inset: [f64; 4],
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum InjectedMotion {
+    #[default]
+    Auto,
+    Screen,
+    Scene,
+}
+
+fn default_injected_inset() -> [f64; 4] {
+    [0.08, 0.12, 0.08, 0.12]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +209,8 @@ pub struct RefinementProvenance {
     pub manifest: Option<InputFileProvenance>,
     pub plaque_id: Option<String>,
     pub motion_track: Option<InputFileProvenance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_asset: Option<InputFileProvenance>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_artifacts: Vec<InputFileProvenance>,
     pub locked_keyframes: usize,
@@ -190,6 +222,7 @@ impl RefinementProvenance {
         self.plaque_id == other.plaque_id
             && file_hash(&self.manifest) == file_hash(&other.manifest)
             && file_hash(&self.motion_track) == file_hash(&other.motion_track)
+            && file_hash(&self.surface_asset) == file_hash(&other.surface_asset)
             && file_hash_list(&self.layer_artifacts) == file_hash_list(&other.layer_artifacts)
             && self.locked_keyframes == other.locked_keyframes
             && self.guide_keyframes == other.guide_keyframes
@@ -256,13 +289,18 @@ impl Refinement {
                 validate_rect(bounds, &format!("plaque {:?} bounds", plaque.id))?;
             }
             if let Some(region) = &plaque.writable_region {
-                if plaque.bounds.is_some() {
+                region.validate(&format!("plaque {:?} writable_region", plaque.id))?;
+            }
+            if let Some(surface) = &plaque.surface {
+                surface.validate(&plaque.id)?;
+                if matches!(surface, PlaqueSurface::Injected { .. })
+                    && plaque.tracking_bounds().is_none()
+                {
                     bail!(
-                        "plaque {:?} declares both bounds and writable_region; use bounds as the legacy rectangular shorthand or writable_region for explicit geometry",
+                        "injected plaque {:?} needs bounds or writable_region to declare its placement",
                         plaque.id
                     );
                 }
-                region.validate(&format!("plaque {:?} writable_region", plaque.id))?;
             }
             if let Some(path) = &plaque.motion_track {
                 require_relative(path, &format!("plaque {:?} motion_track", plaque.id))?;
@@ -332,14 +370,43 @@ impl Refinement {
     }
 }
 
+impl PlaqueSurface {
+    fn validate(&self, plaque_id: &str) -> Result<()> {
+        match self {
+            Self::Source => Ok(()),
+            Self::Injected { image, inset, .. } => {
+                require_relative(image, &format!("plaque {:?} injected image", plaque_id))?;
+                if inset
+                    .iter()
+                    .any(|value| !value.is_finite() || !(0.0..=0.45).contains(value))
+                {
+                    bail!(
+                        "plaque {:?} injected inset values must be finite fractions between 0 and 0.45",
+                        plaque_id
+                    );
+                }
+                if inset[0] + inset[2] >= 0.95 || inset[1] + inset[3] >= 0.95 {
+                    bail!("plaque {:?} injected inset leaves no writable area", plaque_id);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub fn injected(&self) -> Option<(&Path, InjectedMotion, [f64; 4])> {
+        match self {
+            Self::Injected { image, motion, inset } => Some((image.as_path(), *motion, *inset)),
+            Self::Source => None,
+        }
+    }
+}
+
 impl PlaqueRefinement {
     /// Enclosing source-pixel rectangle used by the planar tracker. A non-rectangular
     /// writable region still tracks through its enclosing rectangle.
     pub fn tracking_bounds(&self) -> Option<[f64; 4]> {
-        self.writable_region
-            .as_ref()
-            .map(WritableRegion::bounds)
-            .or(self.bounds)
+        self.bounds
+            .or_else(|| self.writable_region.as_ref().map(WritableRegion::bounds))
     }
 }
 
@@ -660,6 +727,12 @@ pub fn current_refinement_provenance(
         let selected = loaded.document.select_plaque(requested_plaque)?;
         identity.manifest = Some(semantic_provenance(&loaded.path, &loaded.document)?);
         identity.plaque_id = Some(selected.id.clone());
+        if let Some(PlaqueSurface::Injected { image, .. }) = &selected.surface {
+            let path = resolve_relative(&loaded.path, image);
+            identity.surface_asset = Some(provenance(&path).with_context(|| {
+                format!("failed to hash injected plaque image {}", path.display())
+            })?);
+        }
         for (_, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
             identity
                 .layer_artifacts
@@ -992,6 +1065,39 @@ mod tests {
         );
         assert!(text.contains("Alternative automatic candidate 1"));
         assert!(text.contains("# [[plaques]]"));
+    }
+
+    #[test]
+    fn injected_surface_accepts_outer_bounds_and_inner_writable_region() {
+        let refinement: Refinement = toml::from_str(
+            r#"
+                schema_version = 1
+                source = "clip.mp4"
+                default_plaque = "main"
+
+                [[plaques]]
+                id = "main"
+                reference_frame = 0
+                bounds = [100.0, 40.0, 500.0, 180.0]
+
+                [plaques.writable_region]
+                shape = "ellipse"
+                center = [350.0, 130.0]
+                radii = [210.0, 65.0]
+
+                [plaques.surface]
+                type = "injected"
+                image = "plaque.png"
+                motion = "screen"
+            "#,
+        )
+        .unwrap();
+
+        refinement.validate().unwrap();
+        assert_eq!(
+            refinement.plaques[0].tracking_bounds(),
+            Some([100.0, 40.0, 500.0, 180.0])
+        );
     }
 
     #[test]

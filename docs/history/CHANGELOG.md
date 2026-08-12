@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+- Added first-class injected plaque surfaces for plaque-less videos. `scripts/place_plaque.sh` copies a transparent PNG, proposes a quiet placement, writes a preview/refinement, and lets normal analysis/rendering handle the result.
+- Added injected-surface cache provenance: plaque image content, placement/writable intent, and motion policy participate in cache freshness while title/style changes remain analysis-independent.
+- Added `auto`, `screen`, and `scene` motion policies for injected surfaces; auto scene anchoring falls back safely to screen-fixed placement when evidence is insufficient.
+- Preserved automatic foreground analysis for injected plaques so moving scene objects can be restored in front of the plaque/title; authored segmentation remains available for ambiguous/static foregrounds.
+- Fixed loop closure so inability to seek-decode the nominal final frame searches backward and disables only the optional loop heuristic instead of aborting tracking.
+- Added a structureless-surface path for broad, screen-stationary writing regions such as soft clouds and dark/circular graphic canvases, avoiding an invalid requirement for stable internal texture.
+- Added broad-arc proposals and changed automatic selection to prefer the **largest independently plausible writing-surface hypothesis**, preventing small high-contrast props such as magnifying glasses from stealing the intended plaque.
+- Added explicit ML/Python observability: skip/cache/launch/PID/exit messages, persistent run history under `/tmp/plaque-forge-python/worker-runs.jsonl`, `scripts/ml_status.sh`, and `--force-ml` for intentional ML cache regeneration.
+- Kept Python bytecode/check artifacts out of the repository by routing them through temporary storage.
+- Bumped the analyzer cache compatibility identifier to `analysis-v6` so v0.5 caches affected by candidate-selection/tracking semantics are not silently reused.
+
 ## 0.5.0
 
 - Generalized human writing-surface intent beyond rectangles with rounded-rectangle, ellipse/circle, polygon, and arbitrary-mask declarations while retaining rectangular planar tracking internally.

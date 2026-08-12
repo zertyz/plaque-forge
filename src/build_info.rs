@@ -3,7 +3,7 @@
 /// Change this only when `analyze` changes the meaning or layout of data consumed by
 /// later runs. Renderer, CLI, documentation, or unrelated refactors must not invalidate
 /// analysis caches.
-pub const ANALYZER_CACHE_VERSION: &str = "cceaae40697f5e50";
+pub const ANALYZER_CACHE_VERSION: &str = "analysis-v6";
 
 /// Identifies the renderer in generated render manifests without introducing a custom
 /// build script. Package releases are the unit of renderer provenance.

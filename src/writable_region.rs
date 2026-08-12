@@ -7,7 +7,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use image::{GrayImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 
 use crate::model::RectF;
@@ -180,81 +179,87 @@ impl ResolvedWritableRegion {
         }
     }
 
-    /// Rasterize the declared source-space region into the canonical tracking rectangle.
+    /// Rasterize the declared source-space region into a canonical canvas whose
+    /// placement is the region's own enclosing bounds.
     pub fn canonical_mask(&self, width: u32, height: u32) -> Result<Vec<u8>> {
+        self.canonical_mask_in(self.bounds(), width, height)
+    }
+
+    /// Rasterize this region into a different enclosing tracking rectangle. This is
+    /// what lets an outer injected plaque placement and its smaller inner writable
+    /// region remain separate human concepts while sharing one universal mask.
+    pub fn canonical_mask_in(
+        &self,
+        tracking_bounds: [f64; 4],
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>> {
         if width == 0 || height == 0 {
             bail!("canonical writable-region dimensions must be non-zero");
         }
-        let bounds = self.bounds();
-        let rect = RectF {
-            x: bounds[0],
-            y: bounds[1],
-            width: bounds[2],
-            height: bounds[3],
+        validate_rect(tracking_bounds, "tracking bounds")?;
+        let tracking = RectF {
+            x: tracking_bounds[0],
+            y: tracking_bounds[1],
+            width: tracking_bounds[2],
+            height: tracking_bounds[3],
         };
+        let mut mask = vec![0; width as usize * height as usize];
+
         match self {
-            Self::Rect { .. } => Ok(vec![255; width as usize * height as usize]),
-            Self::RoundedRect { radius, .. } => {
-                let mut mask = vec![0; width as usize * height as usize];
-                for y in 0..height {
-                    for x in 0..width {
-                        let point = source_point(rect, width, height, x, y);
-                        if inside_rounded_rect(point, rect, *radius) {
-                            mask[(y * width + x) as usize] = 255;
-                        }
-                    }
-                }
-                Ok(mask)
-            }
-            Self::Ellipse {
-                center,
-                radii,
-                rotation_degrees,
-            } => {
-                let mut mask = vec![0; width as usize * height as usize];
-                let angle = rotation_degrees.to_radians();
-                let cos = angle.cos();
-                let sin = angle.sin();
-                for y in 0..height {
-                    for x in 0..width {
-                        let [sx, sy] = source_point(rect, width, height, x, y);
-                        let dx = sx - center[0];
-                        let dy = sy - center[1];
-                        let local_x = dx * cos + dy * sin;
-                        let local_y = -dx * sin + dy * cos;
-                        let norm = (local_x / radii[0]).powi(2) + (local_y / radii[1]).powi(2);
-                        if norm <= 1.0 {
-                            mask[(y * width + x) as usize] = 255;
-                        }
-                    }
-                }
-                Ok(mask)
-            }
-            Self::Polygon { points } => {
-                let mut mask = vec![0; width as usize * height as usize];
-                for y in 0..height {
-                    for x in 0..width {
-                        let point = source_point(rect, width, height, x, y);
-                        if point_in_polygon(point, points) {
-                            mask[(y * width + x) as usize] = 255;
-                        }
-                    }
-                }
-                Ok(mask)
-            }
-            Self::Mask { path, .. } => {
+            Self::Mask { bounds, path } => {
                 let image = image::open(path)
                     .with_context(|| format!("failed to load writable mask {}", path.display()))?
                     .to_luma8();
-                let resized: GrayImage = if image.width() == width && image.height() == height {
-                    image
-                } else {
-                    image::imageops::resize(&image, width, height, FilterType::Lanczos3)
-                };
-                Ok(resized.into_raw())
+                for y in 0..height {
+                    for x in 0..width {
+                        let [sx, sy] = source_point(tracking, width, height, x, y);
+                        let u = (sx - bounds[0]) / bounds[2];
+                        let v = (sy - bounds[1]) / bounds[3];
+                        if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+                            continue;
+                        }
+                        let ix = (u * image.width().saturating_sub(1) as f64).round() as u32;
+                        let iy = (v * image.height().saturating_sub(1) as f64).round() as u32;
+                        mask[(y * width + x) as usize] = image.get_pixel(ix, iy).0[0];
+                    }
+                }
+            }
+            _ => {
+                for y in 0..height {
+                    for x in 0..width {
+                        let point = source_point(tracking, width, height, x, y);
+                        if self.contains_source_point(point) {
+                            mask[(y * width + x) as usize] = 255;
+                        }
+                    }
+                }
             }
         }
+        Ok(mask)
     }
+
+    fn contains_source_point(&self, point: [f64; 2]) -> bool {
+        match self {
+            Self::Rect { bounds } => inside_rect(point, *bounds),
+            Self::RoundedRect { bounds, radius } => inside_rounded_rect(
+                point,
+                RectF { x: bounds[0], y: bounds[1], width: bounds[2], height: bounds[3] },
+                *radius,
+            ),
+            Self::Ellipse { center, radii, rotation_degrees } => {
+                let angle = rotation_degrees.to_radians();
+                let dx = point[0] - center[0];
+                let dy = point[1] - center[1];
+                let local_x = dx * angle.cos() + dy * angle.sin();
+                let local_y = -dx * angle.sin() + dy * angle.cos();
+                (local_x / radii[0]).powi(2) + (local_y / radii[1]).powi(2) <= 1.0
+            }
+            Self::Polygon { points } => point_in_polygon(point, points),
+            Self::Mask { .. } => false,
+        }
+    }
+
 }
 
 fn source_point(rect: RectF, width: u32, height: u32, x: u32, y: u32) -> [f64; 2] {
@@ -264,10 +269,14 @@ fn source_point(rect: RectF, width: u32, height: u32, x: u32, y: u32) -> [f64; 2
     ]
 }
 
+fn inside_rect(point: [f64; 2], bounds: [f64; 4]) -> bool {
+    point[0] >= bounds[0]
+        && point[0] <= bounds[0] + bounds[2]
+        && point[1] >= bounds[1]
+        && point[1] <= bounds[1] + bounds[3]
+}
+
 fn inside_rounded_rect(point: [f64; 2], rect: RectF, radius: f64) -> bool {
-    if radius <= f64::EPSILON {
-        return true;
-    }
     let left = rect.x;
     let right = rect.x + rect.width;
     let top = rect.y;
@@ -276,6 +285,9 @@ fn inside_rounded_rect(point: [f64; 2], rect: RectF, radius: f64) -> bool {
     let y = point[1];
     if x < left || x > right || y < top || y > bottom {
         return false;
+    }
+    if radius <= f64::EPSILON {
+        return true;
     }
     let clamped_x = x.clamp(left + radius, right - radius);
     let clamped_y = y.clamp(top + radius, bottom - radius);
@@ -361,6 +373,31 @@ mod tests {
     fn ellipse_bounds_cover_the_unrotated_ellipse() {
         let bounds = ellipse_bounds([50.0, 40.0], [20.0, 10.0], 0.0);
         assert_eq!(bounds, [30.0, 30.0, 40.0, 20.0]);
+    }
+
+    #[test]
+    fn inner_region_rasterizes_inside_a_larger_tracking_enclosure() {
+        let region = ResolvedWritableRegion::Rect {
+            bounds: [25.0, 25.0, 50.0, 50.0],
+        };
+        let mask = region
+            .canonical_mask_in([0.0, 0.0, 100.0, 100.0], 100, 100)
+            .unwrap();
+        assert_eq!(mask[10 * 100 + 10], 0);
+        assert_eq!(mask[50 * 100 + 50], 255);
+    }
+
+    #[test]
+    fn zero_radius_rounded_rect_still_respects_its_own_bounds() {
+        let region = ResolvedWritableRegion::RoundedRect {
+            bounds: [25.0, 25.0, 50.0, 50.0],
+            radius: 0.0,
+        };
+        let mask = region
+            .canonical_mask_in([0.0, 0.0, 100.0, 100.0], 100, 100)
+            .unwrap();
+        assert_eq!(mask[10 * 100 + 10], 0);
+        assert_eq!(mask[50 * 100 + 50], 255);
     }
 
     #[test]

@@ -281,6 +281,31 @@ pub struct TrackingResult {
     pub loop_closed: bool,
 }
 
+pub fn screen_fixed(
+    frame_count: usize,
+    reference_frame: usize,
+    confidence: f64,
+    model_name: &str,
+) -> TrackingResult {
+    TrackingResult {
+        samples: (0..frame_count)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::IDENTITY,
+                inlier_ratio: confidence,
+                reprojection_error: 0.0,
+                ecc: Some(1.0),
+                plaque_visibility: 1.0,
+                occluder_coverage: 0.0,
+            })
+            .collect(),
+        model_name: model_name.to_string(),
+        reference_frame: reference_frame.min(frame_count.saturating_sub(1)),
+        confidence: confidence.clamp(0.0, 1.0),
+        loop_closed: false,
+    }
+}
+
 pub fn select_masked_refinement(
     mut baseline: TrackingResult,
     refinement: TrackingResult,
@@ -1786,10 +1811,39 @@ fn interpolate_plaque_transform(plaque: RectF, left: Mat3, right: Mat3, t: f64) 
 }
 
 fn should_close_loop(capture: &mut VideoCapture, frame_count: usize) -> Result<bool> {
-    let first = read_gray(capture, 0).context("failed to decode first frame for loop detection")?;
-    let last_index = frame_count.saturating_sub(1);
-    let last = read_gray(capture, last_index)
-        .with_context(|| format!("failed to decode frame {last_index} for loop detection"))?;
+    // Loop closure is an optimization hint, never a prerequisite for tracking. Some
+    // OpenCV/codec combinations report N frames but cannot seek-decode exactly N-1.
+    // Search backward for a decodable tail frame instead of aborting the whole analysis
+    // on that optional heuristic. The video probe normally removes stale metadata tails;
+    // this remains a defensive fallback for codec-specific seek behavior.
+    let first = match read_gray(capture, 0) {
+        Ok(frame) => frame,
+        Err(error) => {
+            eprintln!("warning: loop detection disabled because frame 0 could not be decoded: {error:#}");
+            return Ok(false);
+        }
+    };
+    let nominal_last = frame_count.saturating_sub(1);
+    let mut decoded_last = None;
+    let tail_window = frame_count.min(256);
+    for offset in 0..tail_window {
+        let index = nominal_last.saturating_sub(offset);
+        if let Ok(frame) = read_gray(capture, index) {
+            decoded_last = Some((index, frame));
+            break;
+        }
+    }
+    let Some((actual_last, last)) = decoded_last else {
+        eprintln!(
+            "warning: loop detection disabled because none of the final {tail_window} frame positions could be seek-decoded"
+        );
+        return Ok(false);
+    };
+    if actual_last != nominal_last {
+        eprintln!(
+            "warning: loop detection used frame {actual_last} because nominal final frame {nominal_last} was not seek-decodable"
+        );
+    }
     let mut difference = Mat::default();
     core::absdiff(&first, &last, &mut difference)?;
     let mean = core::mean(&difference, &core::no_array())?.0[0];

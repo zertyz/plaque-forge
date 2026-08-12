@@ -16,6 +16,26 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 
+def runtime_log(event, **fields):
+    root = os.environ.get("PLAQUE_FORGE_PYTHON_ROOT")
+    if not root:
+        return
+    path = Path(root) / "worker-runs.jsonl"
+    record = {
+        "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "event": event,
+        "pid": os.getpid(),
+        **fields,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+    except OSError:
+        # Runtime observability must never make segmentation itself fail.
+        pass
+
+
 def package_version(*names):
     for name in names:
         try:
@@ -568,6 +588,19 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     request = json.loads(args.request.read_text(encoding="utf-8"))
+    runtime_log(
+        "started",
+        backend=request.get("backend"),
+        model=request.get("model"),
+        requested_device=request.get("device", "auto"),
+        source=request.get("source", {}).get("path"),
+    )
+    print(
+        f"[ml] Python worker active: pid={os.getpid()}, backend={request.get('backend')}, "
+        f"model={request.get('model')}, requested_device={request.get('device', 'auto')}",
+        file=sys.stderr,
+        flush=True,
+    )
     if request.get("schema_version") != 1:
         raise ValueError("unsupported worker protocol")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -599,10 +632,20 @@ def main():
     if frame_dir.exists():
         remove_owned_directory(args.output, frame_dir)
     write_output(request, args.output, probabilities, version)
+    runtime_log("completed", frames=len(probabilities), version=version)
+    print(
+        f"[ml] Python worker completed: pid={os.getpid()}, frames={len(probabilities)}, version={version}",
+        file=sys.stderr,
+        flush=True,
+    )
     cache_root = args.output / ".worker-cache"
     if cache_root.exists():
         remove_owned_directory(args.output, cache_root)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        runtime_log("failed", error=f"{type(error).__name__}: {error}")
+        raise

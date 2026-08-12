@@ -10,25 +10,32 @@ use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     analysis::{
-        ANALYSIS_SCHEMA_VERSION, Analysis, AnalysisManifest, AnalysisStatus, MOTION_FILE,
-        OCCLUDER_DIR, SourceInfo,
+        ANALYSIS_SCHEMA_VERSION, INJECTED_SURFACE_FILE, Analysis, AnalysisManifest,
+        AnalysisStatus, InjectedSurfaceAsset, MOTION_FILE, OCCLUDER_DIR, SourceInfo,
     },
     cli::AnalyzeArgs,
     layers::{self, LayerInput},
     model::AnalysisConfidence,
     progress::ProgressReporter,
     refinement::{
-        MotionRefinement, RefinementProvenance, find_refinement, layer_artifact_path,
-        layer_artifact_provenance, relative_reference, resolve_relative, selected_layer_artifacts,
-        semantic_provenance,
+        InjectedMotion, MotionRefinement, PlaqueSurface, RefinementProvenance, find_refinement,
+        layer_artifact_path, layer_artifact_provenance, provenance, relative_reference,
+        resolve_relative, selected_layer_artifacts, semantic_provenance,
     },
     video, workspace,
 };
+
+struct InjectedSurfaceInput {
+    path: std::path::PathBuf,
+    motion: InjectedMotion,
+    inset: [f64; 4],
+}
 
 struct AnalysisRefinements {
     motion_track: Option<MotionRefinement>,
     layers: Vec<LayerInput>,
     provenance: Option<RefinementProvenance>,
+    injected_surface: Option<InjectedSurfaceInput>,
 }
 
 impl AnalysisRefinements {
@@ -40,6 +47,9 @@ impl AnalysisRefinements {
 }
 
 pub fn run(mut args: AnalyzeArgs) -> Result<()> {
+    if args.force_ml && args.segmentation_worker.is_none() {
+        bail!("--force-ml requires --segmentation-worker; use the high-level analyze script for the configured ML runtime");
+    }
     if !(0.0..=1.0).contains(&args.minimum_analysis_confidence) {
         bail!("--minimum-analysis-confidence must be between 0 and 1");
     }
@@ -61,6 +71,13 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     let source_sha256 = crate::digest::file_sha256(&args.input)
         .with_context(|| format!("failed to hash source {}", args.input.display()))?;
     if let Some(worker) = args.segmentation_worker.as_deref() {
+        eprintln!(
+            "[ml] segmentation enabled: worker={}, backend={}, model={}, device={}",
+            worker.display(),
+            args.segmentation_backend,
+            args.segmentation_model,
+            args.segmentation_device
+        );
         let generated = crate::segmentation::ensure_prompted_layers(
             &args.input,
             args.refinement.as_deref(),
@@ -69,12 +86,15 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             &args.segmentation_backend,
             &args.segmentation_model,
             &args.segmentation_device,
+            args.force_ml,
             &args.ffprobe,
         )
         .context("failed to materialize prompted refinement layers")?;
         if generated > 0 {
-            eprintln!("generated {generated} prompted refinement layer artifact(s)");
+            eprintln!("[ml] generated {generated} prompted refinement layer artifact(s)");
         }
+    } else {
+        eprintln!("[ml] segmentation disabled: no worker configured (high-level --no-ml mode)");
     }
     let refinements = resolve_refinements(&mut args, &info, &source_sha256)?;
     progress.finish(format!(
@@ -121,9 +141,9 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     })?;
 
     let result = (|| -> Result<Analysis> {
-        progress.start(2, 7, "Detect plaque", Some(args.candidate_samples));
+        progress.start(2, 7, "Resolve writing surface", Some(args.candidate_samples));
         let candidate = candidate::detect(&args, &info, &diagnostics)
-            .context("plaque candidate detection failed")?;
+            .context("writing-surface proposal failed")?;
         progress.finish(format!(
             "frame {}, confidence {:.3}, rect {:.0},{:.0},{:.0},{:.0}",
             candidate.frame_index,
@@ -134,6 +154,14 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             candidate.rect.height
         ));
 
+        let injected_motion = refinements.injected_surface.as_ref().map(|surface| surface.motion);
+        let candidate_area_ratio =
+            candidate.rect.width * candidate.rect.height / (info.width as f64 * info.height as f64);
+        let automatic_structureless_surface = args.plaque_hint.is_none()
+            && refinements.motion_track.is_none()
+            && candidate_area_ratio >= 0.12
+            && candidate.screen_stationarity >= 0.72
+            && candidate.edge_completeness >= 0.18;
         let mut track = if let Some(refinement_track) = &refinements.motion_track
             && refinement_track.is_dense_locked(info.frames)
         {
@@ -146,22 +174,87 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 &mut progress,
             )
             .context("failed to load authoritative refined plaque track")?
+        } else if matches!(injected_motion, Some(InjectedMotion::Screen)) {
+            eprintln!("injected surface motion: screen-fixed (tracking skipped)");
+            tracking::screen_fixed(
+                info.frames,
+                candidate.frame_index,
+                0.98,
+                "injected-screen-fixed",
+            )
         } else {
-            let mut track = tracking::track(
+            match tracking::track(
                 &args,
                 &info,
                 candidate.rect,
                 candidate.frame_index,
                 &diagnostics,
                 &mut progress,
-            )
-            .context("adaptive scene and plaque tracking failed")?;
-            if let Some(refinement_track) = &refinements.motion_track {
-                tracking::apply_motion_refinement(&mut track, refinement_track, candidate.rect)
-                    .context("failed to apply motion refinement constraints")?;
+            ) {
+                Ok(mut track) => {
+                    if let Some(refinement_track) = &refinements.motion_track {
+                        tracking::apply_motion_refinement(&mut track, refinement_track, candidate.rect)
+                            .context("failed to apply motion refinement constraints")?;
+                    }
+                    track
+                }
+                Err(error) if matches!(injected_motion, Some(InjectedMotion::Auto)) => {
+                    eprintln!(
+                        "warning: scene anchoring for injected surface failed; falling back to screen-fixed placement: {error:#}"
+                    );
+                    tracking::screen_fixed(
+                        info.frames,
+                        candidate.frame_index,
+                        0.72,
+                        "injected-auto-screen-fallback",
+                    )
+                }
+                Err(error) if automatic_structureless_surface => {
+                    let stationary_confidence =
+                        (0.58 + 0.34 * candidate.screen_stationarity).min(0.92);
+                    eprintln!(
+                        "warning: feature tracking failed for a broad screen-stationary writing surface; using screen-fixed motion instead: {error:#}"
+                    );
+                    tracking::screen_fixed(
+                        info.frames,
+                        candidate.frame_index,
+                        stationary_confidence,
+                        "automatic-screen-fixed-structureless-surface",
+                    )
+                }
+                Err(error) => {
+                    return Err(error.context("adaptive scene and plaque tracking failed"));
+                }
             }
-            track
         };
+
+        if matches!(injected_motion, Some(InjectedMotion::Auto)) && track.confidence < 0.50 {
+            eprintln!(
+                "warning: scene anchoring for injected surface had confidence {:.3}; falling back to screen-fixed placement",
+                track.confidence
+            );
+            track = tracking::screen_fixed(
+                info.frames,
+                candidate.frame_index,
+                0.72,
+                "injected-auto-screen-fallback",
+            );
+        }
+
+        if automatic_structureless_surface && track.confidence < 0.50 {
+            let stationary_confidence = (0.58 + 0.34 * candidate.screen_stationarity).min(0.92);
+            eprintln!(
+                "automatic surface is broad and screen-stationary (area {:.1}%, stationarity {:.3}); using screen-fixed motion instead of rejecting a structureless surface",
+                candidate_area_ratio * 100.0,
+                candidate.screen_stationarity
+            );
+            track = tracking::screen_fixed(
+                info.frames,
+                candidate.frame_index,
+                stationary_confidence,
+                "automatic-screen-fixed-structureless-surface",
+            );
+        }
 
         let mut extraction = extraction::recover(
             &args.ffmpeg,
@@ -173,14 +266,25 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             &diagnostics,
             args.extraction_samples,
             args.local_refinement_radius,
-            !refinements.has_dense_locked_track(info.frames),
+            !refinements.has_dense_locked_track(info.frames)
+                && !track.model_name.contains("screen-fixed"),
             refinements.motion_track.as_ref(),
             track.reference_frame,
             args.tracking_inertia,
             track.loop_closed,
             &mut progress,
         )
-        .context("canonical plaque structure analysis failed")?;
+        .context("canonical plaque/background structure analysis failed")?;
+        let mut injected_surface_asset = apply_surface_intent(
+            &args,
+            &refinements,
+            candidate.rect,
+            candidate.canonical_width,
+            candidate.canonical_height,
+            &partial,
+            &diagnostics,
+            &mut extraction,
+        )?;
 
         progress.start(7, 7, "Analyze foreground occlusion", Some(info.frames));
         let mut occlusion = if args.disable_occlusion {
@@ -233,6 +337,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         };
         let stabilized_frames = if !args.disable_occlusion
             && !refinements.has_dense_locked_track(info.frames)
+            && !track.model_name.contains("screen-fixed")
             && (has_refinement_exclusions || (!authoritative_foreground && occlusion.has_occluder))
         {
             let mut refined = tracking::retrack_masked(
@@ -284,7 +389,17 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 track.loop_closed,
                 &mut progress,
             )
-            .context("failed to rebuild the plaque model after masked tracking")?;
+            .context("failed to rebuild the plaque/background model after masked tracking")?;
+            injected_surface_asset = apply_surface_intent(
+                &args,
+                &refinements,
+                candidate.rect,
+                candidate.canonical_width,
+                candidate.canonical_height,
+                &partial,
+                &diagnostics,
+                &mut extraction,
+            )?;
             progress.start(7, 7, "Rebuild foreground occlusion", Some(info.frames));
             occlusion = occlusion::extract(
                 &args.ffmpeg,
@@ -330,17 +445,6 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             occlusion.confidence
         ));
 
-        if let Some(region) = args.writable_region_hint.as_ref() {
-            apply_declared_writable_region(
-                region,
-                candidate.canonical_width,
-                candidate.canonical_height,
-                &partial,
-                &diagnostics,
-                &mut extraction,
-            )?;
-        }
-
         let packed_layers = layers::package(
             &refinements.layers,
             &partial,
@@ -361,8 +465,11 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             occlusion.confidence,
         ]);
         let declared_writable_region = args.writable_region_hint.is_some();
-        let extraction_floor = if declared_writable_region { 0.45 } else { 0.65 };
-        let structure_gate = declared_writable_region || extraction.structural_area >= 0.001;
+        let injected_surface = refinements.injected_surface.is_some();
+        let structureless_surface =
+            declared_writable_region || automatic_structureless_surface || injected_surface;
+        let extraction_floor = if structureless_surface { 0.45 } else { 0.65 };
+        let structure_gate = structureless_surface || extraction.structural_area >= 0.001;
         let component_gate_passed = candidate.confidence >= 0.60
             && track.confidence >= 0.50
             && extraction.confidence >= extraction_floor
@@ -378,6 +485,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             extraction.confidence,
             extraction.structural_area,
             occlusion.confidence,
+            structureless_surface,
         );
 
         fs::write(
@@ -386,6 +494,10 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 "schema_version": ANALYSIS_SCHEMA_VERSION,
                 "source_contract": "text-free-writing-surface",
                 "declared_writable_region": args.writable_region_hint.as_ref().map(|region| region.kind()),
+                "automatic_structureless_surface": automatic_structureless_surface,
+                "surface_source": if injected_surface { "injected" } else { "source" },
+                "candidate_screen_stationarity": candidate.screen_stationarity,
+                "candidate_area_ratio": candidate_area_ratio,
                 "candidate_confidence": candidate.confidence,
                 "motion_confidence": track.confidence,
                 "structural_confidence": extraction.confidence,
@@ -411,7 +523,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
 
         if !analysis_gate_passed && !args.allow_low_confidence {
             bail!(
-                "analysis quality gate failed: detected plaque {:.0},{:.0},{:.0},{:.0}; overall {overall:.3} (minimum {:.3}), components candidate {:.3}, tracking {:.3}, extraction {:.3} (structural area {:.3}%), occlusion {:.3}. {}. Use --allow-low-confidence only to retain diagnostic output",
+                "analysis quality gate failed: writing surface {:.0},{:.0},{:.0},{:.0}; overall {overall:.3} (minimum {:.3}), components candidate {:.3}, tracking {:.3}, extraction {:.3} (structural area {:.3}%), occlusion {:.3}. {}. Use --allow-low-confidence only to retain diagnostic output",
                 candidate.rect.x,
                 candidate.rect.y,
                 candidate.rect.width,
@@ -447,6 +559,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             motion_model: track.model_name,
             loop_closed: track.loop_closed,
             has_occluder: occlusion.has_occluder,
+            injected_surface: injected_surface_asset,
             layers: packed_layers,
             refinements: refinements.provenance.clone(),
             analysis_gate_passed,
@@ -493,6 +606,7 @@ fn resolve_refinements(
     let mut selected_id = None;
     let mut referenced_track = None;
     let mut layer_inputs = Vec::new();
+    let mut injected_surface = None;
 
     if let Some(loaded) = &loaded {
         let declared_source = resolve_relative(&loaded.path, &loaded.document.source);
@@ -508,17 +622,31 @@ fn resolve_refinements(
         selected_id = Some(selected.id.clone());
         identity.manifest = Some(semantic_provenance(&loaded.path, &loaded.document)?);
         identity.plaque_id = Some(selected.id.clone());
-
-        if args.plaque_hint.is_none() {
-            if let Some(region) = &selected.writable_region {
-                let resolved = region.resolve(&loaded.path);
-                args.plaque_hint = Some(resolved.bounds());
-                args.plaque_frame = selected.reference_frame;
-                args.writable_region_hint = Some(resolved);
-            } else if let Some(bounds) = selected.tracking_bounds() {
-                args.plaque_hint = Some(bounds);
-                args.plaque_frame = selected.reference_frame;
+        if let Some(PlaqueSurface::Injected { image, motion, inset }) = &selected.surface {
+            let path = resolve_relative(&loaded.path, image);
+            if !path.is_file() {
+                bail!("injected plaque image does not exist: {}", path.display());
             }
+            image::open(&path)
+                .with_context(|| format!("failed to decode injected plaque image {}", path.display()))?;
+            identity.surface_asset = Some(provenance(&path)?);
+            injected_surface = Some(InjectedSurfaceInput {
+                path,
+                motion: *motion,
+                inset: *inset,
+            });
+        }
+
+        if args.writable_region_hint.is_none()
+            && let Some(region) = &selected.writable_region
+        {
+            args.writable_region_hint = Some(region.resolve(&loaded.path));
+        }
+        if args.plaque_hint.is_none()
+            && let Some(bounds) = selected.tracking_bounds()
+        {
+            args.plaque_hint = Some(bounds);
+            args.plaque_frame = selected.reference_frame;
         }
         if let Some(frame) = selected.reference_frame
             && frame >= info.frames
@@ -654,6 +782,7 @@ fn resolve_refinements(
         motion_track,
         layers: layer_inputs,
         provenance,
+        injected_surface,
     })
 }
 
@@ -677,15 +806,118 @@ fn analysis_cache_is_current(
     }
 }
 
+fn apply_surface_intent(
+    args: &AnalyzeArgs,
+    refinements: &AnalysisRefinements,
+    tracking_rect: crate::model::RectF,
+    width: u32,
+    height: u32,
+    output_root: &Path,
+    diagnostics: &Path,
+    extraction: &mut extraction::ExtractionResult,
+) -> Result<Option<InjectedSurfaceAsset>> {
+    let tracking_bounds = [
+        tracking_rect.x,
+        tracking_rect.y,
+        tracking_rect.width,
+        tracking_rect.height,
+    ];
+
+    let Some(injected) = refinements.injected_surface.as_ref() else {
+        if let Some(region) = args.writable_region_hint.as_ref() {
+            apply_declared_writable_region(
+                region,
+                tracking_bounds,
+                width,
+                height,
+                output_root,
+                diagnostics,
+                extraction,
+            )?;
+        }
+        return Ok(None);
+    };
+
+    let source_image = image::open(&injected.path)
+        .with_context(|| format!("failed to load injected plaque {}", injected.path.display()))?
+        .to_rgba8();
+    let canonical = if source_image.width() == width && source_image.height() == height {
+        source_image
+    } else {
+        image::imageops::resize(
+            &source_image,
+            width,
+            height,
+            image::imageops::FilterType::Lanczos3,
+        )
+    };
+    let canonical_path = output_root.join(INJECTED_SURFACE_FILE);
+    canonical
+        .save(&canonical_path)
+        .with_context(|| format!("failed to save injected plaque {}", canonical_path.display()))?;
+
+    let alpha = canonical
+        .pixels()
+        .map(|pixel| pixel.0[3])
+        .collect::<Vec<_>>();
+    let mut writable = if let Some(region) = args.writable_region_hint.as_ref() {
+        region.canonical_mask_in(tracking_bounds, width, height)?
+    } else {
+        let [left, top, right, bottom] = injected.inset;
+        let x0 = (left * width as f64).round().clamp(0.0, width as f64) as u32;
+        let y0 = (top * height as f64).round().clamp(0.0, height as f64) as u32;
+        let x1 = ((1.0 - right) * width as f64)
+            .round()
+            .clamp(0.0, width as f64) as u32;
+        let y1 = ((1.0 - bottom) * height as f64)
+            .round()
+            .clamp(0.0, height as f64) as u32;
+        let mut mask = vec![0_u8; width as usize * height as usize];
+        for y in y0.min(height)..y1.min(height) {
+            for x in x0.min(width)..x1.min(width) {
+                mask[(y * width + x) as usize] = 255;
+            }
+        }
+        mask
+    };
+    for (value, alpha) in writable.iter_mut().zip(alpha) {
+        *value = ((*value as u16 * alpha as u16 + 127) / 255) as u8;
+    }
+    let area = writable.iter().filter(|&&value| value > 32).count() as f64
+        / writable.len().max(1) as f64;
+    if area < 0.01 {
+        bail!(
+            "injected plaque writable region covers only {:.3}% of its canonical surface",
+            area * 100.0
+        );
+    }
+    extraction.content_mask = writable.clone();
+    extraction.cavity_area = area;
+    save_luma_mask(width, height, &writable, &output_root.join("content-mask.png"))?;
+    save_luma_mask(
+        width,
+        height,
+        &writable,
+        &diagnostics.join("injected-writable-mask.png"),
+    )?;
+
+    Ok(Some(InjectedSurfaceAsset {
+        path: std::path::PathBuf::from(INJECTED_SURFACE_FILE),
+        source_sha256: crate::digest::file_sha256(&injected.path)?,
+        motion: injected.motion,
+    }))
+}
+
 fn apply_declared_writable_region(
     region: &crate::writable_region::ResolvedWritableRegion,
+    tracking_bounds: [f64; 4],
     width: u32,
     height: u32,
     output_root: &Path,
     diagnostics: &Path,
     extraction: &mut extraction::ExtractionResult,
 ) -> Result<()> {
-    let mask = region.canonical_mask(width, height)?;
+    let mask = region.canonical_mask_in(tracking_bounds, width, height)?;
     let area = mask.iter().filter(|&&value| value > 127).count() as f64
         / mask.len().max(1) as f64;
     if area < 0.01 {
@@ -764,9 +996,10 @@ fn remedies(
     structure: f64,
     structural_area: f64,
     occlusion: f64,
+    structure_optional: bool,
 ) -> Vec<String> {
     let mut output = Vec::new();
-    if structural_area < 0.001 && args.writable_region_hint.is_none() {
+    if structural_area < 0.001 && !structure_optional && args.writable_region_hint.is_none() {
         output.push(if args.plaque_hint.is_some() {
             format!(
                 "the refinement selected {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure; correct it to the full plaque bounds",
@@ -799,7 +1032,7 @@ fn remedies(
             "automatic motion confidence is {motion:.3}; export the motion and lock only incorrect frames before reanalysis"
         ));
     }
-    if structure < 0.75 {
+    if structure < 0.75 && !structure_optional {
         output.push(format!(
             "canonical extraction confidence is {structure:.3}; inspect canonical-reference.png and temporal-mad.png"
         ));

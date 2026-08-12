@@ -3,14 +3,14 @@
 ## Pipeline
 
 ```text
-source video
+source video + optional injected plaque image
     |
     v
 analyze ----------------------------------------------------+
-  detect plaque                                              |
-  track plaque                                               |
-  recover canonical surface                                  |
-  detect/import foreground layers                            |
+  resolve writing-surface source (detected/manual/injected)   |
+  track placement / scene anchor                              |
+  recover source underlay + writable mask                     |
+  detect/import foreground layers                             |
     |                                                        |
     v                                                        |
 assets/analysis/<name>/                                      |
@@ -49,9 +49,9 @@ These modules coordinate operations. They should not contain asset-specific scen
 
 - `surface.rs`, `image_io.rs`, and `color.rs` provide image primitives.
 - `digest.rs` owns generic streaming content hashes used for cache/provenance identity.
-- `analyze/candidate.rs` detects plausible plaques.
-- `analyze/tracking.rs` estimates plaque motion.
-- `analyze/extraction.rs` recovers the canonical writing surface and structural data.
+- `analyze/candidate.rs` proposes plausible writing-surface enclosures. Among independently plausible hypotheses, selection prefers the largest surface so small high-contrast props do not steal the dominant title area.
+- `analyze/tracking.rs` estimates placement/scene motion and supports authoritative screen-fixed trajectories.
+- `analyze/extraction.rs` recovers canonical source-underlay and structural data used by source surfaces and foreground analysis.
 - `analyze/occlusion.rs` estimates automatic foreground occlusion.
 - `render/typography.rs` shapes and fits text and owns line-layout decisions.
 - `render/effects.rs` paints mask-derived text effects such as stroke, glow, and shadow.
@@ -59,6 +59,10 @@ These modules coordinate operations. They should not contain asset-specific scen
 Text effects are intentionally split by the data they operate on. Layout/glyph transforms, mask effects, material/fill effects, and plaque-surface effects are separate extension points; see [TEXT_EFFECTS.md](TEXT_EFFECTS.md).
 
 OpenCV and `cosmic-text` are implementation libraries inside these layers. They are not part of the refinement or analysis-cache interfaces.
+
+## Surface sources
+
+A writing surface has two orthogonal properties: **placement/pose** and **writable mask**. Its visual source is either already present in the video or injected from a transparent image. Injected surfaces skip automatic plaque selection because their placement is explicit, but they still reuse motion/underlay/foreground analysis so scene objects can cross in front. The injected image hash is part of refinement/cache provenance.
 
 ## External processes
 

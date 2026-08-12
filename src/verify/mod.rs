@@ -118,12 +118,28 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         "canonical text mask dimensions do not match analysis"
     );
     let canonical_text_mask = text_mask_image.into_raw();
-    let canonical_text_surface = Surface::from_alpha_mask(
+    let mut canonical_allowed_mask = canonical_text_mask.clone();
+    if let Some(surface) = &pack.manifest.injected_surface {
+        let path = pack.require_asset_path(&surface.path)?;
+        let image = image::open(&path)
+            .with_context(|| format!("failed to load injected plaque {}", path.display()))?
+            .to_rgba8();
+        anyhow::ensure!(
+            image.width() == pack.manifest.canonical_width
+                && image.height() == pack.manifest.canonical_height,
+            "injected plaque dimensions do not match analysis"
+        );
+        for (allowed, pixel) in canonical_allowed_mask.iter_mut().zip(image.pixels()) {
+            *allowed = (*allowed).max(pixel.0[3]);
+        }
+    }
+    let canonical_allowed_surface = Surface::from_alpha_mask(
         pack.manifest.canonical_width,
         pack.manifest.canonical_height,
-        &canonical_text_mask,
+        &canonical_allowed_mask,
         Rgba::new(255, 255, 255, 255),
     )?;
+    let screen_fixed_surface = pack.manifest.motion_model.contains("screen-fixed");
     let structural_mask = load_luma(
         &pack.require_asset(STRUCTURAL_MASK_FILE)?,
         pack.manifest.canonical_width,
@@ -175,7 +191,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
 
         let mut allowed = Surface::new(original_info.width, original_info.height);
         allowed.warp_blend(
-            &canonical_text_surface,
+            &canonical_allowed_surface,
             transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
             1.0,
         )?;
@@ -385,18 +401,18 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         .manifest
         .motion_model
         .starts_with("authoritative-refined-quad-track-");
-    let tracking_measurement_valid = maximum_tracking_correction.is_finite();
-    let tracking_lock = if authoritative_refinement {
+    let authoritative_motion = authoritative_refinement || screen_fixed_surface;
+    let tracking_measurement_valid =
+        authoritative_motion || maximum_tracking_correction.is_finite();
+    let tracking_lock = if authoritative_motion {
         1.0
     } else {
         measured_tracking_lock
     };
-    let tracking_lock_basis = if pack
-        .manifest
-        .motion_model
-        .starts_with("authoritative-refined-quad-track-")
-    {
+    let tracking_lock_basis = if authoritative_refinement {
         "authoritative-refined-quad-track"
+    } else if screen_fixed_surface {
+        "declared-or-validated-screen-fixed-surface"
     } else {
         "automatic-structural-registration-and-edge-alignment"
     };
@@ -453,7 +469,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     };
     let mut failures = Vec::new();
     let mut remedies = Vec::new();
-    let worst_tracking_diagnostic = if authoritative_refinement {
+    let worst_tracking_diagnostic = if authoritative_motion {
         None
     } else if let (Some(directory), Some((mut frame, quad))) =
         (&args.diagnostics, worst_tracking_preview)
@@ -473,7 +489,9 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     };
     let rect = pack.manifest.source_plaque_rect;
     let frame_seconds = worst_tracking.0 as f64 / original_info.fps;
-    let tracking_remedy = if tracking_measurement_valid {
+    let tracking_remedy = if screen_fixed_surface {
+        "screen-fixed injected/structureless surface uses an authoritative identity trajectory".to_string()
+    } else if tracking_measurement_valid {
         format!(
             "automatic registration needs up to {:.2}px correction; worst frame {} ({frame_seconds:.3}s){}. The analyzed rectangle is {:.0},{:.0},{:.0},{:.0}. Correct refinement bounds or export and lock motion frames before reanalysis",
             maximum_tracking_correction,
@@ -507,7 +525,11 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         thresholds.scene_integrity,
         &mut failures,
         &mut remedies,
-        "use the default lossless FFV1 output and confirm the source plaque is text-free".into(),
+        if pack.manifest.injected_surface.is_some() {
+            "use the default lossless FFV1 output and confirm changes outside the injected plaque/title/foreground masks are unintended".into()
+        } else {
+            "use the default lossless FFV1 output and confirm the source plaque is text-free".into()
+        },
     );
     check_score(
         "typography_fit",

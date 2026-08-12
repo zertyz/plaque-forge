@@ -15,6 +15,8 @@ pub struct Cli {
 pub enum Command {
     /// Detect a plaque and create an editable refinement manifest.
     Refine(RefineArgs),
+    /// Place an external plaque PNG into a plaque-less video and create a refinement.
+    PlacePlaque(PlacePlaqueArgs),
     /// Analyze the source and cache reusable motion, masks, and confidence data.
     Analyze(AnalyzeArgs),
     /// Export analyzed plaque motion as an editable refinement track.
@@ -44,6 +46,47 @@ pub struct RefineArgs {
 
     #[arg(long)]
     pub diagnostics: Option<PathBuf>,
+
+    #[arg(long, default_value = "ffprobe")]
+    pub ffprobe: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct PlacePlaqueArgs {
+    #[arg(long)]
+    pub input: PathBuf,
+
+    /// Transparent PNG to composite as the virtual plaque. It is normalized/copied into the refinement directory.
+    #[arg(long)]
+    pub image: PathBuf,
+
+    /// Defaults to assets/refinements/<source>/refinement.toml.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+
+    /// Explicit [x,y,width,height] source-pixel placement. Accepts comma-separated values.
+    /// Omit this to let Plaque Forge propose a quiet region automatically.
+    #[arg(long, value_delimiter = ',', num_args = 4)]
+    pub bounds: Vec<f64>,
+
+    /// How the virtual plaque should move after placement.
+    #[arg(long, value_enum, default_value_t = PlacementMotion::Auto)]
+    pub motion: PlacementMotion,
+
+    /// Fractional [left,top,right,bottom] writable inset inside the plaque PNG.
+    #[arg(long, value_delimiter = ',', num_args = 4)]
+    pub inset: Vec<f64>,
+
+    /// Replace an existing injected-plaque refinement.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Skip writing the placement preview PNG.
+    #[arg(long)]
+    pub no_preview: bool,
+
+    #[arg(long, default_value = "ffmpeg")]
+    pub ffmpeg: PathBuf,
 
     #[arg(long, default_value = "ffprobe")]
     pub ffprobe: PathBuf,
@@ -95,6 +138,10 @@ pub struct AnalyzeArgs {
 
     #[arg(long, default_value = "auto")]
     pub segmentation_device: String,
+
+    /// Regenerate prompted ML layer artifacts even when their cache files already exist.
+    #[arg(long)]
+    pub force_ml: bool,
 
     #[arg(long, value_enum, default_value_t = ProgressMode::Auto)]
     pub progress: ProgressMode,
@@ -448,6 +495,16 @@ pub enum VerticalAlign {
     Top,
     Center,
     Bottom,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum PlacementMotion {
+    /// Try scene anchoring; fall back to screen-fixed placement when tracking is unreliable.
+    Auto,
+    /// Keep the plaque fixed in screen coordinates.
+    Screen,
+    /// Require the plaque to follow estimated scene motion.
+    Scene,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

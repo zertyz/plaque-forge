@@ -15,6 +15,7 @@ use crate::{
     layers::{ForegroundReader, merge_mask},
     model::TypographyMetrics,
     progress::ProgressReporter,
+    surface::Surface,
     video::{self, Decoder, Encoder},
 };
 
@@ -30,6 +31,10 @@ pub struct RenderManifest {
     pub frames: usize,
     pub used_occluder_masks: bool,
     pub refinement_foreground_layers: usize,
+    #[serde(default)]
+    pub used_injected_surface: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injected_surface_sha256: Option<String>,
     pub source_sha256: String,
     pub canonical_text_mask: String,
     #[serde(default)]
@@ -103,6 +108,23 @@ pub fn run(args: ComposeArgs) -> Result<()> {
         pack.manifest.canonical_width,
         pack.manifest.canonical_height,
     )?;
+    let injected_surface = pack
+        .manifest
+        .injected_surface
+        .as_ref()
+        .map(|asset| {
+            let path = pack.require_asset_path(&asset.path)?;
+            let image = image::open(&path)
+                .with_context(|| format!("failed to load injected plaque {}", path.display()))?
+                .to_rgba8();
+            anyhow::ensure!(
+                image.width() == pack.manifest.canonical_width
+                    && image.height() == pack.manifest.canonical_height,
+                "injected plaque dimensions do not match canonical analysis"
+            );
+            Surface::from_rgba(image.width(), image.height(), image.into_raw())
+        })
+        .transpose()?;
     progress.finish("source and analysis cache are valid");
 
     progress.start(2, 3, "Shape and fit typography", None);
@@ -221,9 +243,17 @@ pub fn run(args: ComposeArgs) -> Result<()> {
             .get(frame_index)
             .with_context(|| format!("motion sample missing for frame {frame_index}"))?;
 
-        // The source plaque is already text-free. Static typography is prepared once.
-        // Frame-varying presentation (currently pulse/shine) is evaluated here without
-        // repeating font discovery, shaping, or line breaking.
+        if let Some(plaque_layer) = &injected_surface {
+            frame.warp_blend(
+                plaque_layer,
+                transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+                sample.plaque_visibility.clamp(0.0, 1.0) as f32,
+            )?;
+        }
+
+        // Static typography is prepared once. Frame-varying presentation is evaluated
+        // here without repeating font discovery, shaping, or line breaking. For injected
+        // surfaces the title is painted after the plaque image and before foreground restore.
         let time_seconds = frame_index as f64 / info.fps.max(f64::EPSILON);
         let style_opacity = style.frame_opacity(time_seconds);
         let animated_overlay = style.frame_overlay(
@@ -320,6 +350,12 @@ pub fn run(args: ComposeArgs) -> Result<()> {
         frames: frame_index,
         used_occluder_masks: use_masks || !foregrounds.is_empty(),
         refinement_foreground_layers,
+        used_injected_surface: injected_surface.is_some(),
+        injected_surface_sha256: pack
+            .manifest
+            .injected_surface
+            .as_ref()
+            .map(|surface| surface.source_sha256.clone()),
         source_sha256: pack.manifest.source.sha256.clone(),
         canonical_text_mask: canonical_text_mask_path
             .canonicalize()

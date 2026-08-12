@@ -93,7 +93,49 @@ bounds = [180.0, 40.0, 930.0, 210.0]
 path = "cloud-mask.png"
 ```
 
-Do not declare both `bounds` and `writable_region` for the same plaque. `bounds` is the legacy rectangular shorthand; `writable_region` is the explicit geometry form.
+When `bounds` and `writable_region` are both present, `bounds` is the outer planar tracking/placement enclosure and `writable_region` is the possibly smaller/non-rectangular area that may receive text. When only `writable_region` is present, its enclosing bounds are also used for tracking.
+
+## Injected plaque for plaque-less video
+
+An injected plaque is a different **surface source**, not a fake detection result. Because placement and appearance are supplied explicitly, automatic plaque selection and recovery of a source-plaque appearance are skipped. Plaque Forge still reconstructs/analyzes the underlying video region and foreground crossings because those are needed to composite the virtual plaque convincingly.
+
+Prefer the high-level helper:
+
+```bash
+./scripts/place_plaque.sh 16_9_plaqueless_swamp my-plaque.png
+```
+
+It copies the image into `assets/refinements/<asset>/injected-plaque.png`, proposes a low-activity placement from several frames, and writes `placement-preview.png`. Override the proposal when desired:
+
+```bash
+./scripts/place_plaque.sh 16_9_plaqueless_swamp my-plaque.png \
+  --bounds 180,70,900,220 --motion screen --inset 0.08,0.12,0.08,0.12
+```
+
+The generated human intent is small:
+
+```toml
+[[plaques]]
+id = "main"
+reference_frame = 0
+bounds = [180.0, 70.0, 900.0, 220.0]
+
+[plaques.surface]
+type = "injected"
+image = "injected-plaque.png"
+motion = "auto"
+inset = [0.08, 0.12, 0.08, 0.12]
+```
+
+`motion` may be:
+
+- `auto`: try scene anchoring and fall back to screen-fixed placement if it is unreliable;
+- `screen`: explicitly fixed in screen coordinates;
+- `scene`: require scene anchoring and fail rather than silently fall back.
+
+The image content hash and the refinement semantics participate in analysis-cache identity. Replacing the PNG or changing placement/inset therefore invalidates the dependent cache, while changing title text or typography style does not. An explicit `writable_region` may replace the simple inset when the PNG has an irregular writing area.
+
+Automatic temporal analysis can recover moving objects that cross the injected surface, but a plaque-less source contains no physical depth cue saying whether every static/ambiguous object should be in front of or behind the new plaque. For those cases, declare a foreground layer/segmentation prompt. The placement proposer deliberately favors quieter regions to reduce this ambiguity.
 
 ## Automatic first, refinement second
 

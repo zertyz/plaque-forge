@@ -58,6 +58,15 @@ This creates `assets/refinements/video/refinement.toml` by default. Review it be
 
 The exported motion file is generated review material. Edit or retain only the keyframes that need human authority instead of treating every frame as something a person should type.
 
+## Add a plaque to a plaque-less asset
+
+```bash
+./scripts/place_plaque.sh 16_9_plaqueless_swamp my-plaque.png
+./scripts/analyze_assets.sh 16_9_plaqueless_swamp
+```
+
+The first command proposes a quiet placement and writes a preview plus sparse refinement intent. Use `--bounds x,y,w,h` to override placement and `--motion auto|screen|scene` to control anchoring. Rendering afterward is the same as for a plaque already present in video.
+
 ## Build an analysis cache
 
 Prefer the high-level command; it verifies cache freshness and generates any missing prompted ML layers:
@@ -72,7 +81,15 @@ The lower-level equivalent is available for debugging:
 ./target/release/plaque-forge analyze --input assets/video.mp4
 ```
 
-Use `--force` only when intentionally replacing an existing cache. Replacement is staged and the old cache remains in place until the new analysis succeeds.
+Use `--force` only when intentionally replacing an existing Rust analysis cache. Prompted ML artifacts are an independent expensive cache and are reused by default. Use `--force-ml` when you explicitly want Python inference to regenerate them.
+
+The analyzer emits `[ml]` events for enabled/disabled, no-refinement, no-prompts, cache-hit, worker launch/PID, completion, and failure states. Inspect the temporary runtime at any time with:
+
+```bash
+./scripts/ml_status.sh
+```
+
+Replacement is staged and the old scene cache remains in place until the new analysis succeeds.
 
 ## Generate a segmentation layer manually
 

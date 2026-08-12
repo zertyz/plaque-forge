@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{AnalysisConfidence, MotionSample, RectF};
 use crate::refinement::{
-    LayerArtifactKind, LayerCoordinates, LayerGenerator, LayerRole, RefinementProvenance,
+    InjectedMotion, LayerArtifactKind, LayerCoordinates, LayerGenerator, LayerRole,
+    RefinementProvenance,
 };
 
 pub const MANIFEST_FILE: &str = "manifest.toml";
@@ -21,6 +22,7 @@ pub const MOTION_FILE: &str = "motion.json";
 pub const CONTENT_MASK_FILE: &str = "content-mask.png";
 pub const STRUCTURAL_MASK_FILE: &str = "structural-mask.png";
 pub const STRUCTURAL_TEMPLATE_FILE: &str = "structural-template.png";
+pub const INJECTED_SURFACE_FILE: &str = "injected-surface.png";
 pub const OCCLUDER_DIR: &str = "occluder";
 pub const LAYERS_DIR: &str = "layers";
 pub const ANALYSIS_SCHEMA_VERSION: u32 = 1;
@@ -59,6 +61,14 @@ pub struct LayerAsset {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct InjectedSurfaceAsset {
+    pub path: PathBuf,
+    pub source_sha256: String,
+    pub motion: InjectedMotion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnalysisManifest {
     pub schema_version: u32,
     pub status: AnalysisStatus,
@@ -72,6 +82,8 @@ pub struct AnalysisManifest {
     pub motion_model: String,
     pub loop_closed: bool,
     pub has_occluder: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injected_surface: Option<InjectedSurfaceAsset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layers: Vec<LayerAsset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +162,9 @@ impl Analysis {
         pack.require_asset(CONTENT_MASK_FILE)?;
         pack.require_asset(STRUCTURAL_MASK_FILE)?;
         pack.require_asset(STRUCTURAL_TEMPLATE_FILE)?;
+        if let Some(surface) = &pack.manifest.injected_surface {
+            pack.require_asset_path(&surface.path)?;
+        }
         for layer in &pack.manifest.layers {
             match layer.kind {
                 LayerArtifactKind::AlphaImage => {

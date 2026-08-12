@@ -148,7 +148,7 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         schema_version: WORKER_PROTOCOL_VERSION,
         backend: args.backend.clone(),
         model: args.model.clone(),
-        device: args.device,
+        device: args.device.clone(),
         source: WorkerSource {
             path: args.input.canonicalize().unwrap_or(args.input.clone()),
             sha256: crate::digest::file_sha256(&args.input)?,
@@ -177,13 +177,24 @@ pub fn run(args: SegmentArgs) -> Result<()> {
     let request_path = partial.join("request.json");
     fs::write(&request_path, serde_json::to_vec_pretty(&request)?)?;
 
-    let status = Command::new(&args.worker)
+    eprintln!(
+        "[ml] launching segmentation worker: layer={:?}, backend={}, model={}, device={}, worker={}",
+        layer.id,
+        args.backend,
+        args.model,
+        args.device,
+        args.worker.display()
+    );
+    let mut child = Command::new(&args.worker)
         .arg("--request")
         .arg(&request_path)
         .arg("--output")
         .arg(&partial)
-        .status()
+        .spawn()
         .with_context(|| format!("failed to start worker {}", args.worker.display()))?;
+    eprintln!("[ml] segmentation worker started: pid={}", child.id());
+    let status = child.wait().context("failed while waiting for segmentation worker")?;
+    eprintln!("[ml] segmentation worker exited: pid={}, status={status}", child.id());
     if !status.success() {
         bail!(
             "segmentation worker exited with {status}; partial output retained at {}",
@@ -202,7 +213,7 @@ pub fn run(args: SegmentArgs) -> Result<()> {
 ///
 /// This is used by the high-level analyze workflow so a user does not need to discover
 /// and invoke the lower-level `segment` command for each layer. Existing artifacts are
-/// never regenerated implicitly.
+/// reused unless `force` is explicitly requested.
 pub fn ensure_prompted_layers(
     input: &Path,
     explicit_refinement: Option<&Path>,
@@ -211,22 +222,48 @@ pub fn ensure_prompted_layers(
     backend: &str,
     model: &str,
     device: &str,
+    force: bool,
     ffprobe: &Path,
 ) -> Result<usize> {
     let Some(loaded) = find_refinement(input, explicit_refinement)? else {
+        eprintln!("[ml] segmentation skipped: no refinement manifest for {}", input.display());
         return Ok(0);
     };
     let plaque = loaded.document.select_plaque(plaque_id)?;
-    let pending = loaded
+    let prompted = loaded
         .document
         .layers
         .iter()
         .filter(|layer| layer.plaque == plaque.id && !layer.prompts.is_empty())
+        .collect::<Vec<_>>();
+    if prompted.is_empty() {
+        eprintln!(
+            "[ml] segmentation skipped: plaque {:?} declares no prompted ML layers",
+            plaque.id
+        );
+        return Ok(0);
+    }
+    let pending = prompted
+        .iter()
         .filter_map(|layer| {
             let artifact = layer_artifact_path(&loaded.path, layer)?;
-            (!artifact.is_file()).then_some(layer.id.clone())
+            (force || !artifact.is_file()).then_some(layer.id.clone())
         })
         .collect::<Vec<_>>();
+    let reused = prompted.len().saturating_sub(pending.len());
+    if pending.is_empty() {
+        eprintln!(
+            "[ml] segmentation cache hit: {} prompted layer artifact(s) already exist; Python will not run",
+            reused
+        );
+        return Ok(0);
+    }
+    eprintln!(
+        "[ml] segmentation required: {} layer(s) pending, {} reused{}",
+        pending.len(),
+        reused,
+        if force { " (forced regeneration)" } else { "" }
+    );
 
     for layer in &pending {
         run(SegmentArgs {
@@ -239,7 +276,7 @@ pub fn ensure_prompted_layers(
             model: model.to_string(),
             device: device.to_string(),
             output: None,
-            force: false,
+            force,
             ffprobe: ffprobe.to_path_buf(),
         })?;
     }

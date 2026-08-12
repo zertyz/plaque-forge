@@ -2,8 +2,8 @@
 
 Plaque Forge uses a few computer-vision terms that are easy to misread without context.
 
-**Plaque**  
-The planar surface in the source video that will receive new text. A plaque can move, rotate in perspective, and be partly covered by foreground objects.
+**Plaque / writing surface**  
+The planar title surface that receives new text. It may already exist in the source video or be injected from a transparent image. Its placement can move/rotate in perspective and it may be partly covered by foreground objects.
 
 **Tracker / tracking**  
 The analysis subsystem that estimates where the plaque is on every video frame. Its output is a frame-by-frame geometric transform from a stable plaque coordinate system to source-video pixels.
@@ -11,11 +11,14 @@ The analysis subsystem that estimates where the plaque is on every video frame. 
 **Reference frame**  
 A source-video frame used as the geometric anchor for the plaque definition.
 
-**Canonical plaque**  
-A rectified, stable view of the plaque. Perspective and per-frame motion are removed so analysis and typography can work in one coordinate system.
+**Canonical surface**  
+A rectified, stable coordinate system for the writing surface. Perspective and per-frame motion are removed so analysis, injected imagery, masks, and typography can share one coordinate system.
 
-**Writing surface / content mask**  
-The region of the canonical plaque where text is allowed. The mask can be irregular, so text fitting is not limited to a rectangle.
+**Writable region / content mask**  
+The region of the canonical surface where text is allowed. The mask can be rectangular, rounded, elliptical, polygonal, or arbitrary.
+
+**Injected plaque**  
+A transparent PNG supplied for a video that has no suitable plaque. Its image and placement are human intent; Plaque Forge still analyzes scene motion and foreground crossings needed to composite it.
 
 **Structural mask / template**  
 Stable plaque features used to measure and correct tracking. These are scene features, not typography.
@@ -52,10 +55,10 @@ Coordinates measured in the rectified plaque coordinate system.
 
 
 **Text style**  
-The paint/material/effect description applied after the title has been shaped and laid out. Current styles can contain fill, stroke, glow, and shadow. A style does not change plaque analysis.
+The paint/material/effect description applied after the title has been shaped and laid out. Current styles support flat/gradient/gold-bronze fills, stroke, glow, shadow, extrusion, bevel, pulse, and moving shine. A style does not change scene analysis.
 
 **Artistic fit**  
-An optional title-layout mode that tries several explicit word-boundary line arrangements, measures them using the real shaped font output, and chooses a visually balanced layout that still fits the writable mask.
+The default title-layout mode. It tries several explicit word-boundary line arrangements, measures them using the real shaped font output, and chooses a visually balanced layout at the largest safe size that fits the writable mask.
 
 **Resolved line layout**  
 The exact text after renderer-selected line breaks. It is recorded in render provenance so automatic composition decisions can be reviewed.

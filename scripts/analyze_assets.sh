@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 force=false
+force_ml=false
 use_ml=true
 backend="sam2-cutie-vitmatte"
 model="facebook/sam2.1-hiera-large"
@@ -22,7 +23,8 @@ Do the expensive scene work once and cache everything reusable. The script:
   - retains partial diagnostics when a scene still needs human refinement.
 
 Options:
-  --force          Rebuild selected scene-analysis caches.
+  --force          Rebuild selected Rust scene-analysis caches. Cached ML layers are reused.
+  --force-ml       Regenerate prompted ML layer artifacts too (implies Python when prompts exist).
   --no-ml          Do not invoke optional Python ML segmentation layers.
   --backend NAME   Segmentation backend (default: sam2-cutie-vitmatte).
   --model NAME     Segmentation model (default: facebook/sam2.1-hiera-large).
@@ -36,6 +38,7 @@ USAGE
 while (( $# )); do
   case "$1" in
     --force) force=true; shift ;;
+    --force-ml) force_ml=true; force=true; shift ;;
     --no-ml) use_ml=false; shift ;;
     --backend) (( $# >= 2 )) || { usage >&2; exit 2; }; backend="$2"; shift 2 ;;
     --model) (( $# >= 2 )) || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
@@ -46,9 +49,16 @@ while (( $# )); do
   esac
 done
 
+if [[ "$force_ml" == true && "$use_ml" == false ]]; then
+  printf 'error: --force-ml and --no-ml are mutually exclusive\n' >&2
+  exit 2
+fi
+
 cd "$root"
 
 if [[ "$use_ml" == true ]]; then
+  printf '[ml] enabled: runtime=/tmp/plaque-forge-python, backend=%s, model=%s, device=%s, force_ml=%s\n' "$backend" "$model" "$device" "$force_ml"
+  printf '[ml] inspect workers/history: ./scripts/ml_status.sh (log: /tmp/plaque-forge-python/worker-runs.jsonl)\n'
   [[ -x tools/segmentation-worker ]] || {
     printf 'segmentation worker is not executable: tools/segmentation-worker\n' >&2
     exit 1
@@ -59,6 +69,8 @@ if [[ "$use_ml" == true ]]; then
       'Run ./scripts/setup_segmentation.sh once, or use --no-ml for the pure-Rust analysis path.' >&2
     exit 1
   }
+else
+  printf '[ml] disabled by --no-ml; Python will not run\n'
 fi
 
 cargo build --release --quiet
@@ -88,6 +100,7 @@ for name in "${cases[@]}"; do
       --segmentation-model "$model"
       --segmentation-device "$device"
     )
+    [[ "$force_ml" == true ]] && args+=(--force-ml)
   fi
 
   printf '\n=== Analyze %s ===\n' "$name"

@@ -34,6 +34,7 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Refine(args) => refinement_commands::refine(args),
+        Command::PlacePlaque(args) => refinement_commands::place_plaque(args),
         Command::Analyze(args) => analyze::run(args),
         Command::ExportMotion(args) => refinement_commands::export_motion(args),
         Command::Segment(args) => segmentation::run(args),

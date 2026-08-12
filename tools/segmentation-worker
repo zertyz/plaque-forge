@@ -15,4 +15,8 @@ export TORCHINDUCTOR_CACHE_DIR="$root/cache/torchinductor"
 export TORCH_EXTENSIONS_DIR="$root/cache/torch-extensions"
 export PYTHONPYCACHEPREFIX="$root/cache/pycache"
 export TMPDIR="$root/tmp"
+export PYTHONUNBUFFERED=1
+export PLAQUE_FORGE_PYTHON_ROOT="$root"
+
+printf '[ml] Python exec: pid=%d, python=%s, runtime=%s\n' "$$" "$root/venv/bin/python" "$root" >&2
 exec "$root/venv/bin/python" "$repo/tools/segmentation_worker.py" "$@"

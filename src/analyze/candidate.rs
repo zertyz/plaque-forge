@@ -10,7 +10,7 @@ use opencv::{
     core::{self, Mat, Point, Rect, Scalar, Vector},
     geometry, imgcodecs, imgproc,
     prelude::*,
-    videoio::{CAP_ANY, CAP_PROP_FRAME_COUNT, CAP_PROP_POS_FRAMES, VideoCapture},
+    videoio::{CAP_ANY, CAP_PROP_POS_FRAMES, VideoCapture},
 };
 
 use crate::{cli::AnalyzeArgs, model::RectF, video::VideoInfo};
@@ -20,6 +20,11 @@ pub struct Candidate {
     pub rect: RectF,
     pub frame_index: usize,
     pub confidence: f64,
+    /// How consistently a similar enclosure appears across sampled frames.
+    pub temporal_support: f64,
+    /// Stricter support for a region staying at nearly the same screen coordinates.
+    pub screen_stationarity: f64,
+    pub edge_completeness: f64,
     pub canonical_width: u32,
     pub canonical_height: u32,
 }
@@ -37,6 +42,7 @@ struct ScoredRect {
     edge_completeness: f64,
     interior_clutter: f64,
     temporal_support: f64,
+    screen_stationarity: f64,
     oversize_penalty: f64,
     frame_index: usize,
 }
@@ -52,6 +58,9 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
             },
             frame_index: args.plaque_frame.unwrap_or(0),
             confidence: if args.writable_region_hint.is_some() { 0.98 } else { 0.92 },
+            temporal_support: 1.0,
+            screen_stationarity: 1.0,
+            edge_completeness: 1.0,
             canonical_width: width.round().max(1.0) as u32,
             canonical_height: height.round().max(1.0) as u32,
         });
@@ -59,7 +68,7 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
 
     detect_proposals(&args.input, args.candidate_samples, info, Some(diagnostics))?
         .map(|report| report.selected)
-        .context("no plausible plaque candidate found; create a refinement and set plaque bounds")
+        .context("no plausible writing-surface candidate found; add the smallest refinement that identifies the intended region")
 }
 
 pub fn detect_proposals(
@@ -73,7 +82,7 @@ pub fn detect_proposals(
         bail!("failed to open {}", input.display());
     }
 
-    let actual_frames = capture.get(CAP_PROP_FRAME_COUNT)?.round().max(1.0) as usize;
+    let actual_frames = info.frames.max(1);
     let sample_count = candidate_samples.min(actual_frames).max(1);
     let mut candidates = Vec::new();
 
@@ -123,7 +132,21 @@ pub fn detect_proposals(
 }
 
 fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&ScoredRect> {
-    let target = ranked.first()?;
+    // The product contract is one dominant writing surface. Once a candidate is
+    // independently plausible, prefer the largest hypothesis rather than allowing a
+    // small high-contrast object (for example a magnifying glass) to steal selection.
+    // Confidence/evidence still gates plausibility, so this is not simply "largest
+    // rectangle in the frame wins".
+    let target = ranked
+        .iter()
+        .filter(|candidate| candidate_is_plausible(candidate))
+        .max_by(|left, right| {
+            candidate_area(left)
+                .cmp(&candidate_area(right))
+                .then_with(|| left.score.total_cmp(&right.score))
+        })
+        .or_else(|| ranked.first())?;
+
     ranked
         .iter()
         .filter(|candidate| same_hypothesis(target.rect, candidate.rect, width, height))
@@ -131,6 +154,20 @@ fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&S
             reference_quality(left, width, height)
                 .total_cmp(&reference_quality(right, width, height))
         })
+}
+
+fn candidate_is_plausible(candidate: &ScoredRect) -> bool {
+    // Area only becomes authoritative after independent surface evidence. This keeps
+    // large architectural/background enclosures out of the "largest surface wins"
+    // policy while allowing a real plaque to outrank smaller high-contrast props.
+    score_to_confidence(candidate.score) >= 0.60
+        && (candidate.edge_completeness >= 0.35
+            || (candidate.screen_stationarity >= 0.70 && candidate.interior_clutter <= 0.20)
+            || (candidate.temporal_support >= 0.60 && candidate.interior_clutter <= 0.18))
+}
+
+fn candidate_area(candidate: &ScoredRect) -> i64 {
+    i64::from(candidate.rect.width) * i64::from(candidate.rect.height)
 }
 
 fn reference_quality(candidate: &ScoredRect, width: i32, height: i32) -> f64 {
@@ -155,12 +192,19 @@ fn write_ranking(
     ranked: &[ScoredRect],
     selected: Option<&ScoredRect>,
 ) -> Result<()> {
+    let mut visible = ranked.iter().take(20).collect::<Vec<_>>();
+    if let Some(selected) = selected
+        && !visible.iter().any(|candidate| {
+            candidate.frame_index == selected.frame_index && candidate.rect == selected.rect
+        })
+    {
+        visible.push(selected);
+    }
     fs::write(
         diagnostics.join("candidate-ranking.json"),
         serde_json::to_vec_pretty(
-            &ranked
-                .iter()
-                .take(20)
+            &visible
+                .into_iter()
                 .map(|candidate| {
                     serde_json::json!({
                         "frame": candidate.frame_index,
@@ -173,6 +217,9 @@ fn write_ranking(
                         "edge_completeness": candidate.edge_completeness,
                         "interior_clutter": candidate.interior_clutter,
                         "temporal_support": candidate.temporal_support,
+                        "screen_stationarity": candidate.screen_stationarity,
+                        "area_pixels": candidate_area(candidate),
+                        "plausible_for_largest_surface_selection": candidate_is_plausible(candidate),
                         "oversize_penalty": candidate.oversize_penalty,
                     })
                 })
@@ -275,6 +322,9 @@ fn candidate_from_scored(candidate: &ScoredRect) -> Candidate {
         },
         frame_index: candidate.frame_index,
         confidence: score_to_confidence(candidate.score),
+        temporal_support: candidate.temporal_support,
+        screen_stationarity: candidate.screen_stationarity,
+        edge_completeness: candidate.edge_completeness,
         canonical_width: candidate.rect.width as u32,
         canonical_height: candidate.rect.height as u32,
     }
@@ -293,12 +343,17 @@ fn frame_candidates(frame: &Mat) -> Result<Vec<ScoredRect>> {
         frame.rows(),
         1.25,
     )?);
+    // Large circular/oval title canvases often have a strong but interrupted arc rather
+    // than four connected sides. Bridge moderate gaps before contour extraction so the
+    // enclosing region can enter the same ranking pipeline as rectangular plaques.
+    output.extend(broad_arc_candidates(&edges, frame.cols(), frame.rows())?);
+    output.extend(circle_arc_candidates(&edges, frame.cols(), frame.rows())?);
     output.extend(text_density_candidates(frame)?);
 
     for candidate in &mut output {
         let evidence = edge_evidence(&edges, candidate.rect)?;
-        candidate.edge_completeness = evidence.border_support;
-        candidate.interior_clutter = evidence.interior_clutter;
+        candidate.edge_completeness = candidate.edge_completeness.max(evidence.border_support);
+        candidate.interior_clutter = candidate.interior_clutter.max(evidence.interior_clutter);
     }
     Ok(output)
 }
@@ -465,6 +520,192 @@ fn text_density_candidates(frame: &Mat) -> Result<Vec<ScoredRect>> {
     contour_rectangles(&closed, frame.cols(), frame.rows(), 0.8)
 }
 
+fn broad_arc_candidates(edges: &Mat, width: i32, height: i32) -> Result<Vec<ScoredRect>> {
+    let odd = |value: i32| {
+        let value = value.max(15);
+        if value % 2 == 0 { value + 1 } else { value }
+    };
+    let kernel = imgproc::get_structuring_element(
+        imgproc::MORPH_ELLIPSE,
+        core::Size::new(odd(width / 36), odd(height / 28)),
+        Point::new(-1, -1),
+    )?;
+    let mut closed = Mat::default();
+    imgproc::morphology_ex(
+        edges,
+        &mut closed,
+        imgproc::MORPH_CLOSE,
+        &kernel,
+        Point::new(-1, -1),
+        2,
+        core::BORDER_CONSTANT,
+        imgproc::morphology_default_border_value()?,
+    )?;
+    let frame_area = f64::from(width * height).max(1.0);
+    let mut candidates = contour_rectangles(&closed, width, height, 0.92)?;
+    candidates.retain(|candidate| {
+        f64::from(candidate.rect.width * candidate.rect.height) / frame_area >= 0.10
+    });
+    Ok(candidates)
+}
+
+/// Propose large circular title canvases even when their circumference is only partly visible.
+///
+/// Generic contour bounding is deliberately insufficient here: a large quiet circle may have
+/// one interrupted luminous arc while a small prop (for example a magnifying glass) has a much
+/// cleaner closed contour. We therefore search a small deterministic circle parameter grid,
+/// retain only the strongest few hypotheses, and let the normal temporal/area ranking combine
+/// them with rectangular proposals.
+fn circle_arc_candidates(edges: &Mat, width: i32, height: i32) -> Result<Vec<ScoredRect>> {
+    if width <= 0 || height <= 0 {
+        return Ok(Vec::new());
+    }
+    // Expand edge evidence once rather than probing a neighborhood around every sampled
+    // circumference point. The circle grid contains thousands of hypotheses, so this
+    // keeps the detector practical without weakening its tolerance for broken arcs.
+    let kernel = imgproc::get_structuring_element(
+        imgproc::MORPH_ELLIPSE,
+        core::Size::new(9, 9),
+        Point::new(-1, -1),
+    )?;
+    let mut expanded_edges = Mat::default();
+    imgproc::dilate(
+        edges,
+        &mut expanded_edges,
+        &kernel,
+        Point::new(-1, -1),
+        1,
+        core::BORDER_CONSTANT,
+        imgproc::morphology_default_border_value()?,
+    )?;
+
+    let min_dimension = f64::from(width.min(height));
+    let x_steps = 14usize;
+    let y_steps = 14usize;
+    let radius_steps = 9usize;
+    let mut candidates = Vec::new();
+
+    for yi in 0..y_steps {
+        let center_y = lerp(-0.15 * f64::from(height), 0.85 * f64::from(height), yi, y_steps);
+        for xi in 0..x_steps {
+            let center_x = lerp(-0.05 * f64::from(width), 1.05 * f64::from(width), xi, x_steps);
+            // A title circle may extend beyond the frame, but its center should still be
+            // on-screen. This rejects partial circles formed by off-screen data/props.
+            if center_x < 0.0 || center_x > f64::from(width)
+                || center_y < -0.05 * f64::from(height)
+                || center_y > f64::from(height)
+            {
+                continue;
+            }
+            for ri in 0..radius_steps {
+                let radius = lerp(0.26 * min_dimension, 0.62 * min_dimension, ri, radius_steps);
+                let (support, visible_fraction) =
+                    sampled_circle_edge_support(&expanded_edges, center_x, center_y, radius)?;
+                if visible_fraction < 0.40 || support < 0.18 {
+                    continue;
+                }
+                let clutter = sampled_circle_interior_clutter(edges, center_x, center_y, radius)?;
+                let quiet = 1.0 - clutter;
+                let radius_fit = (radius / (0.45 * min_dimension)).clamp(0.45, 1.0).sqrt();
+                let score = radius_fit
+                    * support
+                    * (0.65 + 0.35 * visible_fraction)
+                    * (0.45 + 0.55 * quiet);
+
+                let left = (center_x - radius).floor().max(0.0) as i32;
+                let top = (center_y - radius).floor().max(0.0) as i32;
+                let right = (center_x + radius).ceil().min(f64::from(width)) as i32;
+                let bottom = (center_y + radius).ceil().min(f64::from(height)) as i32;
+                if right - left < 70 || bottom - top < 70 {
+                    continue;
+                }
+                let rect = Rect::new(left, top, right - left, bottom - top);
+                let area_ratio = f64::from(rect.width * rect.height)
+                    / f64::from(width * height).max(1.0);
+                if !(0.08..=0.82).contains(&area_ratio) {
+                    continue;
+                }
+                candidates.push(ScoredRect {
+                    rect,
+                    score,
+                    edge_completeness: support,
+                    interior_clutter: clutter,
+                    temporal_support: 0.0,
+                    screen_stationarity: 0.0,
+                    oversize_penalty: 0.0,
+                    frame_index: 0,
+                });
+            }
+        }
+    }
+
+    candidates.sort_by(|left, right| right.score.total_cmp(&left.score));
+    candidates.truncate(12);
+    Ok(candidates)
+}
+
+fn lerp(start: f64, end: f64, index: usize, count: usize) -> f64 {
+    if count <= 1 {
+        return start;
+    }
+    start + (end - start) * index as f64 / (count - 1) as f64
+}
+
+fn sampled_circle_edge_support(
+    expanded_edges: &Mat,
+    center_x: f64,
+    center_y: f64,
+    radius: f64,
+) -> Result<(f64, f64)> {
+    let samples = 96usize;
+    let mut visible = 0usize;
+    let mut supported = 0usize;
+    for sample in 0..samples {
+        let angle = std::f64::consts::TAU * sample as f64 / samples as f64;
+        let x = (center_x + radius * angle.cos()).round() as i32;
+        let y = (center_y + radius * angle.sin()).round() as i32;
+        if x < 0 || y < 0 || x >= expanded_edges.cols() || y >= expanded_edges.rows() {
+            continue;
+        }
+        visible += 1;
+        supported += usize::from(*expanded_edges.at_2d::<u8>(y, x)? > 0);
+    }
+    Ok((
+        supported as f64 / visible.max(1) as f64,
+        visible as f64 / samples as f64,
+    ))
+}
+
+fn sampled_circle_interior_clutter(
+    edges: &Mat,
+    center_x: f64,
+    center_y: f64,
+    radius: f64,
+) -> Result<f64> {
+    let inner = radius * 0.65;
+    let steps = 13usize;
+    let mut sampled = 0usize;
+    let mut edge_points = 0usize;
+    for yi in 0..steps {
+        let dy = lerp(-inner, inner, yi, steps);
+        for xi in 0..steps {
+            let dx = lerp(-inner, inner, xi, steps);
+            if dx * dx + dy * dy > inner * inner {
+                continue;
+            }
+            let x = (center_x + dx).round() as i32;
+            let y = (center_y + dy).round() as i32;
+            if x < 0 || y < 0 || x >= edges.cols() || y >= edges.rows() {
+                continue;
+            }
+            sampled += 1;
+            edge_points += usize::from(*edges.at_2d::<u8>(y, x)? > 0);
+        }
+    }
+    let density = edge_points as f64 / sampled.max(1) as f64;
+    Ok((density / 0.08).clamp(0.0, 1.0))
+}
+
 fn contour_rectangles(
     mask: &Mat,
     width: i32,
@@ -521,6 +762,7 @@ fn contour_rectangles(
             edge_completeness: 0.0,
             interior_clutter: 0.0,
             temporal_support: 0.0,
+            screen_stationarity: 0.0,
             oversize_penalty: 0.0,
             frame_index: 0,
         });
@@ -625,6 +867,7 @@ fn rank_candidates(
     let mut ranked = Vec::with_capacity(candidates.len());
     for candidate in candidates {
         let persistence = temporal_support(candidate, candidates, width, height, sample_count);
+        let stationary = screen_stationarity(candidate, candidates, width, height, sample_count);
         let oversize = candidates
             .iter()
             .filter(|other| other.frame_index == candidate.frame_index)
@@ -647,6 +890,7 @@ fn rank_candidates(
         let mut selected = candidate.clone();
         selected.score = objective;
         selected.temporal_support = persistence;
+        selected.screen_stationarity = stationary;
         selected.oversize_penalty = oversize;
         selected.rect.x = selected.rect.x.clamp(0, width - 1);
         selected.rect.y = selected.rect.y.clamp(0, height - 1);
@@ -707,6 +951,38 @@ fn temporal_support(
     by_frame.values().sum::<f64>() / sample_count.max(1) as f64
 }
 
+fn screen_stationarity(
+    candidate: &ScoredRect,
+    candidates: &[ScoredRect],
+    width: i32,
+    height: i32,
+    sample_count: usize,
+) -> f64 {
+    let diagonal = f64::from(width).hypot(f64::from(height)).max(1.0);
+    let mut by_frame = std::collections::HashMap::<usize, f64>::new();
+    for other in candidates {
+        let center_distance = rect_center_distance(candidate.rect, other.rect) / diagonal;
+        let width_change = (f64::from(other.rect.width) / f64::from(candidate.rect.width))
+            .ln()
+            .abs();
+        let height_change = (f64::from(other.rect.height) / f64::from(candidate.rect.height))
+            .ln()
+            .abs();
+        if center_distance > 0.04 || width_change > 0.12 || height_change > 0.12 {
+            continue;
+        }
+        let score = (-(center_distance / 0.018).powi(2)
+            - (width_change / 0.06).powi(2)
+            - (height_change / 0.06).powi(2))
+        .exp();
+        by_frame
+            .entry(other.frame_index)
+            .and_modify(|current| *current = current.max(score))
+            .or_insert(score);
+    }
+    by_frame.values().sum::<f64>() / sample_count.max(1) as f64
+}
+
 fn oversize_evidence(candidate: &ScoredRect, other: &ScoredRect) -> Option<f64> {
     if candidate.rect == other.rect {
         return None;
@@ -755,6 +1031,7 @@ mod tests {
             edge_completeness: edge,
             interior_clutter: 0.0,
             temporal_support: 0.0,
+            screen_stationarity: 0.0,
             oversize_penalty: 0.0,
             frame_index: frame,
         }
@@ -800,6 +1077,44 @@ mod tests {
         let ranked = rank_candidates(&candidates, 1280, 720, 3);
 
         assert!(ranked[0].temporal_support > ranked[2].temporal_support);
+    }
+
+    #[test]
+    fn reference_selection_prefers_largest_plausible_surface_over_small_high_contrast_object() {
+        let plaque = scored(Rect::new(95, 100, 525, 305), 1.55, 0.42, 20);
+        let magnifying_glass = scored(Rect::new(245, 660, 220, 220), 2.60, 0.92, 20);
+        let ranked = vec![magnifying_glass, plaque];
+
+        assert_eq!(
+            select_reference(&ranked, 720, 1280).unwrap().rect,
+            Rect::new(95, 100, 525, 305)
+        );
+    }
+
+    #[test]
+    fn largest_surface_policy_rejects_a_large_busy_architectural_enclosure() {
+        let plaque = scored(Rect::new(175, 95, 930, 155), 1.55, 0.62, 20);
+        let mut room = scored(Rect::new(286, 162, 706, 448), 1.85, 0.22, 20);
+        room.interior_clutter = 0.26;
+        room.temporal_support = 0.63;
+        let ranked = vec![room, plaque.clone()];
+
+        assert_eq!(
+            select_reference(&ranked, 1280, 720).unwrap().rect,
+            plaque.rect
+        );
+    }
+
+    #[test]
+    fn largest_surface_policy_still_rejects_an_implausible_giant_region() {
+        let plaque = scored(Rect::new(110, 90, 500, 260), 1.70, 0.55, 20);
+        let giant_noise = scored(Rect::new(5, 5, 700, 1180), 0.15, 0.04, 20);
+        let ranked = vec![plaque.clone(), giant_noise];
+
+        assert_eq!(
+            select_reference(&ranked, 720, 1280).unwrap().rect,
+            plaque.rect
+        );
     }
 
     #[test]

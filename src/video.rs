@@ -109,7 +109,7 @@ pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
         .or(probe.format.duration.as_deref())
         .unwrap_or("0")
         .parse::<f64>()?;
-    let frames = stream
+    let metadata_frames = stream
         .nb_read_packets
         .as_deref()
         .and_then(|v| v.parse::<usize>().ok())
@@ -118,8 +118,9 @@ pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
                 .nb_frames
                 .as_deref()
                 .and_then(|v| v.parse::<usize>().ok())
-        })
-        .unwrap_or_else(|| (duration_seconds * fps).round() as usize);
+        });
+    let duration_frames = playable_frames_from_duration(duration_seconds, fps);
+    let frames = select_playable_frame_count(metadata_frames, duration_frames);
     let start_time_seconds = stream.start_time.as_deref().unwrap_or("0").parse::<f64>()?;
     Ok(VideoInfo {
         width: stream.width.context("missing video width")?,
@@ -266,6 +267,27 @@ impl Encoder {
     }
 }
 
+fn playable_frames_from_duration(duration_seconds: f64, fps: f64) -> usize {
+    if !duration_seconds.is_finite() || duration_seconds <= 0.0 || !fps.is_finite() || fps <= 0.0 {
+        return 0;
+    }
+    // For CFR video, stream duration describes the playable timeline more reliably
+    // than packet metadata in some generated MP4 files. Floor rather than round: a
+    // partial final frame interval is not itself a decodable frame.
+    (duration_seconds * fps + 1.0e-6).floor().max(0.0) as usize
+}
+
+fn select_playable_frame_count(metadata_frames: Option<usize>, duration_frames: usize) -> usize {
+    match (metadata_frames.filter(|&frames| frames > 0), duration_frames) {
+        // Tolerate a one-frame timestamp/rounding discrepancy. Larger disagreement
+        // means packet/frame metadata is advertising a stale, non-decodable tail.
+        (Some(metadata), duration) if duration > 0 && metadata > duration + 1 => duration,
+        (Some(metadata), _) => metadata,
+        (None, duration) if duration > 0 => duration,
+        (None, _) => 1,
+    }
+}
+
 fn parse_fraction(value: &str) -> Result<f64> {
     if let Some((n, d)) = value.split_once('/') {
         let n: f64 = n.parse()?;
@@ -276,5 +298,26 @@ fn parse_fraction(value: &str) -> Result<f64> {
         Ok(n / d)
     } else {
         Ok(value.parse()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_playable_frame_count;
+
+    #[test]
+    fn stale_packet_count_yields_to_shorter_playable_timeline() {
+        assert_eq!(select_playable_frame_count(Some(240), 234), 234);
+        assert_eq!(select_playable_frame_count(Some(240), 206), 206);
+    }
+
+    #[test]
+    fn one_frame_duration_rounding_does_not_shorten_good_metadata() {
+        assert_eq!(select_playable_frame_count(Some(240), 239), 240);
+    }
+
+    #[test]
+    fn duration_is_used_when_frame_metadata_is_missing() {
+        assert_eq!(select_playable_frame_count(None, 236), 236);
     }
 }
