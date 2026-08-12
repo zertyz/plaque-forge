@@ -605,6 +605,7 @@ fn resolve_refinements(
     let mut identity = RefinementProvenance::default();
     let mut selected_id = None;
     let mut referenced_track = None;
+    let mut embedded_track = None;
     let mut layer_inputs = Vec::new();
     let mut injected_surface = None;
 
@@ -710,12 +711,23 @@ fn resolve_refinements(
             .motion_track
             .as_ref()
             .map(|path| resolve_relative(&loaded.path, path));
+        embedded_track = selected.sparse_motion_track(info.width, info.height, source_sha256)?;
+        if let Some(track) = &embedded_track {
+            identity.locked_keyframes = track.locked_keyframes();
+            identity.guide_keyframes = track.guide_keyframes();
+        }
     } else if let Some(id) = &args.plaque {
         bail!("--plaque {id:?} requires a refinement manifest");
     }
 
-    let motion_track = if let Some(path) = referenced_track {
-        let track = MotionRefinement::load(&path)?;
+    let (motion_track, motion_track_path) = if let Some(track) = embedded_track {
+        (Some(track), None)
+    } else if let Some(path) = referenced_track {
+        (Some(MotionRefinement::load(&path)?), Some(path))
+    } else {
+        (None, None)
+    };
+    let motion_track = if let Some(track) = motion_track {
         if let Some(selected_id) = &selected_id
             && track.plaque != *selected_id
         {
@@ -748,7 +760,9 @@ fn resolve_refinements(
             args.plaque_frame = Some(first.frame);
         }
         identity.plaque_id = Some(track.plaque.clone());
-        identity.motion_track = Some(semantic_provenance(&path, &track)?);
+        if let Some(path) = motion_track_path {
+            identity.motion_track = Some(semantic_provenance(&path, &track)?);
+        }
         identity.locked_keyframes = track.locked_keyframes();
         identity.guide_keyframes = track.guide_keyframes();
         Some(track)

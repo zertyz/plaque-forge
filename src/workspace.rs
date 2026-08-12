@@ -23,6 +23,8 @@ pub fn layer_path(refinement: &Path, layer: &str) -> PathBuf {
     refinement
         .parent()
         .unwrap_or_else(|| Path::new("."))
+        .join("artifacts")
+        .join("layers")
         .join(layer)
 }
 
@@ -30,6 +32,7 @@ pub fn motion_path(input: &Path) -> Result<PathBuf> {
     Ok(refinement_path(input)?
         .parent()
         .unwrap_or_else(|| Path::new("."))
+        .join("artifacts")
         .join("motion.toml"))
 }
 

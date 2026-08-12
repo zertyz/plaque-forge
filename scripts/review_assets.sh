@@ -9,8 +9,9 @@ usage() {
 Usage:
   ./scripts/review_assets.sh [asset-stem ...]
 
-Builds human-oriented HTML review pages from existing analysis diagnostics and,
-when available, the matching output/<asset>.verification.json report.
+Builds human-oriented review.html + review.txt from complete analysis diagnostics or,
+when analysis failed, the newest retained partial diagnostics. Includes verification/render
+provenance when available.
 USAGE
 }
 
@@ -36,9 +37,19 @@ fi
 
 for name in "${cases[@]}"; do
   analysis="assets/analysis/$name"
+  if [[ ! -d "$analysis" ]]; then
+    analysis="$(ls -1dt "assets/analysis/$name.partial-"* 2>/dev/null | head -n 1 || true)"
+  fi
+  [[ -n "$analysis" && -d "$analysis" ]] || {
+    printf 'warning: no complete or partial analysis found for %s\n' "$name" >&2
+    continue
+  }
+
   verification="output/$name.verification.json"
   render_manifest="output/$name.hevc.render-manifest.json"
+  refinement="assets/refinements/$name/refinement.toml"
   args=(--analysis "$analysis")
+  [[ -f "$refinement" ]] && args+=(--refinement "$refinement")
   [[ -f "$verification" ]] && args+=(--verification "$verification")
   [[ -f "$render_manifest" ]] && args+=(--render-manifest "$render_manifest")
   target/release/plaque-forge review "${args[@]}"

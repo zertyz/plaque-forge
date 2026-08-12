@@ -41,7 +41,7 @@ These modules coordinate operations. They should not contain asset-specific scen
 
 - `model.rs` contains geometry-independent data exchanged across workflows.
 - `geometry.rs` contains projective geometry helpers.
-- `refinement.rs` defines reviewed-input schemas and provenance.
+- `refinement.rs` defines sparse reviewed-input schemas, normalized human coordinates, legacy compatibility, and provenance.
 - `analysis.rs` defines the generated cache schema.
 - `layers.rs` resolves and packages authored scene layers.
 
@@ -85,4 +85,4 @@ No custom `build.rs` source hashing is used. Renderer-only text effects and styl
 
 ## Human diagnostics
 
-Machine-readable JSON remains canonical for automated validation. `review.rs` is a presentation layer that assembles analysis/verification metrics and diagnostic imagery into a human-oriented HTML triage report. It does not change cache semantics or make quality decisions on behalf of analysis/verification.
+Machine-readable JSON remains canonical for automated validation. `review.rs` is a presentation layer that also accepts failed partial analyses and turns metrics, candidate alternatives, refinement intent, and diagnostic imagery into prioritized `review.html`/`review.txt` triage. Its browser-only coordinate helper emits human-copyable normalized points; it does not alter caches or analysis decisions.

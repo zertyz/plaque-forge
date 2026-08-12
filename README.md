@@ -42,7 +42,7 @@ Analyze only selected assets by appending their stems:
 
 Use `--force` only when you intentionally want to rebuild a current cache. Use `--no-ml` when you explicitly want the pure-Rust path.
 
-If an automatic quality gate still fails, Plaque Forge retains diagnostics under `assets/analysis/*.partial-*`. At that point a small refinement can state the intended writing region or correct only problematic motion/foreground details. See [Refinements](docs/REFINEMENTS.md).
+If an automatic quality gate still fails, Plaque Forge retains the partial analysis and immediately builds `diagnostics/review.html` plus a terminal-friendly `review.txt`. They tell you what deserves attention first; a small refinement should correct only the intended surface, the motion frames that are actually wrong, or a missed foreground object. See [Refinements](docs/REFINEMENTS.md).
 
 ## 3. Render titles
 

@@ -421,6 +421,10 @@ pub struct ReviewArgs {
     #[arg(long)]
     pub analysis: PathBuf,
 
+    /// Optional human refinement manifest. Used only to explain current intent in the report.
+    #[arg(long)]
+    pub refinement: Option<PathBuf>,
+
     /// Optional verification JSON produced by `plaque-forge verify`.
     #[arg(long)]
     pub verification: Option<PathBuf>,

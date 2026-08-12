@@ -50,6 +50,9 @@ A suggested plaque position that guides automatic tracking but does not fully ov
 **Source-pixel coordinates**  
 Coordinates measured directly in the original video frame.
 
+**Normalized coordinates**  
+Human-friendly frame coordinates in the range `0..1`. Schema-2 sparse motion anchors and segmentation prompts may use them so corrections do not depend on the source resolution.
+
 **Plaque-canonical coordinates**  
 Coordinates measured in the rectified plaque coordinate system.
 

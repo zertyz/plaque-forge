@@ -171,7 +171,11 @@ pub fn run(args: SegmentArgs) -> Result<()> {
             role: layer.role,
             affects_layout: layer.affects_layout,
             active_frames: layer.active_frames,
-            prompts: layer.prompts.clone(),
+            prompts: layer
+                .prompts
+                .iter()
+                .map(|prompt| prompt.source_pixels(info.width, info.height))
+                .collect::<Result<Vec<_>>>()?,
         },
     };
     let request_path = partial.join("request.json");

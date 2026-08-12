@@ -48,7 +48,7 @@ The style file owns reusable paint/material/effect/animation settings, including
 ./target/release/plaque-forge refine --input assets/video.mp4
 ```
 
-This creates `assets/refinements/video/refinement.toml` by default. Review it before treating it as authoritative input.
+This creates a short schema-2 `assets/refinements/video/refinement.toml` by default. Candidate alternatives stay in diagnostics rather than being dumped into the editable file.
 
 ## Export motion for review
 
@@ -56,7 +56,7 @@ This creates `assets/refinements/video/refinement.toml` by default. Review it be
 ./target/release/plaque-forge export-motion --analysis assets/analysis/video
 ```
 
-The exported motion file is generated review material. Edit or retain only the keyframes that need human authority instead of treating every frame as something a person should type.
+The exported dense motion file is generated review material and now defaults to `assets/refinements/<video>/artifacts/motion.toml`. For ordinary corrections, prefer a few normalized `[[plaques.motion]]` anchors directly in `refinement.toml` instead of editing the dense export.
 
 ## Add a plaque to a plaque-less asset
 
@@ -115,7 +115,9 @@ Build a human-oriented report after analysis or validation:
 ./scripts/review_assets.sh swamp-rusty-plaque
 ```
 
-The report is written to `assets/analysis/swamp-rusty-plaque/diagnostics/review.html`. When render provenance and verification reports are available, it also shows the resolved line layout, style, font, verification thresholds, and failures.
+For a complete analysis the report is written to `assets/analysis/swamp-rusty-plaque/diagnostics/review.html`; if only a failed partial analysis exists, the script automatically uses the newest partial directory. `review.txt` beside it gives the same prioritized actions in terminal-friendly form. The HTML also compares candidate alternatives and includes a click helper that reports normalized/source-pixel coordinates for sparse corrections.
+
+`analyze_assets.sh` invokes this review generation automatically after a failed quality gate, so a normal user does not need a separate diagnostic command merely to learn what needs attention.
 
 ## Validate
 

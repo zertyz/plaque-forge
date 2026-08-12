@@ -15,7 +15,8 @@ use sha2::{Digest, Sha256};
 
 use crate::writable_region::WritableRegion;
 
-pub const REFINEMENT_SCHEMA_VERSION: u32 = 1;
+pub const REFINEMENT_SCHEMA_VERSION: u32 = 2;
+pub const LEGACY_REFINEMENT_SCHEMA_VERSION: u32 = 1;
 pub const MOTION_TRACK_SCHEMA_VERSION: u32 = 1;
 pub const LAYER_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 
@@ -39,6 +40,9 @@ pub struct PlaqueRefinement {
     #[serde(default)]
     pub surface: Option<PlaqueSurface>,
     pub motion_track: Option<PathBuf>,
+    /// Sparse human-authored corrections. Prefer these to editing a dense generated motion track.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub motion: Vec<MotionAnchor>,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
 }
@@ -70,10 +74,46 @@ fn default_injected_inset() -> [f64; 4] {
     [0.08, 0.12, 0.08, 0.12]
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SpatialCoordinates {
+    SourcePixels,
+    Normalized,
+}
+
+impl Default for SpatialCoordinates {
+    fn default() -> Self {
+        Self::SourcePixels
+    }
+}
+
+fn is_source_pixels(value: &SpatialCoordinates) -> bool {
+    *value == SpatialCoordinates::SourcePixels
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MotionAnchor {
+    pub frame: usize,
+    #[serde(default = "default_normalized_coordinates")]
+    pub coordinates: SpatialCoordinates,
+    pub quad: [[f64; 2]; 4],
+    #[serde(default = "default_locked")]
+    pub locked: bool,
+    pub visibility: Option<f64>,
+}
+
+fn default_normalized_coordinates() -> SpatialCoordinates {
+    SpatialCoordinates::Normalized
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SegmentationPrompt {
     pub frame: usize,
+    /// Existing files default to source pixels; new human-authored prompts should prefer normalized.
+    #[serde(default, skip_serializing_if = "is_source_pixels")]
+    pub coordinates: SpatialCoordinates,
     pub object: Option<String>,
     pub box_bounds: Option<[f64; 4]>,
     #[serde(default)]
@@ -267,11 +307,14 @@ impl Refinement {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != REFINEMENT_SCHEMA_VERSION {
+        if self.schema_version != LEGACY_REFINEMENT_SCHEMA_VERSION
+            && self.schema_version != REFINEMENT_SCHEMA_VERSION
+        {
             bail!(
-                "unsupported refinement schema {}; expected {}",
+                "unsupported refinement schema {}; expected {} or legacy {}",
                 self.schema_version,
-                REFINEMENT_SCHEMA_VERSION
+                REFINEMENT_SCHEMA_VERSION,
+                LEGACY_REFINEMENT_SCHEMA_VERSION
             );
         }
         require_relative(&self.source, "source")?;
@@ -304,6 +347,15 @@ impl Refinement {
             }
             if let Some(path) = &plaque.motion_track {
                 require_relative(path, &format!("plaque {:?} motion_track", plaque.id))?;
+            }
+            if plaque.motion_track.is_some() && !plaque.motion.is_empty() {
+                bail!(
+                    "plaque {:?} declares both motion_track and sparse motion anchors; use one source of motion authority",
+                    plaque.id
+                );
+            }
+            for (index, anchor) in plaque.motion.iter().enumerate() {
+                anchor.validate(&format!("plaque {:?} motion[{index}]", plaque.id))?;
             }
             for prompt in &plaque.prompts {
                 prompt.validate(&format!("plaque {:?} prompt", plaque.id))?;
@@ -408,6 +460,68 @@ impl PlaqueRefinement {
         self.bounds
             .or_else(|| self.writable_region.as_ref().map(WritableRegion::bounds))
     }
+
+    pub fn sparse_motion_track(
+        &self,
+        width: u32,
+        height: u32,
+        source_sha256: &str,
+    ) -> Result<Option<MotionRefinement>> {
+        if self.motion.is_empty() {
+            return Ok(None);
+        }
+        let mut keyframes = self
+            .motion
+            .iter()
+            .map(|anchor| anchor.to_keyframe(width, height))
+            .collect::<Result<Vec<_>>>()?;
+        keyframes.sort_by_key(|frame| frame.frame);
+        if keyframes.windows(2).any(|pair| pair[0].frame == pair[1].frame) {
+            bail!("plaque {:?} has duplicate sparse motion-anchor frames", self.id);
+        }
+        Ok(Some(MotionRefinement {
+            schema_version: MOTION_TRACK_SCHEMA_VERSION,
+            plaque: self.id.clone(),
+            coordinates: CoordinateSystem::SourcePixels,
+            source_sha256: Some(source_sha256.to_string()),
+            keyframes,
+        }))
+    }
+}
+
+impl MotionAnchor {
+    fn validate(&self, description: &str) -> Result<()> {
+        if let Some(visibility) = self.visibility
+            && (!visibility.is_finite() || !(0.0..=1.0).contains(&visibility))
+        {
+            bail!("{description} visibility must be between 0 and 1");
+        }
+        match self.coordinates {
+            SpatialCoordinates::SourcePixels => validate_quad(self.quad, description),
+            SpatialCoordinates::Normalized => {
+                for (index, point) in self.quad.iter().enumerate() {
+                    validate_normalized_point(*point, &format!("{description} quad[{index}]"))?;
+                }
+                validate_quad(self.quad, description)
+            }
+        }
+    }
+
+    fn to_keyframe(&self, width: u32, height: u32) -> Result<MotionKeyframe> {
+        self.validate("motion anchor")?;
+        let quad = match self.coordinates {
+            SpatialCoordinates::SourcePixels => self.quad,
+            SpatialCoordinates::Normalized => self
+                .quad
+                .map(|point| [point[0] * width as f64, point[1] * height as f64]),
+        };
+        Ok(MotionKeyframe {
+            frame: self.frame,
+            quad,
+            locked: self.locked,
+            visibility: self.visibility,
+        })
+    }
 }
 
 impl SegmentationPrompt {
@@ -416,7 +530,14 @@ impl SegmentationPrompt {
             validate_id(object, &format!("{description} object"))?;
         }
         if let Some(bounds) = self.box_bounds {
-            validate_rect(bounds, &format!("{description} box_bounds"))?;
+            match self.coordinates {
+                SpatialCoordinates::SourcePixels => {
+                    validate_rect(bounds, &format!("{description} box_bounds"))?
+                }
+                SpatialCoordinates::Normalized => {
+                    validate_normalized_rect(bounds, &format!("{description} box_bounds"))?
+                }
+            }
         }
         for (kind, points) in [
             ("positive_points", self.positive_points.as_slice()),
@@ -424,14 +545,35 @@ impl SegmentationPrompt {
             ("polygon", self.polygon.as_slice()),
         ] {
             for (index, point) in points.iter().enumerate() {
-                validate_point(*point, &format!("{description} {kind}[{index}]"))?;
+                match self.coordinates {
+                    SpatialCoordinates::SourcePixels => {
+                        validate_point(*point, &format!("{description} {kind}[{index}]"))?
+                    }
+                    SpatialCoordinates::Normalized => validate_normalized_point(
+                        *point,
+                        &format!("{description} {kind}[{index}]"),
+                    )?,
+                }
             }
         }
         if !self.polygon.is_empty() && self.polygon.len() < 3 {
             bail!("{description} polygon must contain at least three points");
         }
         if let Some(quad) = self.quad {
-            validate_quad(quad, &format!("{description} quad"))?;
+            match self.coordinates {
+                SpatialCoordinates::SourcePixels => {
+                    validate_quad(quad, &format!("{description} quad"))?
+                }
+                SpatialCoordinates::Normalized => {
+                    for (index, point) in quad.iter().enumerate() {
+                        validate_normalized_point(
+                            *point,
+                            &format!("{description} quad[{index}]"),
+                        )?;
+                    }
+                    validate_quad(quad, &format!("{description} quad"))?;
+                }
+            }
         }
         if self.box_bounds.is_none()
             && self.positive_points.is_empty()
@@ -442,6 +584,45 @@ impl SegmentationPrompt {
             bail!("{description} does not contain a box, point, polygon, or quad");
         }
         Ok(())
+    }
+
+    pub fn source_pixels(&self, width: u32, height: u32) -> Result<Self> {
+        self.validate("segmentation prompt")?;
+        if self.coordinates == SpatialCoordinates::SourcePixels {
+            return Ok(self.clone());
+        }
+        let point_width = width.saturating_sub(1) as f64;
+        let point_height = height.saturating_sub(1) as f64;
+        let scale_point = |point: [f64; 2]| [
+            point[0] * point_width,
+            point[1] * point_height,
+        ];
+        let scale_rect = |rect: [f64; 4]| [
+            rect[0] * width as f64,
+            rect[1] * height as f64,
+            rect[2] * width as f64,
+            rect[3] * height as f64,
+        ];
+        Ok(Self {
+            frame: self.frame,
+            coordinates: SpatialCoordinates::SourcePixels,
+            object: self.object.clone(),
+            box_bounds: self.box_bounds.map(scale_rect),
+            positive_points: self
+                .positive_points
+                .iter()
+                .copied()
+                .map(scale_point)
+                .collect(),
+            negative_points: self
+                .negative_points
+                .iter()
+                .copied()
+                .map(scale_point)
+                .collect(),
+            polygon: self.polygon.iter().copied().map(scale_point).collect(),
+            quad: self.quad.map(|quad| quad.map(scale_point)),
+        })
     }
 }
 
@@ -694,9 +875,22 @@ pub fn layer_artifact_path(refinement_path: &Path, layer: &RefinementLayer) -> O
     if let Some(artifact) = &layer.artifact {
         return Some(resolve_relative(refinement_path, artifact));
     }
-    (!layer.prompts.is_empty()).then(|| {
-        crate::workspace::layer_path(refinement_path, &layer.id).join("artifact.toml")
-    })
+    if layer.prompts.is_empty() {
+        return None;
+    }
+
+    // Schema-1 conventions placed generated prompted layers directly beside
+    // refinement.toml. Reuse those artifacts when present, while routing new generated
+    // state under artifacts/layers/ so the human-editable directory stays readable.
+    let legacy = refinement_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(&layer.id)
+        .join("artifact.toml");
+    if legacy.is_file() {
+        return Some(legacy);
+    }
+    Some(crate::workspace::layer_path(refinement_path, &layer.id).join("artifact.toml"))
 }
 
 pub fn selected_layer_artifacts(
@@ -751,6 +945,9 @@ pub fn current_refinement_provenance(
             identity.motion_track = Some(semantic_provenance(&path, &track)?);
             identity.locked_keyframes = track.locked_keyframes();
             identity.guide_keyframes = track.guide_keyframes();
+        } else if !selected.motion.is_empty() {
+            identity.locked_keyframes = selected.motion.iter().filter(|anchor| anchor.locked).count();
+            identity.guide_keyframes = selected.motion.len() - identity.locked_keyframes;
         }
     } else if let Some(id) = requested_plaque {
         bail!("--plaque {id:?} requires a refinement manifest");
@@ -768,11 +965,11 @@ pub fn refinement_document(
     refinement: &Path,
     detector: &str,
     proposal: Option<PlaqueProposal>,
-    alternatives: &[PlaqueProposal],
+    _alternatives: &[PlaqueProposal],
 ) -> Result<String> {
     let source = relative_reference(refinement, input)?;
     let mut output = format!(
-        "# Editable Plaque Forge refinement.\n\
+        "# Human-editable Plaque Forge intent. Keep this file sparse; generated tracks/masks live elsewhere.\n\
          schema_version = {REFINEMENT_SCHEMA_VERSION}\n\
          source = {}\n\
          default_plaque = \"main\"\n\n\
@@ -782,10 +979,7 @@ pub fn refinement_document(
     );
     if let Some(proposal) = proposal {
         output.push_str(&format!(
-            "# Automatic {detector} proposal; confidence {:.3}.\n\
-             # `bounds` is the rectangular shorthand. For ellipse/rounded/polygon regions,\n\
-             # use `writable_region` as documented in docs/REFINEMENTS.md.\n\
-             # bounds = [x, y, width, height] on reference_frame.\n\
+            "# Automatic {detector} proposal, confidence {:.3}. Edit only if the preview/diagnostics are wrong.\n\
              reference_frame = {}\n\
              bounds = [{:.1}, {:.1}, {:.1}, {:.1}]\n",
             proposal.confidence.clamp(0.0, 1.0),
@@ -797,55 +991,20 @@ pub fn refinement_document(
         ));
     } else {
         output.push_str(
-            "# Set both fields manually.\n\
+            "# Automatic selection was inconclusive. Set a reference frame and enclosing bounds.\n\
              # reference_frame = 0\n\
              # bounds = [100.0, 100.0, 400.0, 200.0]\n",
         );
     }
-    output.push_str("# motion_track = \"motion.toml\"\n\n");
     output.push_str(
-        "# Optional segmentation prompt.\n\
-         # [[plaques.prompts]]\n",
+        "\n# Sparse motion corrections may be embedded only for frames the tracker gets wrong.\n\
+         # [[plaques.motion]]\n\
+         # frame = 120\n\
+         # coordinates = \"normalized\"\n\
+         # quad = [[0.20, 0.30], [0.80, 0.30], [0.80, 0.60], [0.20, 0.60]]\n\
+         # locked = true\n\n\
+         # Non-rectangular writing surfaces use [plaques.writable_region]; see docs/REFINEMENTS.md.\n",
     );
-    if let Some(proposal) = proposal {
-        output.push_str(&format!(
-            "# frame = {}\n\
-             # box_bounds = [{:.1}, {:.1}, {:.1}, {:.1}]\n\
-             # positive_points = [[{:.1}, {:.1}]]\n\
-             # negative_points = []\n",
-            proposal.reference_frame,
-            proposal.bounds[0],
-            proposal.bounds[1],
-            proposal.bounds[2],
-            proposal.bounds[3],
-            proposal.bounds[0] + proposal.bounds[2] * 0.5,
-            proposal.bounds[1] + proposal.bounds[3] * 0.5,
-        ));
-    } else {
-        output.push_str(
-            "# frame = 0\n\
-             # box_bounds = [100.0, 100.0, 400.0, 200.0]\n\
-             # positive_points = [[300.0, 200.0]]\n\
-             # negative_points = []\n",
-        );
-    }
-    for (index, alternative) in alternatives.iter().enumerate() {
-        output.push_str(&format!(
-            "\n# Alternative automatic candidate {} (confidence {:.3}).\n\
-             # [[plaques]]\n\
-             # id = \"candidate-{}\"\n\
-             # reference_frame = {}\n\
-             # bounds = [{:.1}, {:.1}, {:.1}, {:.1}]\n",
-            index + 1,
-            alternative.confidence.clamp(0.0, 1.0),
-            index + 2,
-            alternative.reference_frame,
-            alternative.bounds[0],
-            alternative.bounds[1],
-            alternative.bounds[2],
-            alternative.bounds[3],
-        ));
-    }
     Ok(output)
 }
 
@@ -932,6 +1091,30 @@ fn validate_rect(rect: [f64; 4], description: &str) -> Result<()> {
 fn validate_point(point: [f64; 2], description: &str) -> Result<()> {
     if point.iter().any(|value| !value.is_finite()) {
         bail!("{description} contains a non-finite coordinate");
+    }
+    Ok(())
+}
+
+fn validate_normalized_point(point: [f64; 2], description: &str) -> Result<()> {
+    if point
+        .iter()
+        .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+    {
+        bail!("{description} must contain normalized coordinates between 0 and 1");
+    }
+    Ok(())
+}
+
+fn validate_normalized_rect(rect: [f64; 4], description: &str) -> Result<()> {
+    if rect.iter().any(|value| !value.is_finite())
+        || rect[0] < 0.0
+        || rect[1] < 0.0
+        || rect[2] <= 0.0
+        || rect[3] <= 0.0
+        || rect[0] + rect[2] > 1.0 + 1.0e-9
+        || rect[1] + rect[3] > 1.0 + 1.0e-9
+    {
+        bail!("{description} must be [x,y,width,height] normalized inside 0..1");
     }
     Ok(())
 }
@@ -1037,7 +1220,7 @@ mod tests {
     }
 
     #[test]
-    fn detected_proposal_is_active_and_alternatives_are_comments() {
+    fn detected_proposal_keeps_the_human_manifest_short() {
         let text = refinement_document(
             Path::new("example.mp4"),
             Path::new("example.plaque.toml"),
@@ -1063,8 +1246,8 @@ mod tests {
             refinement.plaques[0].bounds,
             Some([65.0, 6.0, 905.0, 487.0])
         );
-        assert!(text.contains("Alternative automatic candidate 1"));
-        assert!(text.contains("# [[plaques]]"));
+        assert!(!text.contains("Alternative automatic candidate"));
+        assert!(text.contains("[[plaques.motion]]"));
     }
 
     #[test]
@@ -1225,6 +1408,66 @@ mod tests {
         track.validate().unwrap();
         assert_eq!(track.guide_keyframes(), 1);
         assert_eq!(track.locked_keyframes(), 1);
+    }
+
+
+    #[test]
+    fn schema_two_sparse_normalized_motion_resolves_to_source_pixels() {
+        let refinement: Refinement = toml::from_str(
+            r#"
+                schema_version = 2
+                source = "clip.mp4"
+                default_plaque = "main"
+
+                [[plaques]]
+                id = "main"
+                bounds = [10.0, 20.0, 100.0, 50.0]
+
+                [[plaques.motion]]
+                frame = 7
+                coordinates = "normalized"
+                quad = [[0.1, 0.2], [0.8, 0.2], [0.8, 0.7], [0.1, 0.7]]
+            "#,
+        )
+        .unwrap();
+        refinement.validate().unwrap();
+        let track = refinement.plaques[0]
+            .sparse_motion_track(1000, 500, &"a".repeat(64))
+            .unwrap()
+            .unwrap();
+        assert_eq!(track.keyframes[0].frame, 7);
+        assert_eq!(track.keyframes[0].quad[0], [100.0, 100.0]);
+        assert_eq!(track.keyframes[0].quad[2], [800.0, 350.0]);
+    }
+
+    #[test]
+    fn normalized_prompt_converts_at_worker_boundary() {
+        let prompt: SegmentationPrompt = toml::from_str(
+            r#"
+                frame = 3
+                coordinates = "normalized"
+                box_bounds = [0.1, 0.2, 0.4, 0.5]
+                positive_points = [[0.5, 0.25]]
+            "#,
+        )
+        .unwrap();
+        let prompt = prompt.source_pixels(1000, 400).unwrap();
+        assert_eq!(prompt.box_bounds, Some([100.0, 80.0, 400.0, 200.0]));
+        assert_eq!(prompt.positive_points, vec![[499.5, 99.75]]);
+        assert_eq!(prompt.coordinates, SpatialCoordinates::SourcePixels);
+    }
+
+    #[test]
+    fn schema_one_prompts_still_default_to_source_pixels() {
+        let prompt: SegmentationPrompt = toml::from_str(
+            r#"
+                frame = 3
+                positive_points = [[500.0, 100.0]]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(prompt.coordinates, SpatialCoordinates::SourcePixels);
+        prompt.validate("legacy prompt").unwrap();
     }
 
     #[test]

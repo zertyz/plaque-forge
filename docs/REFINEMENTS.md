@@ -1,42 +1,58 @@
 # Refinements
 
-A refinement is **human intent that automatic analysis must honor**. It is used only when automation cannot identify or track the intended writing surface reliably enough.
+A refinement is **small human intent that automatic analysis must honor**. It is the fallback when `./scripts/analyze_assets.sh` cannot reach a trustworthy result by itself.
 
-The human-facing file is `assets/refinements/<asset>/refinement.toml`. Dense per-frame motion and alpha masks may be generated artifacts; a person should not have to type them by hand.
+The editable file is:
 
-## Writing surface: placement vs writable mask
+```text
+assets/refinements/<asset>/refinement.toml
+```
 
-Plaque Forge separates two ideas:
+Do not copy generated per-frame state into it. Dense tracks, propagated masks, previews, and model outputs are artifacts/caches.
 
-1. **placement / pose** — the enclosing planar region that is tracked through the video;
-2. **writable mask** — the pixels inside that region where typography is allowed.
+## Normal workflow
 
-The tracker can therefore keep using a planar enclosing rectangle/quad while the writable region itself is rectangular, rounded, elliptical, polygonal, or arbitrary.
+Run analysis first:
 
-Simple human declarations are compiled into the general mask internally.
+```bash
+./scripts/analyze_assets.sh my-video
+```
 
-### Rectangle
+If a quality gate fails, the script now creates both:
 
-Legacy `bounds` remains the shortest rectangular form:
+```text
+assets/analysis/<name>.partial-.../diagnostics/review.html
+assets/analysis/<name>.partial-.../diagnostics/review.txt
+```
+
+Open the HTML first. It orders the likely problems and shows the relevant visual evidence. The coordinate helper lets you click an image and copy normalized points instead of calculating coordinates.
+
+Only then add the smallest correction needed.
+
+## Minimal rectangular surface
+
+Schema 2 remains compatible with schema-1 files.
 
 ```toml
-schema_version = 1
+schema_version = 2
 source = "../../video.mp4"
 default_plaque = "main"
 
 [[plaques]]
 id = "main"
 reference_frame = 10
-bounds = [190.0, 100.0, 920.0, 180.0] # x, y, width, height
+bounds = [190.0, 100.0, 920.0, 180.0]
 ```
+
+`bounds` is `[x, y, width, height]` in source pixels. It is the enclosing planar region used for tracking.
+
+## Placement and writable region are different
+
+A surface may be easy to track through an enclosing rectangle while only part of it may receive text. `writable_region` declares that inner shape.
 
 ### Rounded rectangle
 
 ```toml
-[[plaques]]
-id = "main"
-reference_frame = 10
-
 [plaques.writable_region]
 shape = "rounded-rect"
 bounds = [190.0, 100.0, 920.0, 180.0]
@@ -45,13 +61,7 @@ radius = 28.0
 
 ### Circle / oval
 
-This is the convenient human form for circular or elliptical title areas. `radii` are X/Y radii in source pixels; rotation is optional.
-
 ```toml
-[[plaques]]
-id = "main"
-reference_frame = 10
-
 [plaques.writable_region]
 shape = "ellipse"
 center = [480.0, 330.0]
@@ -59,15 +69,11 @@ radii = [390.0, 270.0]
 rotation_degrees = 0.0
 ```
 
-A circle is simply an ellipse with equal radii.
+A circle is an ellipse with equal radii.
 
 ### Polygon
 
 ```toml
-[[plaques]]
-id = "main"
-reference_frame = 10
-
 [plaques.writable_region]
 shape = "polygon"
 points = [
@@ -80,41 +86,91 @@ points = [
 
 ### Arbitrary mask
 
-Use this only when a simple shape does not express the intended writing region. The PNG is local to the enclosing `bounds`; it is resized to canonical analysis dimensions if necessary. White means writable, black means forbidden, gray feathers the boundary.
+Use this only when a simple shape is insufficient, such as a cloud silhouette.
 
 ```toml
-[[plaques]]
-id = "main"
-reference_frame = 10
-
 [plaques.writable_region]
 shape = "mask"
 bounds = [180.0, 40.0, 930.0, 210.0]
 path = "cloud-mask.png"
 ```
 
-When `bounds` and `writable_region` are both present, `bounds` is the outer planar tracking/placement enclosure and `writable_region` is the possibly smaller/non-rectangular area that may receive text. When only `writable_region` is present, its enclosing bounds are also used for tracking.
+White is writable, black is forbidden, and gray feathers the boundary.
+
+When both `bounds` and `writable_region` exist, `bounds` controls the outer tracked plane and `writable_region` controls typography. When only `writable_region` exists, its enclosing bounds are also used for tracking.
+
+## Sparse motion correction
+
+Do **not** edit or maintain a quad for every frame. Add anchors only at frames where automatic tracking is visibly wrong.
+
+Normalized coordinates keep the human correction independent of video resolution:
+
+```toml
+[[plaques.motion]]
+frame = 120
+coordinates = "normalized"
+quad = [
+  [0.206, 0.302], # top-left
+  [0.802, 0.296], # top-right
+  [0.811, 0.612], # bottom-right
+  [0.198, 0.618], # bottom-left
+]
+locked = true
+```
+
+The tracker solves the frames between sparse anchors. `locked = false` provides a guide rather than an exact constraint.
+
+Legacy external `motion_track = "..."` files remain supported. New `export-motion` output goes under `artifacts/motion.toml` because a dense exported track is generated review material, not ordinary human intent.
+
+## Sparse foreground prompts
+
+Use a prompt only when automatic foreground recovery misses an object that should cross in front of the text/plaque.
+
+Prefer normalized coordinates:
+
+```toml
+[[layers]]
+id = "foreground"
+role = "foreground"
+plaque = "main"
+in_front_of = "main"
+affects_layout = false
+
+[[layers.prompts]]
+frame = 72
+coordinates = "normalized"
+object = "lizard"
+box_bounds = [0.38, 0.27, 0.19, 0.20]
+positive_points = [[0.48, 0.36]]
+negative_points = [[0.59, 0.36]]
+```
+
+The static review page has a click helper that reports normalized and source-pixel coordinates. Plaque Forge converts normalized prompts to source pixels before invoking the external segmentation worker.
+
+Existing schema-1 prompts with no `coordinates` field continue to mean source pixels.
 
 ## Injected plaque for plaque-less video
 
-An injected plaque is a different **surface source**, not a fake detection result. Because placement and appearance are supplied explicitly, automatic plaque selection and recovery of a source-plaque appearance are skipped. Plaque Forge still reconstructs/analyzes the underlying video region and foreground crossings because those are needed to composite the virtual plaque convincingly.
-
-Prefer the high-level helper:
+Use the high-level helper:
 
 ```bash
 ./scripts/place_plaque.sh 16_9_plaqueless_swamp my-plaque.png
 ```
 
-It copies the image into `assets/refinements/<asset>/injected-plaque.png`, proposes a low-activity placement from several frames, and writes `placement-preview.png`. Override the proposal when desired:
+It copies/normalizes the PNG, proposes a quiet placement, writes `placement-preview.png`, and creates a small refinement. Then use the ordinary analyzer and renderer:
 
 ```bash
-./scripts/place_plaque.sh 16_9_plaqueless_swamp my-plaque.png \
-  --bounds 180,70,900,220 --motion screen --inset 0.08,0.12,0.08,0.12
+./scripts/analyze_assets.sh 16_9_plaqueless_swamp
+./scripts/render_assets.sh --text 'Title' --font-family 'Noto Serif' 16_9_plaqueless_swamp
 ```
 
-The generated human intent is small:
+The generated intent resembles:
 
 ```toml
+schema_version = 2
+source = "../../16_9_plaqueless_swamp.mp4"
+default_plaque = "main"
+
 [[plaques]]
 id = "main"
 reference_frame = 0
@@ -127,101 +183,30 @@ motion = "auto"
 inset = [0.08, 0.12, 0.08, 0.12]
 ```
 
-`motion` may be:
+`motion` is `auto`, `screen`, or `scene`. The PNG hash and placement semantics participate in cache identity. Plaque detection/source-plaque extraction are skipped, but scene motion and foreground crossings are still analyzed.
 
-- `auto`: try scene anchoring and fall back to screen-fixed placement if it is unreliable;
-- `screen`: explicitly fixed in screen coordinates;
-- `scene`: require scene anchoring and fail rather than silently fall back.
+## Generated artifacts
 
-The image content hash and the refinement semantics participate in analysis-cache identity. Replacing the PNG or changing placement/inset therefore invalidates the dependent cache, while changing title text or typography style does not. An explicit `writable_region` may replace the simple inset when the PNG has an irregular writing area.
+Generated data belongs outside the short human manifest. Current and legacy artifact paths remain readable for compatibility. The direction is:
 
-Automatic temporal analysis can recover moving objects that cross the injected surface, but a plaque-less source contains no physical depth cue saying whether every static/ambiguous object should be in front of or behind the new plaque. For those cases, declare a foreground layer/segmentation prompt. The placement proposer deliberately favors quieter regions to reduce this ambiguity.
-
-## Automatic first, refinement second
-
-Run:
-
-```bash
-./scripts/analyze_assets.sh my-video
+```text
+assets/refinements/<scene>/
+  refinement.toml
+  injected-plaque.png          # human-supplied source asset, when applicable
+  artifacts/
+    motion.toml                # dense export/review material
+    layers/<name>/             # newly generated prompted ML layers
+    ...
 ```
 
-The analyzer first tries to discover the writing surface itself. Candidate detection now considers broad planar enclosures rather than assuming that the writable pixels form a rectangle; canonical extraction derives its own content mask. Rounded/oval/large surfaces are therefore allowed to emerge automatically.
+New implicit prompted-layer outputs also go under `artifacts/layers/`; explicit/legacy artifact paths remain supported. The analysis cache under `assets/analysis/` remains the canonical home for reusable machine analysis state.
 
-If confidence is still insufficient, inspect the retained diagnostics and add the smallest correction that resolves the ambiguity. A manually declared `writable_region` is authoritative for where text may be drawn, while tracking/extraction/occlusion quality is still validated independently.
+## Guiding rule
 
-## Motion refinement
+When analysis fails, correct **intent**, in this order:
 
-A motion track constrains how the enclosing planar region moves. Export the automatic track:
+1. intended writing surface / writable shape;
+2. only the motion frames that are wrong;
+3. only foreground objects the automatic masks miss.
 
-```bash
-plaque-forge export-motion --analysis assets/analysis/video
-```
-
-The generated form is:
-
-```toml
-schema_version = 1
-plaque = "main"
-coordinates = "source-pixels"
-source_sha256 = "..."
-
-[[keyframes]]
-frame = 51
-quad = [[65.0, 6.0], [970.0, 6.0], [970.0, 493.0], [65.0, 493.0]]
-locked = true
-visibility = 1.0
-```
-
-Corners are top-left, top-right, bottom-right, bottom-left. Prefer a few locked corrections over locking every frame. Dense tracks are generated machine state, not the desired human interface.
-
-## Foreground / segmentation layers
-
-A layer may declare segmentation prompts. After the one-time temporary Python environment is installed with `./scripts/setup_segmentation.sh`, the **high-level `analyze_assets.sh` command automatically generates any prompted layer whose artifact is missing**. You do not normally need to invoke `segment` yourself.
-
-Example layer intent:
-
-```toml
-[[layers]]
-id = "foreground"
-role = "foreground"
-plaque = "main"
-in_front_of = "main"
-affects_layout = false
-
-[[layers.prompts]]
-frame = 72
-object = "lizard"
-box_bounds = [490.0, 145.0, 235.0, 105.0]
-positive_points = [[615.0, 190.0]]
-negative_points = [[760.0, 190.0]]
-```
-
-If `artifact` is omitted, Plaque Forge uses the conventional generated location `<refinement-dir>/<layer>/artifact.toml`. An explicit artifact path is still supported.
-
-The isolated worker environment, Hugging Face/Torch caches, cloned model repositories, and synthetic `$HOME` all live under `/tmp/plaque-forge-python`.
-
-## Generated layer artifacts
-
-Canonical image:
-
-```toml
-schema_version = 1
-kind = "alpha-image"
-coordinates = "plaque-canonical"
-path = "moss.png"
-affects_layout = false
-```
-
-Source-pixel sequence:
-
-```toml
-schema_version = 1
-kind = "alpha-sequence"
-coordinates = "source-pixels"
-pattern = "masks/%06d.png"
-first_frame = 0
-last_frame = 239
-affects_layout = false
-```
-
-Soft alpha is preserved. Foreground layers restore source pixels over the title; shadow layers restore their alpha-weighted source contribution.
+Do not repair generated machine state by hand unless you explicitly need an authoritative external track.

@@ -110,6 +110,16 @@ impl WritableRegion {
         }
     }
 
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Rect { .. } => "rect",
+            Self::RoundedRect { .. } => "rounded-rect",
+            Self::Ellipse { .. } => "ellipse",
+            Self::Polygon { .. } => "polygon",
+            Self::Mask { .. } => "mask",
+        }
+    }
+
     pub fn bounds(&self) -> [f64; 4] {
         match self {
             Self::Rect { bounds }

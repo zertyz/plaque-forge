@@ -20,7 +20,8 @@ Do the expensive scene work once and cache everything reusable. The script:
   - runs automatic writing-surface detection and tracking;
   - builds canonical/writable masks and foreground occlusion;
   - materializes any prompted ML refinement layers that are still missing;
-  - retains partial diagnostics when a scene still needs human refinement.
+  - retains partial diagnostics when a scene still needs human refinement;
+  - builds review.html + review.txt automatically for failed quality gates.
 
 Options:
   --force          Rebuild selected Rust scene-analysis caches. Cached ML layers are reused.
@@ -107,10 +108,21 @@ for name in "${cases[@]}"; do
   if ! target/release/plaque-forge "${args[@]}"; then
     printf '## ANALYSIS NEEDS ATTENTION: %s\n' "$name" >&2
     failures=$((failures + 1))
+
+    # Turn retained machine diagnostics into a human triage report immediately.
+    partial="$(ls -1dt "assets/analysis/$name.partial-"* 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$partial" && -d "$partial" ]]; then
+      review_args=(review --analysis "$partial")
+      refinement="assets/refinements/$name/refinement.toml"
+      [[ -f "$refinement" ]] && review_args+=(--refinement "$refinement")
+      printf '[review] building triage report from %s\n' "$partial" >&2
+      target/release/plaque-forge "${review_args[@]}" || \
+        printf '[review] could not build review report; raw diagnostics remain in %s\n' "$partial" >&2
+    fi
   fi
 done
 
 if (( failures > 0 )); then
-  printf '\n%d asset(s) still require review. Partial diagnostics were retained under assets/analysis/*.partial-*\n' "$failures" >&2
+  printf '\n%d asset(s) still require review. Open diagnostics/review.html (or review.txt) inside each newest assets/analysis/*.partial-* directory.\n' "$failures" >&2
   exit 1
 fi

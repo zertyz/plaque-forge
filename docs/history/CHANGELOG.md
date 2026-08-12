@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- Implemented human-refinement schema 2 while retaining schema-1 compatibility.
+- Added sparse `[[plaques.motion]]` corrections directly in `refinement.toml`; normalized coordinates are the human-oriented default and are converted to source-pixel motion constraints internally.
+- Added normalized segmentation prompts (`coordinates = "normalized"`) and conversion at the external-worker boundary; legacy prompts still default to source pixels.
+- Moved new dense motion exports under `artifacts/motion.toml` and new implicit prompted ML outputs under `artifacts/layers/`, with legacy artifact-path fallback.
+- Simplified automatically generated refinement manifests by removing commented machine-candidate dumps; alternatives now belong in diagnostics/review.
+- Made `plaque-forge review` work on partial analysis directories, including failures that have only early-stage diagnostics.
+- Added prioritized "Focus first" triage, a plain-text `review.txt`, candidate-alternative comparison, current-refinement summary, and a browser-only coordinate click helper.
+- Made `analyze_assets.sh` automatically generate human review reports whenever a quality gate fails; `review_assets.sh` falls back to the newest partial analysis when no complete cache exists.
+- Kept analysis-cache compatibility unchanged: scene algorithms/cache formats are not redefined by this human-interface pass; refinement semantic provenance still invalidates dependent caches when human intent changes.
+
 ## 0.6.0
 
 - Added first-class injected plaque surfaces for plaque-less videos. `scripts/place_plaque.sh` copies a transparent PNG, proposes a quiet placement, writes a preview/refinement, and lets normal analysis/rendering handle the result.

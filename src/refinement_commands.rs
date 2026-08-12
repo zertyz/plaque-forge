@@ -7,8 +7,8 @@ use crate::{
     analyze::{candidate, extraction::transformed_rect},
     cli::{ExportMotionArgs, PlacePlaqueArgs, PlacementMotion, RefineArgs},
     refinement::{
-        PlaqueProposal, Refinement, motion_track_document, refinement_document, relative_reference,
-        write_refinement,
+        PlaqueProposal, Refinement, REFINEMENT_SCHEMA_VERSION, motion_track_document,
+        refinement_document, relative_reference, write_refinement,
     },
     surface::Surface,
     video, workspace,
@@ -175,7 +175,7 @@ pub fn place_plaque(args: PlacePlaqueArgs) -> Result<()> {
     };
     let text = format!(
         "# Human-readable injected-plaque intent. Dense motion/occlusion state belongs in the analysis cache.\n\
-         schema_version = 1\n\
+         schema_version = {REFINEMENT_SCHEMA_VERSION}\n\
          source = {}\n\
          default_plaque = \"main\"\n\n\
          [[plaques]]\n\
