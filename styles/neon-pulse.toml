@@ -1,0 +1,19 @@
+version = 2
+fill = "#F6FFFFFF"
+
+[[effects]]
+type = "stroke"
+width = 0.022
+color = "#073044FF"
+
+[[effects]]
+type = "glow"
+radius = 16
+color = "#55EFFFF0"
+
+[[animations]]
+type = "pulse"
+period_seconds = 2.2
+minimum_opacity = 0.72
+maximum_opacity = 1.0
+phase = 0.0

@@ -1,67 +1,64 @@
 # Text effects roadmap
 
-Status: implementation plan. Phase 1 foundations are implemented in 0.4.0. The architecture contract is documented in `docs/TEXT_EFFECTS.md`.
+Status: active implementation plan. The stable pipeline contract is documented in `docs/TEXT_EFFECTS.md`.
 
-## Phase 1: mask effects and style stacks
+## Implemented through 0.5.0
 
-- Move current stroke/glow out of shaping code.
-- Add drop shadow.
-- Add TOML style files so complex styles do not become giant CLI commands.
-- Preserve direct paint flags.
-- Record the resolved text style in render provenance.
+- shaping / fitting remains separate from paint and animation;
+- static fill, linear gradient, and procedural gold/bronze material;
+- stroke, visible glow, drop shadow, extrusion/depth underlay, and bevel;
+- deterministic pulse and moving shine without rerunning shaping/layout each frame;
+- TOML style programs plus concise named presets through the high-level render script;
+- hard-effect fit envelopes so glow/blur tails do not needlessly shrink titles;
+- style/title/font provenance in render manifests.
 
-## Phase 2: material/fill stage
-
-Introduce a fill/material interface that receives canonical coordinates, glyph coverage, deterministic seed, and time.
-
-Initial targets:
-
-- linear/radial gradient;
-- image texture clipped to text;
-- procedural gold/metal;
-- moving shine sweep;
-- holographic/iridescent fill.
-
-These should remain CPU-capable initially so preview/export paths stay deterministic. A GPU backend can be introduced later behind the same interface if profiling justifies it.
-
-## Phase 3: glyph/layout transforms
+## Next: glyph/layout transforms
 
 Preserve per-glyph placement information after shaping so effects can transform glyphs before rasterization.
 
 Targets:
 
-- wave;
-- wobble;
-- pulse/scale;
-- arc;
-- controlled jitter/glitch.
+- wave / wobble;
+- pulse/scale that changes geometry rather than only opacity;
+- arc / curved baseline;
+- controlled jitter / glitch.
 
 The important constraint is to preserve shaping clusters and script correctness. Effects must transform shaped glyphs rather than split arbitrary Unicode text into Rust `char`s.
 
-## Phase 4: temporal effects
+## Next: richer materials
 
-Split the current static `TextRender` result into reusable **prepared typography** and a **presentation/style program**. Add deterministic `FrameContext` containing frame index, timestamp, duration, normalized progress, and seed.
-
-Each style/effect must declare whether it depends on time and its maximum visual extent. Static stages remain cached; an animated stage recomputes only what actually changes. Line breaking, font discovery, plaque analysis, and unrelated static effects must not run once per video frame.
+Extend the material interface while keeping canonical coordinates and deterministic time input.
 
 Targets:
 
-- pulse;
-- flicker;
-- moving shine;
-- trails;
-- reveal/scramble where appropriate.
+- image texture clipped to text;
+- radial/multistop gradients;
+- chrome / holographic / iridescent fills;
+- configurable procedural roughness and scratches.
 
-## Phase 5: plaque-surface interaction
+A GPU backend may be added later behind the same renderer boundary if profiling justifies it; backend-specific types must not leak into scene analysis or refinements.
 
-Engraving and convincing protrusion are not ordinary overlays. Add a scene/material stage that can sample the canonical plaque image and modify its shading while still respecting the analyzed writing mask.
+## Later: plaque-surface interaction
+
+Engraving and convincing protrusion are not ordinary RGBA overlays. Add a scene/material stage that can sample the canonical plaque image and modify its shading while respecting the writable mask.
 
 Targets:
 
-- letterpress/deboss;
+- letterpress / deboss;
 - laser-burn / carved wood;
-- emboss/protrude;
+- true emboss / protrusion;
 - surface-aware inner/cast shadows;
-- optional normal/height-map approximation derived from the text mask.
+- optional normal/height-map approximation derived from text coverage.
 
-These effects must remain downstream of analysis so changing title style never rebuilds tracking caches.
+These effects stay downstream of scene analysis, so changing typography never rebuilds tracking caches.
+
+## Later: temporal/reveal families
+
+With reusable prepared typography and frame context in place, add effects whose visible geometry or coverage changes over time:
+
+- flicker;
+- trails;
+- dissolve / assemble;
+- typewriter / scramble where appropriate.
+
+Every animated stage must declare or conservatively estimate its maximum hard visual extent so fitting remains safe.

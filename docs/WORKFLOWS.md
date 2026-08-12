@@ -17,7 +17,7 @@ cargo build --release
 
 ### Artistic line layout
 
-`maximize` and `balanced` retain automatic wrapping. `artistic` evaluates a bounded set of explicit word-boundary layouts, measures them with the selected font, and records the chosen line breaks in the render manifest. Its score considers fitted size, line balance/raggedness, weak final lines, and obvious stranded punctuation. Explicit newlines remain authoritative.
+`artistic` is the default. `maximize` and `balanced` remain available when you want their simpler wrapping behavior. `artistic` evaluates a bounded set of explicit word-boundary layouts, measures them with the selected font, and records the chosen line breaks in the render manifest. Its score considers fitted size, line balance/raggedness, weak final lines, and obvious stranded punctuation. Explicit newlines remain authoritative.
 
 ```bash
 ./scripts/render_assets.sh \
@@ -36,11 +36,11 @@ Use direct flags for quick experiments. Use a versioned style file when the pain
 ./scripts/render_assets.sh \
   --text 'Custom title' \
   --font-family 'Noto Serif' \
-  --style-file styles/classic-glow.toml \
+  --style classic-glow \
   swamp-rusty-plaque
 ```
 
-The style file owns fill/stroke/glow/shadow settings. Layout flags such as `--fit`, `--max-lines`, and `--padding` remain independent.
+The style file owns reusable paint/material/effect/animation settings, including gold/gradient materials, extrusion, bevel, pulse, and shine. Layout flags such as `--fit`, `--max-lines`, and `--padding` remain independent.
 
 ## Create an automatic refinement proposal
 
@@ -60,21 +60,23 @@ The exported motion file is generated review material. Edit or retain only the k
 
 ## Build an analysis cache
 
+Prefer the high-level command; it verifies cache freshness and generates any missing prompted ML layers:
+
+```bash
+./scripts/analyze_assets.sh video
+```
+
+The lower-level equivalent is available for debugging:
+
 ```bash
 ./target/release/plaque-forge analyze --input assets/video.mp4
 ```
 
-Use `--force` only when intentionally replacing an existing cache. The replacement is staged and the old cache remains in place until the new analysis succeeds.
+Use `--force` only when intentionally replacing an existing cache. Replacement is staged and the old cache remains in place until the new analysis succeeds.
 
-## Generate a segmentation layer
+## Generate a segmentation layer manually
 
-The convenience wrapper is normally shorter:
-
-```bash
-./scripts/detect_objects.sh video foreground --force
-```
-
-The equivalent direct command is:
+Normally `analyze_assets.sh` generates missing prompted layers automatically. For debugging or explicit regeneration, use the direct low-level command:
 
 ```bash
 ./target/release/plaque-forge segment \

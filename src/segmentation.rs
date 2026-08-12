@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cli::SegmentArgs,
     refinement::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Refinement, resolve_relative,
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Refinement, find_refinement,
+        layer_artifact_path, resolve_relative,
     },
     video, workspace,
 };
@@ -159,7 +160,7 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         plaque: WorkerPlaque {
             id: plaque.id.clone(),
             reference_frame: plaque.reference_frame,
-            bounds: plaque.bounds,
+            bounds: plaque.tracking_bounds(),
             motion_track: plaque
                 .motion_track
                 .as_ref()
@@ -195,6 +196,54 @@ pub fn run(args: SegmentArgs) -> Result<()> {
     crate::staged_output::commit(&partial, &output, args.force)?;
     println!("layer artifact: {}", output.join("artifact.toml").display());
     Ok(())
+}
+
+/// Materialize every prompted refinement layer that is still missing its artifact.
+///
+/// This is used by the high-level analyze workflow so a user does not need to discover
+/// and invoke the lower-level `segment` command for each layer. Existing artifacts are
+/// never regenerated implicitly.
+pub fn ensure_prompted_layers(
+    input: &Path,
+    explicit_refinement: Option<&Path>,
+    plaque_id: Option<&str>,
+    worker: &Path,
+    backend: &str,
+    model: &str,
+    device: &str,
+    ffprobe: &Path,
+) -> Result<usize> {
+    let Some(loaded) = find_refinement(input, explicit_refinement)? else {
+        return Ok(0);
+    };
+    let plaque = loaded.document.select_plaque(plaque_id)?;
+    let pending = loaded
+        .document
+        .layers
+        .iter()
+        .filter(|layer| layer.plaque == plaque.id && !layer.prompts.is_empty())
+        .filter_map(|layer| {
+            let artifact = layer_artifact_path(&loaded.path, layer)?;
+            (!artifact.is_file()).then_some(layer.id.clone())
+        })
+        .collect::<Vec<_>>();
+
+    for layer in &pending {
+        run(SegmentArgs {
+            input: input.to_path_buf(),
+            refinement: Some(loaded.path.clone()),
+            plaque: Some(plaque.id.clone()),
+            layer: layer.clone(),
+            worker: worker.to_path_buf(),
+            backend: backend.to_string(),
+            model: model.to_string(),
+            device: device.to_string(),
+            output: None,
+            force: false,
+            ffprobe: ffprobe.to_path_buf(),
+        })?;
+    }
+    Ok(pending.len())
 }
 
 fn validate_worker_output(

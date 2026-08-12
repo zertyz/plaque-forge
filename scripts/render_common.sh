@@ -37,6 +37,8 @@ pf_configure_render() {
   local text_file=""
   local font="${FONT:-}"
   local font_family="${FONT_FAMILY:-}"
+  local style="${STYLE:-}"
+  local style_file="${STYLE_FILE:-}"
   local -a cases=()
 
   while (( $# )); do
@@ -53,7 +55,8 @@ pf_configure_render() {
       --font-family)
         (( $# >= 2 )) || pf_die "--font-family requires a fontconfig family/pattern"
         font_family="$2"; shift 2 ;;
-      --style-file) (( $# >= 2 )) || pf_die "$1 requires a path"; STYLE_FILE="$2"; shift 2 ;;
+      --style) (( $# >= 2 )) || pf_die "$1 requires a preset name"; style="$2"; shift 2 ;;
+      --style-file) (( $# >= 2 )) || pf_die "$1 requires a path"; style_file="$2"; shift 2 ;;
       --fit) (( $# >= 2 )) || pf_die "$1 requires a value"; FIT="$2"; shift 2 ;;
       --font-size) (( $# >= 2 )) || pf_die "$1 requires a value"; FONT_SIZE="$2"; shift 2 ;;
       --supersampling) (( $# >= 2 )) || pf_die "$1 requires a value"; SUPERSAMPLING="$2"; shift 2 ;;
@@ -89,6 +92,14 @@ pf_configure_render() {
   if [[ -z "$text" && -z "$text_file" ]]; then
     pf_die "title text is required; use --text '...' or TITLE_TEXT='...'"
   fi
+  if [[ -n "$style" && -n "$style_file" ]]; then
+    pf_die "use either --style/STYLE or --style-file/STYLE_FILE, not both"
+  fi
+  if [[ -n "$style" ]]; then
+    [[ "$style" != */* && "$style" != *..* ]] || pf_die "--style expects a preset name, not a path"
+    style_file="$PF_ROOT/styles/$style.toml"
+    [[ -f "$style_file" ]] || pf_die "style preset not found: $style (expected $style_file)"
+  fi
   if [[ -n "$font" && -n "$font_family" ]]; then
     pf_die "use either --font/FONT or --font-family/FONT_FAMILY, not both"
   fi
@@ -104,7 +115,9 @@ pf_configure_render() {
     PF_RENDER_OPTIONS+=(--text "$text")
   fi
 
-  pf_append_env_option STYLE_FILE --style-file
+  if [[ -n "$style_file" ]]; then
+    PF_RENDER_OPTIONS+=(--style-file "$style_file")
+  fi
   pf_append_env_option FIT --fit
   pf_append_env_option FONT_SIZE --font-size
   pf_append_env_option SUPERSAMPLING --supersampling

@@ -1,7 +1,7 @@
 //! Plaque candidate detection.
 //!
 //! Samples source frames, scores plausible planar title surfaces, and chooses a reference
-//! plaque rectangle for tracking or proposes alternatives for human refinement.
+//! enclosing planar region for tracking or proposes alternatives for human refinement.
 
 use std::{fs, path::Path};
 
@@ -51,7 +51,7 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
                 height,
             },
             frame_index: args.plaque_frame.unwrap_or(0),
-            confidence: 0.90,
+            confidence: if args.writable_region_hint.is_some() { 0.98 } else { 0.92 },
             canonical_width: width.round().max(1.0) as u32,
             canonical_height: height.round().max(1.0) as u32,
         });
@@ -136,8 +136,8 @@ fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&S
 fn reference_quality(candidate: &ScoredRect, width: i32, height: i32) -> f64 {
     let area_ratio = f64::from(candidate.rect.width * candidate.rect.height)
         / f64::from(width * height).max(1.0);
-    let resolution = (area_ratio.min(0.22) / 0.22).sqrt();
-    let oversize = ((area_ratio - 0.22) / 0.20).clamp(0.0, 1.0);
+    let resolution = (area_ratio.min(0.32) / 0.32).sqrt();
+    let oversize = ((area_ratio - 0.55) / 0.25).clamp(0.0, 1.0);
     candidate.score + 1.5 * candidate.edge_completeness + 2.0 * resolution
         - 1.5 * candidate.interior_clutter
         - 2.0 * oversize
@@ -285,6 +285,8 @@ fn frame_candidates(frame: &Mat) -> Result<Vec<ScoredRect>> {
     let edges = geometry_edges(frame)?;
 
     output.extend(color_candidates(frame)?);
+    output.extend(strict_neutral_surface_candidates(frame)?);
+    output.extend(neutral_surface_candidates(frame)?);
     output.extend(contour_rectangles(
         &edges,
         frame.cols(),
@@ -321,6 +323,82 @@ fn color_candidates(frame: &Mat) -> Result<Vec<ScoredRect>> {
         &mut saturated,
     )?;
     contour_rectangles(&saturated, frame.cols(), frame.rows(), 1.0)
+}
+
+fn strict_neutral_surface_candidates(frame: &Mat) -> Result<Vec<ScoredRect>> {
+    let mut hsv = Mat::default();
+    imgproc::cvt_color(
+        frame,
+        &mut hsv,
+        imgproc::COLOR_BGR2HSV,
+        0,
+        core::AlgorithmHint::ALGO_HINT_DEFAULT,
+    )?;
+    // Very low saturation isolates bright neutral writing surfaces such as clouds without
+    // merging them into a blue sky. The broader neutral vote below remains useful for
+    // off-white metal/fabric, but receives a lower source weight.
+    let mut neutral = Mat::default();
+    core::in_range(
+        &hsv,
+        &Scalar::new(0.0, 0.0, 170.0, 0.0),
+        &Scalar::new(179.0, 20.0, 255.0, 0.0),
+        &mut neutral,
+    )?;
+    let kernel = imgproc::get_structuring_element(
+        imgproc::MORPH_ELLIPSE,
+        core::Size::new(17, 11),
+        Point::new(-1, -1),
+    )?;
+    let mut closed = Mat::default();
+    imgproc::morphology_ex(
+        &neutral,
+        &mut closed,
+        imgproc::MORPH_CLOSE,
+        &kernel,
+        Point::new(-1, -1),
+        2,
+        core::BORDER_CONSTANT,
+        imgproc::morphology_default_border_value()?,
+    )?;
+    contour_rectangles(&closed, frame.cols(), frame.rows(), 1.05)
+}
+
+fn neutral_surface_candidates(frame: &Mat) -> Result<Vec<ScoredRect>> {
+    let mut hsv = Mat::default();
+    imgproc::cvt_color(
+        frame,
+        &mut hsv,
+        imgproc::COLOR_BGR2HSV,
+        0,
+        core::AlgorithmHint::ALGO_HINT_DEFAULT,
+    )?;
+    // Bright, low-saturation surfaces cover cases such as cloud/fabric plaques that
+    // the saturated-color vote intentionally misses. Geometry and temporal support
+    // still have to corroborate the region, so this is only another proposal source.
+    let mut neutral = Mat::default();
+    core::in_range(
+        &hsv,
+        &Scalar::new(0.0, 0.0, 150.0, 0.0),
+        &Scalar::new(179.0, 85.0, 255.0, 0.0),
+        &mut neutral,
+    )?;
+    let kernel = imgproc::get_structuring_element(
+        imgproc::MORPH_ELLIPSE,
+        core::Size::new(17, 11),
+        Point::new(-1, -1),
+    )?;
+    let mut closed = Mat::default();
+    imgproc::morphology_ex(
+        &neutral,
+        &mut closed,
+        imgproc::MORPH_CLOSE,
+        &kernel,
+        Point::new(-1, -1),
+        2,
+        core::BORDER_CONSTANT,
+        imgproc::morphology_default_border_value()?,
+    )?;
+    contour_rectangles(&closed, frame.cols(), frame.rows(), 0.72)
 }
 
 fn geometry_edges(frame: &Mat) -> Result<Mat> {
@@ -409,30 +487,32 @@ fn contour_rectangles(
         let area_ratio = (rect.width * rect.height) as f64 / frame_area;
         // The supported source class contains one dominant plaque. Small HUD,
         // terminal, and monitor rectangles are not valid automatic candidates.
-        if !(0.04..=0.55).contains(&area_ratio) || rect.width < 80 || rect.height < 35 {
+        if !(0.025..=0.82).contains(&area_ratio) || rect.width < 70 || rect.height < 35 {
             continue;
         }
-        if rect.x <= 2
+        let touches_frame = rect.x <= 2
             || rect.y <= 2
             || rect.x + rect.width >= width - 2
-            || rect.y + rect.height >= height - 2
-        {
+            || rect.y + rect.height >= height - 2;
+        if touches_frame && area_ratio < 0.30 {
             continue;
         }
         let aspect = rect.width as f64 / rect.height.max(1) as f64;
-        if !(1.15..=8.0).contains(&aspect) {
+        if !(0.55..=8.0).contains(&aspect) {
             continue;
         }
         let contour_area = geometry::contour_area(&contour, false)?.abs();
         let rectangularity = (contour_area / (rect.width * rect.height) as f64).clamp(0.0, 1.0);
         let center_y = (rect.y + rect.height / 2) as f64 / height as f64;
         let upper_fit = (1.0 - (center_y - 0.55).max(0.0) / 0.45).clamp(0.0, 1.0);
-        let area_fit = if area_ratio <= 0.30 {
+        let area_fit = if area_ratio <= 0.45 {
             1.0
         } else {
-            (1.0 - (area_ratio - 0.30) / 0.25).clamp(0.0, 1.0)
+            (1.0 - (area_ratio - 0.45) / 0.37).clamp(0.0, 1.0)
         };
-        let aspect_fit = (1.0 - ((aspect / 2.8).ln().abs() / 1.4)).clamp(0.0, 1.0);
+        let wide_fit = (1.0 - ((aspect / 2.8).ln().abs() / 1.4)).clamp(0.0, 1.0);
+        let oval_fit = (1.0 - (aspect.ln().abs() / 0.85)).clamp(0.0, 1.0);
+        let aspect_fit = wide_fit.max(0.88 * oval_fit);
         let score = source_weight
             * (0.45 * rectangularity + 0.25 * area_fit + 0.20 * aspect_fit + 0.10 * upper_fit);
         result.push(ScoredRect {
@@ -490,6 +570,8 @@ fn edge_evidence(edges: &Mat, rect: Rect) -> Result<EdgeEvidence> {
     ];
     let minimum = sides.iter().copied().fold(f64::INFINITY, f64::min);
     let mean = sides.iter().sum::<f64>() / sides.len() as f64;
+    let rectangular_support = (0.55 * minimum + 0.45 * mean).clamp(0.0, 1.0);
+    let elliptical_support = ellipse_edge_support(edges, rect)?;
     let inner = Rect::new(
         rect.x + rect.width / 5,
         rect.y + rect.height / 5,
@@ -500,9 +582,38 @@ fn edge_evidence(edges: &Mat, rect: Rect) -> Result<EdgeEvidence> {
     let density =
         core::count_non_zero(&roi)? as f64 / f64::from(inner.width * inner.height).max(1.0);
     Ok(EdgeEvidence {
-        border_support: (0.55 * minimum + 0.45 * mean).clamp(0.0, 1.0),
+        border_support: rectangular_support.max(0.95 * elliptical_support),
         interior_clutter: (density / 0.16).clamp(0.0, 1.0),
     })
+}
+
+fn ellipse_edge_support(edges: &Mat, rect: Rect) -> Result<f64> {
+    let center_x = rect.x as f64 + rect.width as f64 * 0.5;
+    let center_y = rect.y as f64 + rect.height as f64 * 0.5;
+    let radius_x = rect.width as f64 * 0.5;
+    let radius_y = rect.height as f64 * 0.5;
+    let neighborhood = ((rect.width.min(rect.height) as f64 * 0.02).round() as i32).clamp(2, 10);
+    let samples = 144usize;
+    let mut supported = 0usize;
+    for sample in 0..samples {
+        let angle = std::f64::consts::TAU * sample as f64 / samples as f64;
+        let x = (center_x + radius_x * angle.cos()).round() as i32;
+        let y = (center_y + radius_y * angle.sin()).round() as i32;
+        let mut found = false;
+        for yy in (y - neighborhood).max(0)..=(y + neighborhood).min(edges.rows() - 1) {
+            for xx in (x - neighborhood).max(0)..=(x + neighborhood).min(edges.cols() - 1) {
+                if edges.at_2d::<u8>(yy, xx).is_ok_and(|value| *value > 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        supported += usize::from(found);
+    }
+    Ok(supported as f64 / samples as f64)
 }
 
 fn rank_candidates(
@@ -521,13 +632,14 @@ fn rank_candidates(
             .fold(0.0, f64::max);
         let area_ratio = f64::from(candidate.rect.width * candidate.rect.height)
             / f64::from(width * height).max(1.0);
-        let area_penalty = ((area_ratio - 0.22) / 0.20).clamp(0.0, 1.0);
-        let resolution_fit = (area_ratio.min(0.22) / 0.22).sqrt();
+        let area_penalty = ((area_ratio - 0.60) / 0.22).clamp(0.0, 1.0);
+        let resolution_fit = (area_ratio.min(0.32) / 0.32).sqrt();
+        let layout_weight = (1.0 - ((area_ratio - 0.30) / 0.35).clamp(0.0, 1.0)) * 0.45;
         let objective = candidate.score
             + 0.80 * persistence
             + 0.85 * candidate.edge_completeness
             + 0.45 * horizontal_center_fit(candidate.rect, width)
-            + 0.45 * vertical_layout_fit(candidate.rect, width, height)
+            + layout_weight * vertical_layout_fit(candidate.rect, width, height)
             + 0.15 * resolution_fit
             - 0.45 * candidate.interior_clutter
             - 0.35 * area_penalty

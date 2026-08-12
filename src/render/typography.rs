@@ -24,6 +24,8 @@ use super::effects::Style;
 
 pub struct TextRender {
     pub layer: Surface,
+    /// Final-resolution fill coverage before glow/shadow/material animation.
+    pub glyph_mask: Vec<u8>,
     pub metrics: TypographyMetrics,
 }
 
@@ -196,9 +198,7 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
             }
             (size, size, result, text.to_string())
         }
-        FitMode::Artistic => {
-            find_artistic_layout(&mut font_system, text, upper, &context, target_fill)?
-        }
+        FitMode::Artistic => find_artistic_layout(&mut font_system, text, upper, &context)?,
         FitMode::Maximize | FitMode::Balanced => {
             let (rectangle_maximum, _) =
                 find_maximum_candidate(&mut font_system, text, upper, &context, Wrap::WordOrGlyph)?;
@@ -247,6 +247,7 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
 
     Ok(TextRender {
         layer: composed.layer,
+        glyph_mask: composed.glyph_mask,
         metrics: TypographyMetrics {
             fit_mode: format!("{fit_mode:?}").to_lowercase(),
             font_size: selected_size / supersampling as f32,
@@ -268,7 +269,6 @@ fn find_artistic_layout(
     text: &str,
     upper: f32,
     context: &TypographyContext<'_>,
-    target_fill: f32,
 ) -> Result<(f32, f32, Composed, String)> {
     let candidates = artistic_line_break_candidates(text, context.max_lines);
     let mut best: Option<(f64, String, f32, Composed)> = None;
@@ -302,26 +302,10 @@ fn find_artistic_layout(
         "no artistic word-boundary layout fits the plaque; use --fit maximize, increase --max-lines, use a narrower font, or shorten the title",
     )?;
 
-    if maximum_composed.fill_ratio <= target_fill as f64 {
-        return Ok((maximum_size, maximum_size, maximum_composed, selected_text));
-    }
-
-    let scale = (target_fill as f64 / maximum_composed.fill_ratio)
-        .sqrt()
-        .clamp(0.70, 1.0) as f32;
-    let selected_size = maximum_size * scale;
-    let balanced = evaluate_masked_candidate(
-        font_system,
-        &selected_text,
-        selected_size,
-        context,
-        Wrap::None,
-    )?;
-
-    Ok(match balanced.filter(|result| result.clipped_pixels == 0) {
-        Some(result) => (maximum_size, selected_size, result, selected_text),
-        None => (maximum_size, maximum_size, maximum_composed, selected_text),
-    })
+    // Artistic mode chooses the best explicit line composition and then uses its
+    // maximum safe size. `--target-fill` remains a Balanced-mode control; shrinking
+    // an artistic composition after choosing it made titles needlessly timid.
+    Ok((maximum_size, maximum_size, maximum_composed, selected_text))
 }
 
 fn artistic_layout_score(font_size: f32, line_widths: &[f32], text: &str) -> f64 {
@@ -630,6 +614,7 @@ fn format_bounds(bounds: Option<(u32, u32, u32, u32)>) -> String {
 
 struct Composed {
     layer: Surface,
+    glyph_mask: Vec<u8>,
     lines: usize,
     line_widths: Vec<f32>,
     fill_ratio: f64,
@@ -672,14 +657,25 @@ fn compose_layer(
     let combined = context
         .style
         .compose(&high_resolution, font_size, context.supersampling)?;
+    let fit_envelope = context.style.fit_envelope(&high_resolution, font_size)?;
 
-    let mut layer = downsample(&combined, context.width, context.height)?;
-    let alpha_before = layer.alpha_mask();
-    layer.apply_alpha_mask(context.mask)?;
-    let alpha_after = layer.alpha_mask();
+    let mut glyph_layer = downsample(&high_resolution, context.width, context.height)?;
+    glyph_layer.apply_alpha_mask(context.mask)?;
+    let glyph_mask = glyph_layer.alpha_mask();
+
+    // Fit safety is based on glyphs and hard geometry such as stroke/extrusion. Glow
+    // and blurred shadows are intentionally soft: their tails may be clipped by the
+    // writable mask rather than forcing the title to shrink.
+    let mut fit_layer = downsample(&fit_envelope, context.width, context.height)?;
+    let alpha_before = fit_layer.alpha_mask();
+    fit_layer.apply_alpha_mask(context.mask)?;
+    let alpha_after = fit_layer.alpha_mask();
     let (clipped_pixels, clipped_bounds) =
         clipping_summary(&alpha_before, &alpha_after, context.width);
-    let final_bounds = layer.alpha_bounds().context("final text layer is empty")?;
+    let final_bounds = fit_layer.alpha_bounds().context("final text layer is empty")?;
+
+    let mut layer = downsample(&combined, context.width, context.height)?;
+    layer.apply_alpha_mask(context.mask)?;
     let block_area =
         (final_bounds.2 - final_bounds.0 + 1) as f64 * (final_bounds.3 - final_bounds.1 + 1) as f64;
     let safe_width = (context.bounds.2 - context.bounds.0 + 1)
@@ -702,6 +698,7 @@ fn compose_layer(
 
     Ok(Composed {
         layer,
+        glyph_mask,
         lines: candidate.lines,
         line_widths: candidate.line_widths,
         fill_ratio: (block_area / safe_area).clamp(0.0, 1.0),

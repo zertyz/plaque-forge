@@ -221,13 +221,33 @@ pub fn run(args: ComposeArgs) -> Result<()> {
             .get(frame_index)
             .with_context(|| format!("motion sample missing for frame {frame_index}"))?;
 
-        // The source plaque is already text-free. Only the text layer is changed;
-        // no plaque or background reconstruction is performed.
-        frame.warp_blend(
-            &text_render.layer,
-            transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
-            sample.plaque_visibility.clamp(0.0, 1.0) as f32,
+        // The source plaque is already text-free. Static typography is prepared once.
+        // Frame-varying presentation (currently pulse/shine) is evaluated here without
+        // repeating font discovery, shaping, or line breaking.
+        let time_seconds = frame_index as f64 / info.fps.max(f64::EPSILON);
+        let style_opacity = style.frame_opacity(time_seconds);
+        let animated_overlay = style.frame_overlay(
+            &text_render.glyph_mask,
+            text_render.layer.width(),
+            text_render.layer.height(),
+            time_seconds,
         )?;
+        let opacity = sample.plaque_visibility.clamp(0.0, 1.0) as f32 * style_opacity;
+        if let Some(overlay) = animated_overlay {
+            let mut presented = text_render.layer.clone();
+            presented.blend_surface(&overlay, 0, 0, 1.0);
+            frame.warp_blend(
+                &presented,
+                transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+                opacity,
+            )?;
+        } else {
+            frame.warp_blend(
+                &text_render.layer,
+                transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+                opacity,
+            )?;
+        }
         let mut restore = foregrounds
             .frame_mask(frame_index, sample.transform)?
             .unwrap_or_default();

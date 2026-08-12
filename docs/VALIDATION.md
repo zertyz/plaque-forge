@@ -6,7 +6,7 @@ Run the code gate:
 ./scripts/check.sh
 ```
 
-Validate the six existing analysis caches:
+Validate the checked-in acceptance analysis caches/renders:
 
 ```bash
 ./scripts/validate_assets.sh

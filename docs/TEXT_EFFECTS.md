@@ -1,24 +1,25 @@
-# Text effects architecture
+# Text effects
 
-Plaque Forge treats title rendering as a small rendering pipeline rather than a list of unrelated switches. This matters because effects such as glow, wobble, gold, and engraving operate on different kinds of data.
-
-## Pipeline boundaries
+Plaque Forge treats title rendering as a pipeline because different effects operate on different data. A single `apply_effect(RGBA)` abstraction would be convenient and wrong.
 
 ```text
 text + font
    |
    v
 shape and line layout
-   |        layout effects: wave, wobble, arc, per-glyph transforms
+   |        future glyph transforms: wave, wobble, arc, per-glyph motion
    v
-canonical glyph geometry / coverage
-   |        mask effects: stroke, glow, shadow, trails
+glyph coverage
+   |        stroke, glow, shadow, extrusion
    v
-fill/material shading
-   |        flat color, gradient, texture, metal, foil, animated shine
+fill / material
+   |        flat color, gradient, procedural gold
    v
-canonical title layer
-   |        scene-surface effects: engraving, emboss/protrusion, plaque-aware lighting
+surface detail
+   |        bevel
+   v
+prepared canonical title
+   |        frame presentation: pulse, moving shine
    v
 plaque warp + foreground restoration
    |
@@ -26,108 +27,201 @@ plaque warp + foreground restoration
 video frame
 ```
 
-Animation is not a separate rendering layer. Time is an input that may drive parameters in any stage. A pulse may alter fill opacity or scale; a moving shine alters material shading; a wobble alters glyph transforms.
+Scene analysis is independent from typography style. Changing text effects does not invalidate tracking/extraction caches.
 
-## Why the stages are separate
+## Implemented in 0.5
 
-A single `TextEffect::apply(RGBA)` abstraction would be convenient initially but wrong for several desired effects:
+Static effects/materials:
 
-- **Wave / wobble / arc** need glyph positions before the title becomes one bitmap.
-- **Glow / outline / shadow** naturally derive layers from glyph coverage.
-- **Gold / chrome / holographic / texture fill / shine** need coordinates and material shading inside the glyphs.
-- **Engraving / letterpress / convincing protrusion** need the plaque surface itself, not merely an RGBA overlay.
-- **Pulse / flicker / moving shine** require deterministic time input without forcing scene analysis to know anything about typography animation.
-
-The scene-analysis cache therefore remains independent of title style. Changing a text effect must not invalidate plaque tracking or extraction caches.
-
-## Current implementation
-
-`src/render/typography.rs` owns shaping, fitting, line layout, and production of the base glyph coverage.
-
-`src/render/effects.rs` owns effects that operate on that already-shaped coverage. The current built-ins are:
-
+- flat fill;
+- linear gradient fill;
+- procedural gold/bronze material;
 - stroke;
 - glow;
 - drop shadow;
-- flat fill.
+- extrusion/depth underlay;
+- bevel highlight/shadow.
 
-The existing CLI paint flags remain supported. For combinations that would make the command line noisy, use a TOML style file:
+Animated presentation:
+
+- pulse (opacity modulation);
+- moving shine constrained to the actual glyph fill.
+
+The renderer prepares font discovery, shaping, line breaks, and the static title once. Animated shine/pulse are evaluated per video frame without re-running typography layout.
+
+Still future because they require different renderer stages:
+
+- wave/wobble/arc and other per-glyph geometry transforms;
+- texture-image materials;
+- true plaque-surface engraving/laser burn;
+- true protrusion/displacement with scene-consistent lighting;
+- particle/dissolve/typewriter families.
+
+## Defaults
+
+`--fit artistic` is now the default. It searches bounded word-boundary arrangements and scores visual balance before choosing the maximum safe size.
+
+Direct CLI rendering also uses a deliberately visible cyan glow by default. A style file replaces the direct paint flags.
+
+## Style files
+
+### Strong classic glow
 
 ```bash
-plaque-forge render \
-  --input assets/example.mp4 \
+./scripts/render_assets.sh \
   --text 'A title' \
-  --font /path/to/font.ttf \
-  --style-file styles/classic-glow.toml
+  --font-family 'Noto Serif' \
+  --style classic-glow
 ```
 
-A style file currently supports:
+### Bronze / raised metal
+
+This is intended for dark iron plaques such as the dungeon example:
+
+```bash
+./scripts/render_assets.sh \
+  --text 'Vendo o que ninguém mais vê' \
+  --font-family 'Noto Serif' \
+  --style bronze-relief \
+  16_9_dungeon_spider_iron_plaque
+```
+
+`bronze-relief.toml` combines procedural metallic fill, shadow, extrusion, outline, bevel, and moving shine.
+
+### Gold shine
 
 ```toml
-version = 1
-fill = "#EBFFFFFF"
+version = 2
 
-[[effects]]
-type = "shadow"
-offset_x = 0.025     # fraction of fitted font size
-offset_y = 0.035
-blur_radius = 5      # final-output pixels
-color = "#00000078"
+[material]
+type = "gold"
 
 [[effects]]
 type = "stroke"
-width = 0.035        # fraction of fitted font size
-color = "#03181ED2"
+width = 0.028
+color = "#5A310EFF"
+
+[[effects]]
+type = "bevel"
+width = 0.025
+
+[[animations]]
+type = "shine"
+period_seconds = 2.8
+width = 0.12
+angle_degrees = 18
+color = "#FFF9DEC8"
+```
+
+### Pulse
+
+```toml
+version = 1
+fill = "#F6FFFFFF"
 
 [[effects]]
 type = "glow"
-radius = 8           # final-output pixels
-color = "#69F2FA48"
+radius = 16
+color = "#55EFFFF0"
+
+[[animations]]
+type = "pulse"
+period_seconds = 2.2
+minimum_opacity = 0.72
+maximum_opacity = 1.0
 ```
 
-When `--style-file` is present, it defines the paint/effect stack and the direct `--text-color`, `--stroke-*`, `--glow-*`, and `--shadow-*` values are ignored. Style files are schema-versioned so future material/animation additions can evolve deliberately. Layout flags such as `--fit`, `--max-lines`, and `--padding` still apply.
-The render manifest records the resolved style and, when a style file is used, its SHA-256. Future styles that reference texture/material assets must likewise record content hashes for those assets rather than relying on paths alone.
+## Material schema
 
+Flat color:
 
-## Static layout, frame-varying presentation
+```toml
+fill = "#F4FFFFFF"
+```
 
-The current renderer can cache a complete canonical title layer because every implemented style is static. Animated effects require a more precise boundary rather than moving shaping into the video loop.
+Linear gradient:
 
-The target split is:
+```toml
+[material]
+type = "linear-gradient"
+top = "#FFF4D0FF"
+bottom = "#8A4B18FF"
+```
 
-- **prepared typography**: shaped runs, selected line breaks, glyph placement, canonical coordinates, and reusable glyph coverage;
-- **style program**: fill/material/effect definitions plus their deterministic parameters;
-- **frame context**: frame index, timestamp, duration, normalized progress, and an explicit seed;
-- **presentation cache**: any stage proven not to depend on frame context is computed once and reused.
+Procedural gold:
 
-For a static style, the whole canonical title remains one cached layer exactly as today. For a moving shine, only material shading needs reevaluation. For a pulse or wobble, glyph presentation changes per frame, but font discovery and line breaking do not. Scene analysis remains untouched in every case.
+```toml
+[material]
+type = "gold"
+dark = "#5B3210FF"
+mid = "#C98B3CFF"
+light = "#F3D38AFF"
+highlight = "#FFF1C4FF"
+```
 
-An animated effect must also declare or conservatively estimate its maximum visual extent. Fitting must validate that envelope against the writable plaque mask rather than checking only frame zero.
+## Static effect schema
+
+```toml
+[[effects]]
+type = "shadow"
+offset_x = 0.025       # fraction of fitted font size
+offset_y = 0.035
+blur_radius = 5        # final-output pixels
+color = "#00000088"
+
+[[effects]]
+type = "stroke"
+width = 0.030          # fraction of fitted font size
+color = "#03181EE8"
+
+[[effects]]
+type = "glow"
+radius = 12            # final-output pixels
+color = "#69F2FA98"
+
+[[effects]]
+type = "extrude"
+depth = 0.045          # fraction of fitted font size
+angle_degrees = 62
+color = "#3A1E0DDD"
+
+[[effects]]
+type = "bevel"
+width = 0.030          # fraction of fitted font size
+highlight = "#FFF0C0B8"
+shadow = "#321707B8"
+```
+
+## Animation schema
+
+Moving shine:
+
+```toml
+[[animations]]
+type = "shine"
+period_seconds = 3.2
+width = 0.10           # fraction of projected title span
+angle_degrees = 14
+color = "#FFF4D0A8"
+```
+
+Pulse:
+
+```toml
+[[animations]]
+type = "pulse"
+period_seconds = 2.4
+minimum_opacity = 0.82
+maximum_opacity = 1.0
+phase = 0.0            # cycles
+```
 
 ## CLI growth rule
 
-Do not add a dozen top-level flags for every new artistic effect. The intended split is:
+Complex effects belong in style files rather than flattening every artistic parameter into `RenderArgs`. Direct CLI flags remain for common fill/stroke/glow/shadow controls; named style files carry richer material/effect/animation stacks.
 
-- common, simple controls may have direct CLI flags;
-- complex or composable effects belong in style files;
-- later, named style presets can provide concise CLI shortcuts without flattening every parameter into `RenderArgs`.
+## Next renderer boundary
 
-This keeps ordinary rendering readable while still permitting deep control.
+Wave/wobble cannot be implemented correctly by post-processing the complete title bitmap. They need reusable **prepared glyph geometry** so glyph transforms can vary per frame while line breaking remains static.
 
-## Capability targets
-
-The effect system should eventually be able to express the following families without changing scene analysis:
-
-- glyph motion: wave, wobble, pulse, arc, jitter;
-- coverage/layer effects: outlines, glow, shadow, trails, chromatic offsets;
-- materials: gradients, image/procedural textures, gold, chrome, holographic foil, liquid/fire/ice-like fills, moving shine;
-- temporal reveals: flicker, typewriter/scramble, dissolve/assemble;
-- surface interaction: letterpress, laser/wood engraving, emboss, protrusion and scene-consistent cast/inner shadows.
-
-This list is a capability target, not an assertion that every effect is implemented today.
-
-## Dependency policy
-
-Effects do not get to choose the architecture by importing a framework into the core renderer. A new dependency should be accepted only when it supplies a primitive that is hard to implement correctly or efficiently in the existing rendering layer.
-
-GPU or shader backends may be added later behind a renderer boundary if they materially improve effects or performance. Backend-specific concepts must not leak into analysis caches, refinements, CLI domain types, or scene geometry.
+Likewise, convincing laser engraving belongs after plaque extraction because it must modulate the actual plaque pixels, not merely paint an RGBA title on top. That is the planned scene-surface stage rather than a fake alias for shadow/bevel.

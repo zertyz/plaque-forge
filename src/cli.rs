@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use crate::writable_region::ResolvedWritableRegion;
+
 #[derive(Debug, Parser)]
 #[command(author, version, long_version = crate::build_info::LONG_VERSION, about, propagate_version = true)]
 pub struct Cli {
@@ -76,6 +78,24 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub force: bool,
 
+    /// Return successfully without recomputing when the existing cache is current for
+    /// the source, analyzer version, and refinements. Intended for high-level scripts.
+    #[arg(long)]
+    pub if_needed: bool,
+
+    /// Optional ML segmentation worker used to materialize missing prompted refinement layers.
+    #[arg(long)]
+    pub segmentation_worker: Option<PathBuf>,
+
+    #[arg(long, default_value = "sam2-cutie-vitmatte")]
+    pub segmentation_backend: String,
+
+    #[arg(long, default_value = "facebook/sam2.1-hiera-large")]
+    pub segmentation_model: String,
+
+    #[arg(long, default_value = "auto")]
+    pub segmentation_device: String,
+
     #[arg(long, value_enum, default_value_t = ProgressMode::Auto)]
     pub progress: ProgressMode,
 
@@ -92,6 +112,8 @@ pub struct AnalyzeArgs {
     pub plaque_hint: Option<[f64; 4]>,
     #[arg(skip)]
     pub plaque_frame: Option<usize>,
+    #[arg(skip)]
+    pub writable_region_hint: Option<ResolvedWritableRegion>,
     #[arg(skip = 24usize)]
     pub anchor_interval: usize,
     #[arg(skip = 0.35)]
@@ -204,7 +226,7 @@ pub struct RenderArgs {
     #[arg(long)]
     pub diagnostics: Option<PathBuf>,
 
-    #[arg(long, value_enum, default_value_t = FitMode::Maximize)]
+    #[arg(long, value_enum, default_value_t = FitMode::Artistic)]
     pub fit: FitMode,
 
     #[arg(long)]
@@ -213,16 +235,16 @@ pub struct RenderArgs {
     #[arg(long, default_value_t = 4)]
     pub supersampling: u32,
 
-    #[arg(long, default_value_t = 0.82)]
+    #[arg(long, default_value_t = 0.94)]
     pub target_fill: f32,
 
-    #[arg(long, default_value_t = 3)]
+    #[arg(long, default_value_t = 5)]
     pub max_lines: usize,
 
-    #[arg(long, default_value_t = 0.05)]
+    #[arg(long, default_value_t = 0.03)]
     pub padding: f32,
 
-    #[arg(long, default_value_t = 1.16)]
+    #[arg(long, default_value_t = 1.08)]
     pub line_height: f32,
 
     #[arg(long, default_value_t = 0.0)]
@@ -234,10 +256,10 @@ pub struct RenderArgs {
     #[arg(long, default_value = "#03181ED2")]
     pub stroke_color: String,
 
-    #[arg(long, default_value = "#69F2FA48")]
+    #[arg(long, default_value = "#69F2FA90")]
     pub glow_color: String,
 
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = 10)]
     pub glow_radius: u32,
 
     /// Horizontal shadow offset as a fraction of the fitted font size.

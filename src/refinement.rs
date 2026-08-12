@@ -13,6 +13,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::writable_region::WritableRegion;
+
 pub const REFINEMENT_SCHEMA_VERSION: u32 = 1;
 pub const MOTION_TRACK_SCHEMA_VERSION: u32 = 1;
 pub const LAYER_ARTIFACT_SCHEMA_VERSION: u32 = 1;
@@ -29,7 +31,10 @@ pub struct PlaqueProposal {
 pub struct PlaqueRefinement {
     pub id: String,
     pub reference_frame: Option<usize>,
+    /// Legacy rectangular tracking/writing hint. Prefer `writable_region` for non-rectangular surfaces.
     pub bounds: Option<[f64; 4]>,
+    #[serde(default)]
+    pub writable_region: Option<WritableRegion>,
     pub motion_track: Option<PathBuf>,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
@@ -250,6 +255,15 @@ impl Refinement {
             if let Some(bounds) = plaque.bounds {
                 validate_rect(bounds, &format!("plaque {:?} bounds", plaque.id))?;
             }
+            if let Some(region) = &plaque.writable_region {
+                if plaque.bounds.is_some() {
+                    bail!(
+                        "plaque {:?} declares both bounds and writable_region; use bounds as the legacy rectangular shorthand or writable_region for explicit geometry",
+                        plaque.id
+                    );
+                }
+                region.validate(&format!("plaque {:?} writable_region", plaque.id))?;
+            }
             if let Some(path) = &plaque.motion_track {
                 require_relative(path, &format!("plaque {:?} motion_track", plaque.id))?;
             }
@@ -315,6 +329,17 @@ impl Refinement {
             return Ok(&self.plaques[0]);
         }
         bail!("refinement declares multiple plaques; select one with --plaque <id>")
+    }
+}
+
+impl PlaqueRefinement {
+    /// Enclosing source-pixel rectangle used by the planar tracker. A non-rectangular
+    /// writable region still tracks through its enclosing rectangle.
+    pub fn tracking_bounds(&self) -> Option<[f64; 4]> {
+        self.writable_region
+            .as_ref()
+            .map(WritableRegion::bounds)
+            .or(self.bounds)
     }
 }
 
@@ -598,6 +623,15 @@ pub fn layer_artifact_provenance(
     Ok(output)
 }
 
+pub fn layer_artifact_path(refinement_path: &Path, layer: &RefinementLayer) -> Option<PathBuf> {
+    if let Some(artifact) = &layer.artifact {
+        return Some(resolve_relative(refinement_path, artifact));
+    }
+    (!layer.prompts.is_empty()).then(|| {
+        crate::workspace::layer_path(refinement_path, &layer.id).join("artifact.toml")
+    })
+}
+
 pub fn selected_layer_artifacts(
     refinement: &LoadedRefinement,
     plaque_id: &str,
@@ -608,8 +642,7 @@ pub fn selected_layer_artifacts(
         .iter()
         .filter(|layer| layer.plaque == plaque_id)
         .filter_map(|layer| {
-            layer.artifact.as_ref().map(|artifact| {
-                let path = resolve_relative(&refinement.path, artifact);
+            layer_artifact_path(&refinement.path, layer).map(|path| {
                 LayerArtifact::load(&path).map(|document| (layer.clone(), path, document))
             })
         })
@@ -677,6 +710,8 @@ pub fn refinement_document(
     if let Some(proposal) = proposal {
         output.push_str(&format!(
             "# Automatic {detector} proposal; confidence {:.3}.\n\
+             # `bounds` is the rectangular shorthand. For ellipse/rounded/polygon regions,\n\
+             # use `writable_region` as documented in docs/REFINEMENTS.md.\n\
              # bounds = [x, y, width, height] on reference_frame.\n\
              reference_frame = {}\n\
              bounds = [{:.1}, {:.1}, {:.1}, {:.1}]\n",

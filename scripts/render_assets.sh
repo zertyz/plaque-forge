@@ -20,7 +20,8 @@ Common options:
   --shadow-offset-y RATIO     Shadow Y offset relative to font size.
   --shadow-blur-radius PX     Shadow blur radius.
   --shadow-color RGBA         Shadow color, e.g. #000000A0.
-  --style-file PATH           TOML paint/effect stack; replaces paint flags.
+  --style NAME                Built-in preset from styles/NAME.toml.
+  --style-file PATH           Custom TOML paint/effect stack; replaces paint flags.
   --fit MODE                  maximize, balanced, artistic, or fixed.
 
 All typography options accepted by this script are also available through the

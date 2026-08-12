@@ -1,0 +1,27 @@
+version = 2
+
+[material]
+type = "gold"
+
+[[effects]]
+type = "shadow"
+offset_x = 0.025
+offset_y = 0.040
+blur_radius = 5
+color = "#241100A0"
+
+[[effects]]
+type = "stroke"
+width = 0.028
+color = "#5A310EFF"
+
+[[effects]]
+type = "bevel"
+width = 0.025
+
+[[animations]]
+type = "shine"
+period_seconds = 2.8
+width = 0.12
+angle_degrees = 18
+color = "#FFF9DEC8"

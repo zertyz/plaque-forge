@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+- Generalized human writing-surface intent beyond rectangles with rounded-rectangle, ellipse/circle, polygon, and arbitrary-mask declarations while retaining rectangular planar tracking internally.
+- Broadened automatic candidate proposals to consider oval/large surfaces and bright low-saturation surfaces such as cloud plaques; ellipse-border evidence now complements rectangular border evidence.
+- Fixed loop detection so failed/empty OpenCV frame decodes are reported instead of reaching `cvtColor` with an empty image.
+- Made `artistic` typography fitting the default and changed it to use the largest safe size after choosing the best line composition.
+- Strengthened the default/classic glow so it is visibly intentional.
+- Added linear-gradient and procedural gold/bronze materials, extrusion, bevel, animated pulse, and moving shine without adding production dependencies.
+- Added `styles/bronze-relief.toml`, `styles/gold-shine.toml`, and `styles/neon-pulse.toml`, plus concise `--style NAME` preset selection in the high-level render scripts.
+- Made the high-level analysis script validate/reuse current caches, automatically materialize missing prompted ML layers, and keep the entire optional Python/ML runtime under `/tmp/plaque-forge-python`.
+- Kept the analyzer cache compatibility identifier unchanged because existing cache files retain the same meaning/format; new refinement semantics trigger rebuilds through refinement provenance instead of unrelated source-version churn.
+
 ## 0.4.0
 
 - Split text paint/mask effects out of typography shaping and added a versioned TOML style-file boundary.

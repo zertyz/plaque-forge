@@ -1786,14 +1786,10 @@ fn interpolate_plaque_transform(plaque: RectF, left: Mat3, right: Mat3, t: f64) 
 }
 
 fn should_close_loop(capture: &mut VideoCapture, frame_count: usize) -> Result<bool> {
-    capture.set(CAP_PROP_POS_FRAMES, 0.0)?;
-    let mut first = Mat::default();
-    capture.read(&mut first)?;
-    capture.set(CAP_PROP_POS_FRAMES, frame_count.saturating_sub(1) as f64)?;
-    let mut last = Mat::default();
-    capture.read(&mut last)?;
-    let first = grayscale(&first)?;
-    let last = grayscale(&last)?;
+    let first = read_gray(capture, 0).context("failed to decode first frame for loop detection")?;
+    let last_index = frame_count.saturating_sub(1);
+    let last = read_gray(capture, last_index)
+        .with_context(|| format!("failed to decode frame {last_index} for loop detection"))?;
     let mut difference = Mat::default();
     core::absdiff(&first, &last, &mut difference)?;
     let mean = core::mean(&difference, &core::no_array())?.0[0];

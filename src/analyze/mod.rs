@@ -6,6 +6,7 @@ mod tracking;
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
+use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     analysis::{
@@ -17,8 +18,9 @@ use crate::{
     model::AnalysisConfidence,
     progress::ProgressReporter,
     refinement::{
-        MotionRefinement, RefinementProvenance, find_refinement, layer_artifact_provenance,
-        relative_reference, resolve_relative, selected_layer_artifacts, semantic_provenance,
+        MotionRefinement, RefinementProvenance, find_refinement, layer_artifact_path,
+        layer_artifact_provenance, relative_reference, resolve_relative, selected_layer_artifacts,
+        semantic_provenance,
     },
     video, workspace,
 };
@@ -58,6 +60,22 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     }
     let source_sha256 = crate::digest::file_sha256(&args.input)
         .with_context(|| format!("failed to hash source {}", args.input.display()))?;
+    if let Some(worker) = args.segmentation_worker.as_deref() {
+        let generated = crate::segmentation::ensure_prompted_layers(
+            &args.input,
+            args.refinement.as_deref(),
+            args.plaque.as_deref(),
+            worker,
+            &args.segmentation_backend,
+            &args.segmentation_model,
+            &args.segmentation_device,
+            &args.ffprobe,
+        )
+        .context("failed to materialize prompted refinement layers")?;
+        if generated > 0 {
+            eprintln!("generated {generated} prompted refinement layer artifact(s)");
+        }
+    }
     let refinements = resolve_refinements(&mut args, &info, &source_sha256)?;
     progress.finish(format!(
         "{}x{}, {:.3} fps, {} frames",
@@ -69,6 +87,14 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         .clone()
         .map(Ok)
         .unwrap_or_else(|| workspace::analysis_path(&args.input))?;
+    if output.exists() && args.if_needed && !args.force {
+        if analysis_cache_is_current(&output, &source_sha256, refinements.provenance.as_ref()) {
+            println!("analysis cache is current: {}", output.display());
+            return Ok(());
+        }
+        eprintln!("analysis cache is stale; rebuilding: {}", output.display());
+        args.force = true;
+    }
     if output.exists() && !args.force {
         bail!(
             "analysis output already exists: {}\nhelp: use --force to delete and replace it after a successful rebuild",
@@ -304,6 +330,17 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             occlusion.confidence
         ));
 
+        if let Some(region) = args.writable_region_hint.as_ref() {
+            apply_declared_writable_region(
+                region,
+                candidate.canonical_width,
+                candidate.canonical_height,
+                &partial,
+                &diagnostics,
+                &mut extraction,
+            )?;
+        }
+
         let packed_layers = layers::package(
             &refinements.layers,
             &partial,
@@ -323,10 +360,13 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             extraction.confidence,
             occlusion.confidence,
         ]);
+        let declared_writable_region = args.writable_region_hint.is_some();
+        let extraction_floor = if declared_writable_region { 0.45 } else { 0.65 };
+        let structure_gate = declared_writable_region || extraction.structural_area >= 0.001;
         let component_gate_passed = candidate.confidence >= 0.60
             && track.confidence >= 0.50
-            && extraction.confidence >= 0.65
-            && extraction.structural_area >= 0.001
+            && extraction.confidence >= extraction_floor
+            && structure_gate
             && occlusion.confidence >= 0.55;
         let analysis_gate_passed =
             overall >= args.minimum_analysis_confidence && component_gate_passed;
@@ -344,7 +384,8 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             partial.join("analysis-summary.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "schema_version": ANALYSIS_SCHEMA_VERSION,
-                "source_contract": "text-free-plaque",
+                "source_contract": "text-free-writing-surface",
+                "declared_writable_region": args.writable_region_hint.as_ref().map(|region| region.kind()),
                 "candidate_confidence": candidate.confidence,
                 "motion_confidence": track.confidence,
                 "structural_confidence": extraction.confidence,
@@ -468,11 +509,16 @@ fn resolve_refinements(
         identity.manifest = Some(semantic_provenance(&loaded.path, &loaded.document)?);
         identity.plaque_id = Some(selected.id.clone());
 
-        if args.plaque_hint.is_none()
-            && let Some(bounds) = selected.bounds
-        {
-            args.plaque_hint = Some(bounds);
-            args.plaque_frame = selected.reference_frame;
+        if args.plaque_hint.is_none() {
+            if let Some(region) = &selected.writable_region {
+                let resolved = region.resolve(&loaded.path);
+                args.plaque_hint = Some(resolved.bounds());
+                args.plaque_frame = selected.reference_frame;
+                args.writable_region_hint = Some(resolved);
+            } else if let Some(bounds) = selected.tracking_bounds() {
+                args.plaque_hint = Some(bounds);
+                args.plaque_frame = selected.reference_frame;
+            }
         }
         if let Some(frame) = selected.reference_frame
             && frame >= info.frames
@@ -510,11 +556,16 @@ fn resolve_refinements(
                     );
                 }
             }
-            if layer.artifact.is_none() && !layer.prompts.is_empty() {
-                bail!(
-                    "layer {:?} has segmentation prompts but no artifact; run segment first",
-                    layer.id
-                );
+            if !layer.prompts.is_empty() {
+                let artifact = layer_artifact_path(&loaded.path, layer)
+                    .expect("prompted layers always have an inferred artifact path");
+                if !artifact.is_file() {
+                    bail!(
+                        "layer {:?} has segmentation prompts but its artifact is missing at {}; run the high-level analyze script after ./scripts/setup_segmentation.sh",
+                        layer.id,
+                        artifact.display()
+                    );
+                }
             }
         }
         for (refinement, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
@@ -606,6 +657,64 @@ fn resolve_refinements(
     })
 }
 
+fn analysis_cache_is_current(
+    output: &Path,
+    source_sha256: &str,
+    refinements: Option<&RefinementProvenance>,
+) -> bool {
+    let Ok(pack) = Analysis::open(output) else {
+        return false;
+    };
+    if pack.manifest.analyzer_build != crate::build_info::ANALYZER_CACHE_VERSION
+        || !pack.manifest.source.sha256.eq_ignore_ascii_case(source_sha256)
+    {
+        return false;
+    }
+    match (pack.manifest.refinements.as_ref(), refinements) {
+        (None, None) => true,
+        (Some(cached), Some(current)) => cached.content_matches(current),
+        _ => false,
+    }
+}
+
+fn apply_declared_writable_region(
+    region: &crate::writable_region::ResolvedWritableRegion,
+    width: u32,
+    height: u32,
+    output_root: &Path,
+    diagnostics: &Path,
+    extraction: &mut extraction::ExtractionResult,
+) -> Result<()> {
+    let mask = region.canonical_mask(width, height)?;
+    let area = mask.iter().filter(|&&value| value > 127).count() as f64
+        / mask.len().max(1) as f64;
+    if area < 0.01 {
+        bail!(
+            "declared {} writable region covers only {:.3}% of its canonical bounds",
+            region.kind(),
+            area * 100.0
+        );
+    }
+    extraction.content_mask = mask.clone();
+    extraction.cavity_area = area;
+    save_luma_mask(width, height, &mask, &output_root.join("content-mask.png"))?;
+    save_luma_mask(
+        width,
+        height,
+        &mask,
+        &diagnostics.join("declared-writable-mask.png"),
+    )?;
+    Ok(())
+}
+
+fn save_luma_mask(width: u32, height: u32, mask: &[u8], path: &Path) -> Result<()> {
+    let image: GrayImage = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, mask.to_vec())
+        .context("invalid writable-region mask dimensions")?;
+    image
+        .save(path)
+        .with_context(|| format!("failed to save writable-region mask {}", path.display()))
+}
+
 fn same_file(a: &Path, b: &Path) -> Result<()> {
     let a = a
         .canonicalize()
@@ -657,7 +766,7 @@ fn remedies(
     occlusion: f64,
 ) -> Vec<String> {
     let mut output = Vec::new();
-    if structural_area < 0.001 {
+    if structural_area < 0.001 && args.writable_region_hint.is_none() {
         output.push(if args.plaque_hint.is_some() {
             format!(
                 "the refinement selected {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure; correct it to the full plaque bounds",
@@ -669,7 +778,7 @@ fn remedies(
             )
         } else {
             format!(
-                "automatic selection chose {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure; inspect candidate.png, run refine, and correct the plaque bounds",
+                "automatic selection chose {:.0},{:.0},{:.0},{:.0}, which contains {:.3}% stable structure; inspect candidate.png and add the smallest writable-region refinement needed to identify the intended surface",
                 rect.x,
                 rect.y,
                 rect.width,
@@ -681,7 +790,7 @@ fn remedies(
     }
     if candidate < 0.75 {
         output.push(format!(
-            "automatic detection selected {:.0},{:.0},{:.0},{:.0} with confidence {candidate:.3}; inspect candidate.png and create a refinement if the rectangle is wrong",
+            "automatic detection selected {:.0},{:.0},{:.0},{:.0} with confidence {candidate:.3}; inspect candidate.png and add a writable-region refinement if the selected enclosure is wrong",
             rect.x, rect.y, rect.width, rect.height
         ));
     }

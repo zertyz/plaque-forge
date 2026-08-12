@@ -21,6 +21,7 @@ mod staged_output;
 mod surface;
 mod verify;
 mod video;
+pub mod writable_region;
 pub mod workspace;
 
 use cli::{Cli, Command};

@@ -58,7 +58,7 @@ export TMPDIR="$root/tmp"
 uv python install 3.10
 uv venv --python 3.10 --seed "$root/venv"
 python="$root/venv/bin/python"
-uv pip install --python "$python" torch==2.13.0+xpu torchvision==0.28.0+xpu \
+uv pip install --python "$python" torch==2.13.0 torchvision==0.28.0 \
   --index-url https://download.pytorch.org/whl/xpu
 uv pip install --python "$python" -r "$repo/tools/segmentation-requirements.txt"
 

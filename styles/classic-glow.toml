@@ -1,21 +1,20 @@
 version = 1
-# Paint/effect style for plaque-forge render --style-file.
-# Effects are evaluated back-to-front. The fill is painted last.
-fill = "#EBFFFFFF"
+# Readable default plaque title: bright fill, dark separation, and an unmistakable halo.
+fill = "#F4FFFFFF"
 
 [[effects]]
 type = "shadow"
-offset_x = 0.025
-offset_y = 0.035
+offset_x = 0.020
+offset_y = 0.030
 blur_radius = 5
-color = "#00000078"
+color = "#00000088"
 
 [[effects]]
 type = "stroke"
-width = 0.035
-color = "#03181ED2"
+width = 0.030
+color = "#03181EE8"
 
 [[effects]]
 type = "glow"
-radius = 8
-color = "#69F2FA48"
+radius = 12
+color = "#69F2FA98"
