@@ -9,11 +9,32 @@ import shutil
 import subprocess
 import sys
 import time
+import tempfile
+import warnings
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
+
+
+# Upstream dependencies emit several warnings that are expected in Plaque Forge's
+# Intel-XPU/CPU runtime. Replace those dependency implementation details with our
+# own explicit status messages instead of dumping traceback-like noise at users.
+warnings.filterwarnings(
+    "ignore",
+    message=r"cannot import name '_C' from 'sam2'.*",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"`torch\.cuda\.amp\.autocast\(args\.\.\.\)` is deprecated.*",
+    category=FutureWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"`self\.size_divisibility` attribute is deprecated.*",
+)
 
 
 def runtime_log(event, **fields):
@@ -140,10 +161,73 @@ def seed_mask(prompts, frame, size):
     return mask
 
 
+def sam2_native_postprocessing_available():
+    try:
+        import sam2._C  # noqa: F401
+        return True
+    except (ImportError, OSError):
+        return False
+
+
+def cleanup_small_mask_defects(probability, max_area=16):
+    """Conservative backend-neutral replacement for SAM2's optional CUDA cleanup.
+
+    Only tiny binary islands/holes are changed. The later Cutie/ViTMatte stages still
+    own soft-edge refinement, so this intentionally avoids broad morphology.
+    """
+    probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
+    binary = (probability >= 0.5).astype(np.uint8)
+    if not binary.any():
+        return probability
+
+    cleaned = binary.copy()
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    for component in range(1, count):
+        if int(stats[component, cv2.CC_STAT_AREA]) <= max_area:
+            cleaned[labels == component] = 0
+
+    ys, xs = np.nonzero(cleaned)
+    if len(xs):
+        x0, x1 = int(xs.min()), int(xs.max())
+        y0, y1 = int(ys.min()), int(ys.max())
+        region = cleaned[y0 : y1 + 1, x0 : x1 + 1]
+        inverse = (1 - region).astype(np.uint8)
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(inverse, connectivity=8)
+        for component in range(1, count):
+            area = int(stats[component, cv2.CC_STAT_AREA])
+            if area > max_area:
+                continue
+            component_mask = labels == component
+            # A component touching the local bounding-box edge is background, not a hole.
+            if (
+                component_mask[0].any()
+                or component_mask[-1].any()
+                or component_mask[:, 0].any()
+                or component_mask[:, -1].any()
+            ):
+                continue
+            region[component_mask] = 1
+
+    result = probability.copy()
+    removed = (binary == 1) & (cleaned == 0)
+    filled = (binary == 0) & (cleaned == 1)
+    result[removed] = 0.0
+    result[filled] = 1.0
+    return result
+
+
 def sam2_masks(request, frames, device):
     import torch
     from sam2.sam2_video_predictor import SAM2VideoPredictor
 
+    native_postprocessing = sam2_native_postprocessing_available()
+    if not native_postprocessing:
+        print(
+            "[ml] SAM2 CUDA _C post-processing unavailable; "
+            "using backend-neutral small-mask cleanup (expected on XPU/CPU)",
+            file=sys.stderr,
+            flush=True,
+        )
     predictor = SAM2VideoPredictor.from_pretrained(request["model"], device=device)
     state = predictor.init_state(video_path=str(frames[0].parent), offload_video_to_cpu=True)
     prompts = request["layer"]["prompts"]
@@ -205,6 +289,8 @@ def sam2_masks(request, frames, device):
         raise RuntimeError("SAM 2 did not produce every source frame")
     empty = np.zeros((request["source"]["height"], request["source"]["width"]), dtype=np.float32)
     probabilities = [empty.copy() if probability is None else probability for probability in probabilities]
+    if not native_postprocessing:
+        probabilities = [cleanup_small_mask_defects(probability) for probability in probabilities]
     return probabilities, f"sam2-{package_version('sam-2', 'sam2')}"
 
 
@@ -494,7 +580,7 @@ def model_masks(request, frames, requested_device, cache_root):
             "Cutie",
             requested_device,
             lambda candidate: cutie_masks(request, frames, candidate),
-            allow_xpu=False,
+            allow_xpu=True,
         )
         version += f"@{device}"
     elif backend == "sam2-cutie-vitmatte":
@@ -505,7 +591,7 @@ def model_masks(request, frames, requested_device, cache_root):
             "Cutie",
             requested_device,
             lambda candidate: cutie_masks(request, frames, candidate, guides=sam2),
-            allow_xpu=False,
+            allow_xpu=True,
         )
         probabilities = [
             (0.60 * first + 0.40 * second).astype(np.float32)
@@ -533,6 +619,134 @@ def model_masks(request, frames, requested_device, cache_root):
     print(f"Temporal stabilization: {time.monotonic() - started:.1f}s", file=sys.stderr)
     return probabilities, (
         f"{version}+vitmatte-{package_version('transformers')}@{matte_device}"
+    )
+
+
+def verify_torch_device(device):
+    import torch
+
+    tensor = torch.arange(64, dtype=torch.float32, device=device).reshape(8, 8)
+    value = (tensor @ tensor.T).mean()
+    if not torch.isfinite(value).item():
+        raise RuntimeError(f"non-finite PyTorch result on {device}")
+    return True
+
+
+def verify_sam2_device(device):
+    with tempfile.TemporaryDirectory(prefix="plaque-forge-sam2-") as directory:
+        directory = Path(directory)
+        frames = []
+        for frame in range(2):
+            path = directory / f"{frame:06}.jpg"
+            image = Image.new("RGB", (64, 64), (24, 32, 40))
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((20 + frame, 20, 44 + frame, 44), fill=(210, 210, 210))
+            image.save(path, quality=95)
+            frames.append(path)
+        request = {
+            "model": "facebook/sam2.1-hiera-large",
+            "source": {"width": 64, "height": 64},
+            "layer": {
+                "active_frames": [0, 1],
+                "prompts": [
+                    {
+                        "frame": 0,
+                        "object": "smoke",
+                        "positive_points": [[32.0, 32.0]],
+                        "negative_points": [[4.0, 4.0]],
+                    }
+                ],
+            },
+        }
+        probabilities, _ = sam2_masks(request, frames, device)
+        if len(probabilities) != 2 or not any(np.any(mask >= 0.5) for mask in probabilities):
+            raise RuntimeError("SAM2 smoke test produced no foreground mask")
+    return True
+
+
+def verify_cutie_device(device):
+    import torch
+    from cutie.inference.inference_core import InferenceCore
+
+    model = load_cutie(device)
+    processor = InferenceCore(model, cfg=model.cfg)
+    image = torch.zeros((3, 128, 128), dtype=torch.float32, device=device)
+    image[:, 32:96, 32:96] = 0.8
+    mask = torch.zeros((128, 128), dtype=torch.float32, device=device)
+    mask[40:88, 40:88] = 1.0
+    with torch.inference_mode():
+        probability = processor.step(image, mask, objects=[1])
+    if not torch.isfinite(probability).all().item():
+        raise RuntimeError("Cutie smoke test produced non-finite values")
+    del processor, model, image, mask, probability
+    return True
+
+
+def verify_vitmatte_device(device):
+    import torch
+    from transformers import VitMatteForImageMatting, VitMatteImageProcessor
+
+    model_name = "hustvl/vitmatte-small-composition-1k"
+    processor = VitMatteImageProcessor.from_pretrained(model_name, local_files_only=True)
+    model = VitMatteForImageMatting.from_pretrained(
+        model_name, local_files_only=True
+    ).to(device).eval()
+    image = Image.new("RGB", (64, 64), (90, 100, 110))
+    trimap = Image.new("L", (64, 64), 0)
+    draw = ImageDraw.Draw(trimap)
+    draw.rectangle((12, 12, 52, 52), fill=128)
+    draw.rectangle((24, 24, 40, 40), fill=255)
+    inputs = processor(images=image, trimaps=trimap, return_tensors="pt")
+    inputs = {key: value.to(device) for key, value in inputs.items()}
+    with torch.inference_mode():
+        alpha = model(**inputs).alphas
+    if not torch.isfinite(alpha).all().item():
+        raise RuntimeError("ViTMatte smoke test produced non-finite values")
+    del model, inputs, alpha
+    return True
+
+
+def verify_runtime():
+    import torch
+    import sam2  # noqa: F401
+    import cutie  # noqa: F401
+    import matanyone2  # noqa: F401
+    from huggingface_hub import snapshot_download
+
+    print(f"[verify] Python: {sys.version.split()[0]}", file=sys.stderr)
+    print(f"[verify] PyTorch: {torch.__version__}", file=sys.stderr)
+    print(f"[verify] Intel XPU available: {torch.xpu.is_available()}", file=sys.stderr)
+
+    # Verification runs offline: these calls prove setup cached every required snapshot.
+    for repo_id in (
+        "facebook/sam2.1-hiera-large",
+        "hustvl/vitmatte-small-composition-1k",
+        "PeiqingYang/MatAnyone2",
+    ):
+        snapshot_download(repo_id=repo_id, local_files_only=True)
+        print(f"[verify] cached model: {repo_id}", file=sys.stderr)
+
+    checkpoints = Path(torch.hub.get_dir()) / "checkpoints"
+    for filename in ("resnet18-5c106cde.pth", "resnet50-19c8e357.pth"):
+        path = checkpoints / filename
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError(f"missing Cutie backbone checkpoint: {path}")
+        print(f"[verify] cached backbone: {filename}", file=sys.stderr)
+
+    _, torch_device = run_component("PyTorch smoke", "auto", verify_torch_device)
+    _, sam2_device = run_component("SAM 2 smoke", "auto", verify_sam2_device)
+    # Cutie is deliberately allowed to try XPU. Unsupported operators trigger the
+    # existing automatic fallback to CUDA/CPU rather than disabling XPU forever.
+    _, cutie_device = run_component("Cutie smoke", "auto", verify_cutie_device, allow_xpu=True)
+    _, vitmatte_device = run_component("ViTMatte smoke", "auto", verify_vitmatte_device)
+
+    native = "available" if sam2_native_postprocessing_available() else "not built (expected on XPU/CPU)"
+    print(f"[verify] SAM2 native CUDA cleanup: {native}", file=sys.stderr)
+    print(
+        f"[verify] runtime OK: torch={torch_device}, sam2={sam2_device}, "
+        f"cutie={cutie_device}, vitmatte={vitmatte_device}, MatAnyone2=import/cache-ok",
+        file=sys.stderr,
+        flush=True,
     )
 
 
@@ -584,9 +798,17 @@ def remove_owned_directory(root, path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--request", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--request", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--verify-runtime", action="store_true")
     args = parser.parse_args()
+    if args.verify_runtime:
+        if args.request is not None or args.output is not None:
+            parser.error("--verify-runtime cannot be combined with --request/--output")
+        verify_runtime()
+        return
+    if args.request is None or args.output is None:
+        parser.error("--request and --output are required unless --verify-runtime is used")
     request = json.loads(args.request.read_text(encoding="utf-8"))
     runtime_log(
         "started",
