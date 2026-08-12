@@ -112,7 +112,7 @@ pub fn detect_proposals(
     );
     let best = select_reference(&ranked, info.width as i32, info.height as i32);
     if let Some(diagnostics) = diagnostics {
-        write_ranking(diagnostics, &ranked, best)?;
+        write_ranking(diagnostics, &ranked, best, info.width as i32, info.height as i32)?;
     }
     let Some(best) = best else {
         return Ok(None);
@@ -132,21 +132,60 @@ pub fn detect_proposals(
 }
 
 fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&ScoredRect> {
-    // The product contract is one dominant writing surface. Once a candidate is
-    // independently plausible, prefer the largest hypothesis rather than allowing a
-    // small high-contrast object (for example a magnifying glass) to steal selection.
-    // Confidence/evidence still gates plausibility, so this is not simply "largest
-    // rectangle in the frame wins".
+    // Preserve the strongest detector hypothesis by default. Earlier releases selected
+    // the best temporal/reference frame *within that hypothesis*, which was stable for
+    // the established holographic-plaque assets. A global "largest plausible rectangle
+    // wins" rule regressed those scenes by letting nearby room/body enclosures steal the
+    // title surface.
+    //
+    // The one useful part of area priority is kept as an escape hatch for a clearly
+    // larger, independently plausible writing surface when the strongest local response
+    // is a small high-contrast prop (for example a magnifying glass). The alternative
+    // must be at least 1.8x the area and normally retain at least 72% of the top detector
+    // score; an extremely larger surface (3x+) may recover from a very strong small prop
+    // down to a 55% score ratio.
+    let initial = ranked.first()?;
+    // A broad/architectural response may score first even when a clear compact plaque is
+    // also present. Prefer that compact hypothesis when it retains substantial detector
+    // support; this restores the older "real plaque beats room enclosure" behavior.
+    let seed = if candidate_is_compact_surface(initial, width, height) {
+        initial
+    } else {
+        ranked
+            .iter()
+            .filter(|candidate| candidate_is_compact_surface(candidate, width, height))
+            .filter(|candidate| candidate.score >= initial.score * 0.65)
+            .max_by(|left, right| {
+                reference_quality(left, width, height)
+                    .total_cmp(&reference_quality(right, width, height))
+            })
+            .unwrap_or(initial)
+    };
+
+    let seed_area = candidate_area(seed).max(1) as f64;
     let target = ranked
         .iter()
-        .filter(|candidate| candidate_is_plausible(candidate))
-        .max_by(|left, right| {
-            candidate_area(left)
-                .cmp(&candidate_area(right))
-                .then_with(|| left.score.total_cmp(&right.score))
+        .filter(|candidate| {
+            if same_hypothesis(seed.rect, candidate.rect, width, height)
+                || !(candidate_is_compact_surface(candidate, width, height)
+                    || candidate_is_broad_canvas(candidate, width, height))
+            {
+                return false;
+            }
+            let area_ratio = candidate_area(candidate) as f64 / seed_area;
+            let score_ratio = candidate.score / seed.score.max(0.001);
+            area_ratio >= 1.80
+                && (score_ratio >= 0.72 || (area_ratio >= 3.0 && score_ratio >= 0.55))
         })
-        .or_else(|| ranked.first())?;
+        .max_by(|left, right| {
+            dominant_surface_quality(left, width, height)
+                .total_cmp(&dominant_surface_quality(right, width, height))
+        })
+        .unwrap_or(seed);
 
+    // Once a surface hypothesis is chosen, select the clearest representative frame
+    // exactly as the pre-regression detector did. Tiny frame-to-frame rectangle changes
+    // should never become "pick whichever rectangle has four percent more area".
     ranked
         .iter()
         .filter(|candidate| same_hypothesis(target.rect, candidate.rect, width, height))
@@ -156,23 +195,8 @@ fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&S
         })
 }
 
-fn candidate_is_plausible(candidate: &ScoredRect) -> bool {
-    // Area only becomes authoritative after independent surface evidence. This keeps
-    // large architectural/background enclosures out of the "largest surface wins"
-    // policy while allowing a real plaque to outrank smaller high-contrast props.
-    score_to_confidence(candidate.score) >= 0.60
-        && (candidate.edge_completeness >= 0.35
-            || (candidate.screen_stationarity >= 0.70 && candidate.interior_clutter <= 0.20)
-            || (candidate.temporal_support >= 0.60 && candidate.interior_clutter <= 0.18))
-}
-
-fn candidate_area(candidate: &ScoredRect) -> i64 {
-    i64::from(candidate.rect.width) * i64::from(candidate.rect.height)
-}
-
 fn reference_quality(candidate: &ScoredRect, width: i32, height: i32) -> f64 {
-    let area_ratio = f64::from(candidate.rect.width * candidate.rect.height)
-        / f64::from(width * height).max(1.0);
+    let area_ratio = candidate_area_ratio(candidate, width, height);
     let resolution = (area_ratio.min(0.32) / 0.32).sqrt();
     let oversize = ((area_ratio - 0.55) / 0.25).clamp(0.0, 1.0);
     candidate.score + 1.5 * candidate.edge_completeness + 2.0 * resolution
@@ -187,10 +211,60 @@ fn same_hypothesis(a: Rect, b: Rect, width: i32, height: i32) -> bool {
     rect_center_distance(a, b) / diagonal <= 0.18 && width_change <= 0.45 && height_change <= 0.45
 }
 
+fn candidate_area_ratio(candidate: &ScoredRect, width: i32, height: i32) -> f64 {
+    candidate_area(candidate) as f64 / f64::from(width * height).max(1.0)
+}
+
+fn candidate_has_independent_evidence(candidate: &ScoredRect) -> bool {
+    score_to_confidence(candidate.score) >= 0.60
+        && (candidate.edge_completeness >= 0.35
+            || (candidate.screen_stationarity >= 0.66 && candidate.interior_clutter <= 0.24)
+            || (candidate.temporal_support >= 0.58 && candidate.interior_clutter <= 0.22))
+}
+
+fn candidate_is_compact_surface(candidate: &ScoredRect, width: i32, height: i32) -> bool {
+    let area = candidate_area_ratio(candidate, width, height);
+    let aspect = f64::from(candidate.rect.width) / f64::from(candidate.rect.height.max(1));
+    candidate_has_independent_evidence(candidate)
+        && area <= 0.42
+        && score_to_confidence(candidate.score) >= 0.72
+        && candidate.edge_completeness >= 0.42
+        && candidate.interior_clutter <= 0.48
+        // A rectangular plaque may be wide, nearly square, or mildly oval. Very tall
+        // compact boxes are much more commonly bodies/doors than title surfaces.
+        && aspect >= 0.72
+}
+
+fn candidate_is_broad_canvas(candidate: &ScoredRect, width: i32, height: i32) -> bool {
+    let area = candidate_area_ratio(candidate, width, height);
+    (0.34..=0.78).contains(&area)
+        && score_to_confidence(candidate.score) >= 0.78
+        && candidate.interior_clutter <= 0.42
+        && (candidate.edge_completeness >= 0.18
+            || candidate.screen_stationarity >= 0.52
+            || candidate.temporal_support >= 0.68)
+}
+
+fn dominant_surface_quality(candidate: &ScoredRect, width: i32, height: i32) -> f64 {
+    let area = candidate_area_ratio(candidate, width, height);
+    candidate.score
+        + 0.90 * candidate.edge_completeness
+        + 0.70 * candidate.screen_stationarity
+        + 0.55 * candidate.temporal_support
+        + 0.60 * area.sqrt()
+        - 0.65 * candidate.interior_clutter
+}
+
+fn candidate_area(candidate: &ScoredRect) -> i64 {
+    i64::from(candidate.rect.width) * i64::from(candidate.rect.height)
+}
+
 fn write_ranking(
     diagnostics: &Path,
     ranked: &[ScoredRect],
     selected: Option<&ScoredRect>,
+    frame_width: i32,
+    frame_height: i32,
 ) -> Result<()> {
     let mut visible = ranked.iter().take(20).collect::<Vec<_>>();
     if let Some(selected) = selected
@@ -219,7 +293,9 @@ fn write_ranking(
                         "temporal_support": candidate.temporal_support,
                         "screen_stationarity": candidate.screen_stationarity,
                         "area_pixels": candidate_area(candidate),
-                        "plausible_for_largest_surface_selection": candidate_is_plausible(candidate),
+                        "plausible_compact_surface": candidate_is_compact_surface(candidate, frame_width, frame_height),
+                        "plausible_broad_canvas": candidate_is_broad_canvas(candidate, frame_width, frame_height),
+                        "area_ratio": candidate_area_ratio(candidate, frame_width, frame_height),
                         "oversize_penalty": candidate.oversize_penalty,
                     })
                 })
@@ -1088,6 +1164,20 @@ mod tests {
         assert_eq!(
             select_reference(&ranked, 720, 1280).unwrap().rect,
             Rect::new(95, 100, 525, 305)
+        );
+    }
+
+    #[test]
+    fn area_priority_does_not_override_a_much_stronger_compact_plaque() {
+        let plaque = scored(Rect::new(335, 36, 611, 132), 3.60, 0.99, 41);
+        let mut weaker_large = scored(Rect::new(220, 20, 850, 250), 2.05, 0.58, 41);
+        weaker_large.interior_clutter = 0.18;
+        weaker_large.temporal_support = 0.75;
+        let ranked = vec![plaque.clone(), weaker_large];
+
+        assert_eq!(
+            select_reference(&ranked, 1280, 720).unwrap().rect,
+            plaque.rect
         );
     }
 

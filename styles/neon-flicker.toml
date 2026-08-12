@@ -1,0 +1,18 @@
+version = 3
+fill = "#D6FFFFFF"
+
+[[effects]]
+type = "stroke"
+width = 0.020
+color = "#2BF4FFFF"
+
+[[effects]]
+type = "glow"
+radius = 16
+color = "#2BF4FFB0"
+
+[[animations]]
+type = "flicker"
+period_seconds = 1.7
+minimum_opacity = 0.68
+strength = 0.42

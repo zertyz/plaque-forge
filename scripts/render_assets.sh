@@ -69,6 +69,15 @@ for name in "${PF_CASES[@]}"; do
 
   [[ -f "$input" ]] || { printf 'input video not found: %s\n' "$input" >&2; exit 1; }
 
+  if [[ ! -f "assets/analysis/$name/manifest.toml" ]]; then
+    partial="$(ls -1dt "assets/analysis/$name.partial-"* 2>/dev/null | head -n 1 || true)"
+    printf '## SKIPPING %s: no complete analysis cache. Run ./scripts/analyze_assets.sh %s\n' "$name" "$name" >&2
+    if [[ -n "$partial" && -f "$partial/diagnostics/review.html" ]]; then
+      printf '   review: %s/diagnostics/review.html\n' "$partial" >&2
+    fi
+    continue
+  fi
+
   target/release/plaque-forge render \
     --input "$input" --output "$staged" \
     "${PF_RENDER_OPTIONS[@]}" "${encoder_args[@]}" --progress always || {

@@ -1,0 +1,12 @@
+version = 3
+
+[material]
+type = "halftone"
+foreground = "#FFF1B8FF"
+background = "#F23C70FF"
+cell = 7
+
+[[effects]]
+type = "stroke"
+width = 0.040
+color = "#17121FFF"

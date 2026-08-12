@@ -259,6 +259,8 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
     );
     body.push_str("</div>");
 
+    append_actionable_commands(&mut body, analysis_root, refinement);
+    append_ml_status(&mut body, summary);
     append_refinement_owned(&mut body, refinement);
     append_candidate_ranking(&mut body, candidates);
     append_coordinate_helper(
@@ -355,6 +357,56 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
         "<!doctype html><html><head><meta charset=utf-8><title>Plaque Forge review</title><style>{}</style></head><body>{}</body></html>",
         CSS, body
     )
+}
+
+
+fn analysis_asset_stem(analysis_root: &Path) -> Option<String> {
+    let name = analysis_root.file_name()?.to_str()?;
+    Some(name.split(".partial-").next().unwrap_or(name).to_string())
+}
+
+fn append_actionable_commands(
+    body: &mut String,
+    analysis_root: &Path,
+    refinement: Option<&(PathBuf, Refinement)>,
+) {
+    let Some(asset) = analysis_asset_stem(analysis_root) else {
+        return;
+    };
+    body.push_str("<h2>What to do next</h2><p>This report is the human front door. Make the smallest correction suggested above, then rerun the high-level workflow:</p><pre>");
+    body.push_str(&escape_html(&format!("./scripts/analyze_assets.sh {asset}\n")));
+    body.push_str(&escape_html(&format!("./scripts/review_assets.sh {asset}\n")));
+    body.push_str("</pre>");
+    if let Some((path, _)) = refinement {
+        body.push_str(&format!(
+            "<p>Human intent file: <code>{}</code>. Dense generated tracks/masks should not be hand-edited.</p>",
+            escape_html(&path.display().to_string())
+        ));
+    } else {
+        body.push_str(&format!(
+            "<p>No refinement exists. Only create one when the automatic result is visibly wrong: <code>target/release/plaque-forge refine --input assets/{}.mp4</code>.</p>",
+            escape_html(&asset)
+        ));
+    }
+}
+
+fn append_ml_status(body: &mut String, summary: &Value) {
+    let automatic = summary
+        .get("automatic_ml_foreground")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_occluder = summary
+        .get("has_occluder")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    body.push_str("<h2>ML / Python participation</h2>");
+    if automatic {
+        body.push_str("<p><strong>Python ML was used automatically</strong> to refine foreground masks after Rust detected a crossing. Inspect <code>ml-foreground/</code> for generated provenance and <code>./scripts/ml_status.sh</code> for runtime history.</p>");
+    } else if has_occluder {
+        body.push_str("<p>Foreground was detected but this cache does not record automatic ML refinement. If the crossing looks poor, rerun analysis with the ML runtime installed and enabled, then inspect <code>./scripts/ml_status.sh</code>.</p>");
+    } else {
+        body.push_str("<p>No automatic ML foreground pass was needed for this analysis. Authored prompted layers, when present, are reported through refinement provenance.</p>");
+    }
 }
 
 fn append_refinement_owned(body: &mut String, refinement: Option<&(PathBuf, Refinement)>) {
@@ -534,6 +586,29 @@ fn build_text_summary(
                 plaque.prompts.len(),
             ));
         }
+    }
+    let automatic_ml = summary
+        .get("automatic_ml_foreground")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_occluder = summary
+        .get("has_occluder")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    output.push_str(&format!(
+        "\nPython ML: {}\n",
+        if automatic_ml {
+            "used automatically for foreground refinement"
+        } else if has_occluder {
+            "not recorded for this cache although a foreground crossing was detected"
+        } else {
+            "not needed for automatic foreground refinement"
+        }
+    ));
+    if let Some(asset) = analysis_asset_stem(analysis_root) {
+        output.push_str(&format!(
+            "\nNext commands:\n  ./scripts/analyze_assets.sh {asset}\n  ./scripts/review_assets.sh {asset}\n"
+        ));
     }
     output
 }

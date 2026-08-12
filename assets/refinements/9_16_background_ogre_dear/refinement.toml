@@ -1,0 +1,19 @@
+# Minimal project intent: use the large circular/oval title field, not the smaller local graphic details.
+schema_version = 2
+source = "../../9_16_background_ogre_dear.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 10
+bounds = [20.0, 104.0, 494.0, 423.0]
+
+[plaques.surface]
+type = "source"
+motion = "screen"
+
+[plaques.writable_region]
+shape = "ellipse"
+center = [267.0, 315.5]
+radii = [238.0, 198.0]
+rotation_degrees = 0.0

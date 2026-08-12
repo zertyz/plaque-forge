@@ -1,0 +1,18 @@
+version = 3
+
+[material]
+type = "liquid"
+first = "#29F4D5FF"
+second = "#3958F8FF"
+frequency = 3.4
+
+[[effects]]
+type = "stroke"
+width = 0.025
+color = "#061E3BE0"
+
+[[animations]]
+type = "wave"
+period_seconds = 2.8
+amplitude = 0.030
+wavelength = 0.46

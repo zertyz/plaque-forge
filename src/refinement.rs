@@ -50,7 +50,10 @@ pub struct PlaqueRefinement {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum PlaqueSurface {
-    Source,
+    Source {
+        #[serde(default)]
+        motion: InjectedMotion,
+    },
     Injected {
         image: PathBuf,
         #[serde(default)]
@@ -425,7 +428,7 @@ impl Refinement {
 impl PlaqueSurface {
     fn validate(&self, plaque_id: &str) -> Result<()> {
         match self {
-            Self::Source => Ok(()),
+            Self::Source { .. } => Ok(()),
             Self::Injected { image, inset, .. } => {
                 require_relative(image, &format!("plaque {:?} injected image", plaque_id))?;
                 if inset
@@ -448,7 +451,7 @@ impl PlaqueSurface {
     pub fn injected(&self) -> Option<(&Path, InjectedMotion, [f64; 4])> {
         match self {
             Self::Injected { image, motion, inset } => Some((image.as_path(), *motion, *inset)),
-            Self::Source => None,
+            Self::Source { .. } => None,
         }
     }
 }
@@ -1410,6 +1413,31 @@ mod tests {
         assert_eq!(track.locked_keyframes(), 1);
     }
 
+
+    #[test]
+    fn source_surface_can_declare_screen_fixed_motion() {
+        let refinement: Refinement = toml::from_str(
+            r#"
+                schema_version = 2
+                source = "clip.mp4"
+                default_plaque = "main"
+
+                [[plaques]]
+                id = "main"
+                bounds = [20.0, 30.0, 400.0, 200.0]
+
+                [plaques.surface]
+                type = "source"
+                motion = "screen"
+            "#,
+        )
+        .unwrap();
+        refinement.validate().unwrap();
+        assert!(matches!(
+            refinement.plaques[0].surface,
+            Some(PlaqueSurface::Source { motion: InjectedMotion::Screen })
+        ));
+    }
 
     #[test]
     fn schema_two_sparse_normalized_motion_resolves_to_source_pixels() {

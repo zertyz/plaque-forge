@@ -1,227 +1,186 @@
 # Text effects
 
-Plaque Forge treats title rendering as a pipeline because different effects operate on different data. A single `apply_effect(RGBA)` abstraction would be convenient and wrong.
+Plaque Forge separates text layout, coverage effects, materials, frame presentation, and scene compositing. This keeps effects out of scene-analysis caches and lets static typography be reused across frames.
 
 ```text
 text + font
-   |
-   v
-shape and line layout
-   |        future glyph transforms: wave, wobble, arc, per-glyph motion
-   v
+   ↓
+shaping + artistic line layout
+   ↓
 glyph coverage
-   |        stroke, glow, shadow, extrusion
-   v
-fill / material
-   |        flat color, gradient, procedural gold
-   v
-surface detail
-   |        bevel
-   v
-prepared canonical title
-   |        frame presentation: pulse, moving shine
-   v
+   ↓
+underlays       shadow · stroke · glow · extrusion · chromatic split · trails
+   ↓
+material        flat · gradient · gold · chrome · holographic · fire · ice · nebula · liquid · halftone
+   ↓
+surface detail  bevel · letterpress/recessed edge
+   ↓
+frame effects   pulse · shine · flicker · raster wave/wobble · typewriter · dissolve
+   ↓
 plaque warp + foreground restoration
-   |
-   v
-video frame
 ```
 
-Scene analysis is independent from typography style. Changing text effects does not invalidate tracking/extraction caches.
+Changing a text style does not invalidate writing-surface tracking/extraction caches.
 
-## Implemented in 0.5
+## Capability coverage
 
-Static effects/materials:
+The experimental Rust text-art POCs were treated as a **capability catalogue, not an architecture**. 0.8 covers most of their reusable visual primitives without importing their UI/rendering frameworks.
 
-- flat fill;
-- linear gradient fill;
-- procedural gold/bronze material;
-- stroke;
-- glow;
-- drop shadow;
-- extrusion/depth underlay;
-- bevel highlight/shadow.
+| Capability | 0.8 status | Production implementation |
+|---|---|---|
+| drop shadow | implemented | mask underlay |
+| outline | implemented | stroke |
+| neon glow / neon glass | implemented | stroke + strong glow |
+| gradient fill | implemented | procedural material |
+| gold / gilded metal | implemented | banded gold material + optional bevel/shine |
+| chrome sheen | implemented | chrome material + shine |
+| holographic foil / vaporwave color | implemented | procedural holographic material |
+| bevel / raised lettering | implemented | bevel + extrusion |
+| retro extrusion / 3D depth illusion | implemented | repeated depth underlay |
+| letterpress / recessed lettering | implemented | reversed directional edge lighting |
+| chromatic glitch / RGB split | implemented | chromatic offset underlay |
+| velocity trails | implemented | repeated directional underlays |
+| halftone dots | implemented | halftone material |
+| frosted ice | implemented | ice material + bevel/glow preset |
+| living fire | implemented | fire material + glow preset |
+| cosmic nebula | implemented | procedural nebula material |
+| liquid fill | implemented | procedural liquid material |
+| pulse | implemented | opacity animation |
+| moving shine | implemented | glyph-constrained animated highlight |
+| neon flicker | implemented | deterministic opacity flicker |
+| kinetic wave / liquid wobble | implemented as raster deformation | cached shaping; final prepared title is warped per frame |
+| typewriter reveal | implemented as raster reveal | horizontal animated reveal |
+| particle dissolve | implemented as deterministic pixel dissolve | no particle trajectories |
+| texture-color experimentation | covered by procedural materials | not arbitrary external image mapping |
+| true arc text / orbital typography | **not implemented** | requires retained per-glyph geometry |
+| arbitrary image texture mapping | **not implemented** | needs texture asset/provenance stage |
+| character scramble / split-flap | **not implemented** | requires per-character temporal state |
+| confetti convergence / real particles | **not implemented** | requires particle simulation/state |
+| physically correct plaque engraving / laser burn | **not implemented** | requires plaque-surface/material interaction |
+| physically correct 3D protrusion + scene lighting | **not implemented** | requires scene-aware surface/lighting model |
 
-Animated presentation:
+The last group is intentionally not faked behind misleading names. `letterpress-wood` gives a useful recessed/engraved **illusion**, and extrusion+bevel gives useful raised depth, but neither claims physical plaque deformation.
 
-- pulse (opacity modulation);
-- moving shine constrained to the actual glyph fill.
+## Bundled styles
 
-The renderer prepares font discovery, shaping, line breaks, and the static title once. Animated shine/pulse are evaluated per video frame without re-running typography layout.
-
-Still future because they require different renderer stages:
-
-- wave/wobble/arc and other per-glyph geometry transforms;
-- texture-image materials;
-- true plaque-surface engraving/laser burn;
-- true protrusion/displacement with scene-consistent lighting;
-- particle/dissolve/typewriter families.
-
-## Defaults
-
-`--fit artistic` is now the default. It searches bounded word-boundary arrangements and scores visual balance before choosing the maximum safe size.
-
-Direct CLI rendering also uses a deliberately visible cyan glow by default. A style file replaces the direct paint flags.
-
-## Style files
-
-### Strong classic glow
+Use a style by stem:
 
 ```bash
 ./scripts/render_assets.sh \
-  --text 'A title' \
+  --text 'Seeing what others cannot see!' \
   --font-family 'Noto Serif' \
-  --style classic-glow
+  --style holographic-foil
 ```
 
-### Bronze / raised metal
+Bundled presets include:
 
-This is intended for dark iron plaques such as the dungeon example:
+- `classic-glow`
+- `bronze-relief`
+- `gold-shine`
+- `chrome-shine`
+- `holographic-foil`
+- `neon-pulse`
+- `neon-flicker`
+- `liquid-wave`
+- `chromatic-glitch`
+- `velocity-trails`
+- `letterpress-wood`
+- `frosted-ice`
+- `living-fire`
+- `cosmic-nebula`
+- `halftone-pop`
+- `typewriter`
+- `particle-dissolve`
 
-```bash
-./scripts/render_assets.sh \
-  --text 'Vendo o que ninguém mais vê' \
-  --font-family 'Noto Serif' \
-  --style bronze-relief \
-  16_9_dungeon_spider_iron_plaque
-```
+## Style schema
 
-`bronze-relief.toml` combines procedural metallic fill, shadow, extrusion, outline, bevel, and moving shine.
+Styles are TOML. Versions 1 and 2 remain compatible; the new families use version 3.
 
-### Gold shine
+### Materials
 
 ```toml
-version = 2
+version = 3
 
 [material]
-type = "gold"
+type = "chrome"       # also holographic, fire, ice, nebula
+```
+
+Liquid:
+
+```toml
+[material]
+type = "liquid"
+first = "#29F4D5FF"
+second = "#3958F8FF"
+frequency = 3.4
+```
+
+Halftone:
+
+```toml
+[material]
+type = "halftone"
+foreground = "#FFF1B8FF"
+background = "#F23C70FF"
+cell = 7
+```
+
+Existing `linear-gradient` and `gold` materials remain supported.
+
+### Coverage / depth effects
+
+```toml
+[[effects]]
+type = "chromatic-split"
+offset = 0.045
+red = "#FF2450C0"
+cyan = "#25F4FFC0"
 
 [[effects]]
-type = "stroke"
-width = 0.028
-color = "#5A310EFF"
+type = "trail"
+distance = 0.28
+copies = 9
+angle_degrees = 180
+color = "#46D8FF68"
 
 [[effects]]
-type = "bevel"
-width = 0.025
+type = "letterpress"
+width = 0.055
+highlight = "#FFE1A870"
+shadow = "#090504E8"
+```
+
+Stroke, glow, shadow, extrusion and bevel remain unchanged.
+
+### Animation / reveal effects
+
+```toml
+[[animations]]
+type = "flicker"
+period_seconds = 1.7
+minimum_opacity = 0.68
+strength = 0.42
 
 [[animations]]
-type = "shine"
+type = "wave"
 period_seconds = 2.8
-width = 0.12
-angle_degrees = 18
-color = "#FFF9DEC8"
-```
-
-### Pulse
-
-```toml
-version = 1
-fill = "#F6FFFFFF"
-
-[[effects]]
-type = "glow"
-radius = 16
-color = "#55EFFFF0"
+amplitude = 0.030
+wavelength = 0.46
 
 [[animations]]
-type = "pulse"
-period_seconds = 2.2
-minimum_opacity = 0.72
-maximum_opacity = 1.0
-```
+type = "typewriter"
+period_seconds = 4.2
+hold_fraction = 0.32
 
-## Material schema
-
-Flat color:
-
-```toml
-fill = "#F4FFFFFF"
-```
-
-Linear gradient:
-
-```toml
-[material]
-type = "linear-gradient"
-top = "#FFF4D0FF"
-bottom = "#8A4B18FF"
-```
-
-Procedural gold:
-
-```toml
-[material]
-type = "gold"
-dark = "#5B3210FF"
-mid = "#C98B3CFF"
-light = "#F3D38AFF"
-highlight = "#FFF1C4FF"
-```
-
-## Static effect schema
-
-```toml
-[[effects]]
-type = "shadow"
-offset_x = 0.025       # fraction of fitted font size
-offset_y = 0.035
-blur_radius = 5        # final-output pixels
-color = "#00000088"
-
-[[effects]]
-type = "stroke"
-width = 0.030          # fraction of fitted font size
-color = "#03181EE8"
-
-[[effects]]
-type = "glow"
-radius = 12            # final-output pixels
-color = "#69F2FA98"
-
-[[effects]]
-type = "extrude"
-depth = 0.045          # fraction of fitted font size
-angle_degrees = 62
-color = "#3A1E0DDD"
-
-[[effects]]
-type = "bevel"
-width = 0.030          # fraction of fitted font size
-highlight = "#FFF0C0B8"
-shadow = "#321707B8"
-```
-
-## Animation schema
-
-Moving shine:
-
-```toml
 [[animations]]
-type = "shine"
-period_seconds = 3.2
-width = 0.10           # fraction of projected title span
-angle_degrees = 14
-color = "#FFF4D0A8"
+type = "dissolve"
+period_seconds = 4.0
+hold_fraction = 0.35
+seed = 1347174737
 ```
 
-Pulse:
+Pulse and moving shine remain available.
 
-```toml
-[[animations]]
-type = "pulse"
-period_seconds = 2.4
-minimum_opacity = 0.82
-maximum_opacity = 1.0
-phase = 0.0            # cycles
-```
+## CLI rule
 
-## CLI growth rule
-
-Complex effects belong in style files rather than flattening every artistic parameter into `RenderArgs`. Direct CLI flags remain for common fill/stroke/glow/shadow controls; named style files carry richer material/effect/animation stacks.
-
-## Next renderer boundary
-
-Wave/wobble cannot be implemented correctly by post-processing the complete title bitmap. They need reusable **prepared glyph geometry** so glyph transforms can vary per frame while line breaking remains static.
-
-Likewise, convincing laser engraving belongs after plaque extraction because it must modulate the actual plaque pixels, not merely paint an RGBA title on top. That is the planned scene-surface stage rather than a fake alias for shadow/bevel.
+Simple typography remains directly configurable from the CLI. Rich artistic stacks belong in `styles/*.toml`; Plaque Forge deliberately does not flatten every material and animation parameter into dozens of top-level flags.

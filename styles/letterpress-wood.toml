@@ -1,0 +1,12 @@
+version = 3
+
+[material]
+type = "linear-gradient"
+top = "#4E2B16E8"
+bottom = "#1F1009F0"
+
+[[effects]]
+type = "letterpress"
+width = 0.055
+highlight = "#FFE1A870"
+shadow = "#090504E8"

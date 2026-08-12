@@ -1,0 +1,9 @@
+# Sample-project intent: preserve the plaque bounds that produced the established high-quality result.
+schema_version = 2
+source = "../../static-holographic-plaque.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 41
+bounds = [335.0, 36.0, 611.0, 132.0]

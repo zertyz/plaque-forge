@@ -1,0 +1,13 @@
+version = 3
+fill = "#F8F8FFFF"
+
+[[effects]]
+type = "chromatic-split"
+offset = 0.045
+red = "#FF2450C0"
+cyan = "#25F4FFC0"
+
+[[effects]]
+type = "stroke"
+width = 0.018
+color = "#12131AE0"

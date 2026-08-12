@@ -1,0 +1,19 @@
+# Minimal project intent after automatic analysis repeatedly confused the magnifying glass with the intended circular title field.
+schema_version = 2
+source = "../../16_9_background_digifall.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 10
+bounds = [34.0, 4.0, 990.0, 680.0]
+
+[plaques.surface]
+type = "source"
+motion = "screen"
+
+[plaques.writable_region]
+shape = "ellipse"
+center = [500.0, 344.0]
+radii = [455.0, 318.0]
+rotation_degrees = 0.0

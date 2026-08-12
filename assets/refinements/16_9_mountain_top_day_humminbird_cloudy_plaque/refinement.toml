@@ -1,0 +1,18 @@
+# Minimal project intent: the bright cloud is the title surface; its soft interior has little trackable structure.
+schema_version = 2
+source = "../../16_9_mountain_top_day_humminbird_cloudy_plaque.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 10
+bounds = [76.0, 28.0, 1128.0, 177.0]
+
+[plaques.surface]
+type = "source"
+motion = "screen"
+
+[plaques.writable_region]
+shape = "rounded-rect"
+bounds = [176.0, 48.0, 928.0, 132.0]
+radius = 58.0

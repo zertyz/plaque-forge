@@ -1,0 +1,21 @@
+version = 3
+
+[material]
+type = "holographic"
+
+[[effects]]
+type = "stroke"
+width = 0.022
+color = "#09233DD8"
+
+[[effects]]
+type = "glow"
+radius = 10
+color = "#66E9FF78"
+
+[[animations]]
+type = "shine"
+period_seconds = 2.1
+width = 0.16
+angle_degrees = -18
+color = "#FFFFFFC8"

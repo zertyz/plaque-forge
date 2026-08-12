@@ -1,0 +1,14 @@
+# Minimal surface intent. Foreground spider/web masks remain automatically analyzed and may be ML-refined.
+schema_version = 2
+source = "../../9_16_dungeon_spider_iron_plaque.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 10
+bounds = [142.0, 172.0, 437.0, 251.0]
+
+[plaques.writable_region]
+shape = "rounded-rect"
+bounds = [160.0, 190.0, 401.0, 215.0]
+radius = 22.0

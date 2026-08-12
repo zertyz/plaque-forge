@@ -1,0 +1,13 @@
+version = 3
+fill = "#EAFBFFFF"
+
+[[effects]]
+type = "glow"
+radius = 9
+color = "#70E9FF68"
+
+[[animations]]
+type = "dissolve"
+period_seconds = 4.0
+hold_fraction = 0.35
+seed = 1347174737

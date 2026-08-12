@@ -1,0 +1,12 @@
+version = 3
+fill = "#F5F2E8FF"
+
+[[effects]]
+type = "stroke"
+width = 0.018
+color = "#1B1C22D8"
+
+[[animations]]
+type = "typewriter"
+period_seconds = 4.2
+hold_fraction = 0.32

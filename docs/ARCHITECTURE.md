@@ -49,10 +49,10 @@ These modules coordinate operations. They should not contain asset-specific scen
 
 - `surface.rs`, `image_io.rs`, and `color.rs` provide image primitives.
 - `digest.rs` owns generic streaming content hashes used for cache/provenance identity.
-- `analyze/candidate.rs` proposes plausible writing-surface enclosures. Among independently plausible hypotheses, selection prefers the largest surface so small high-contrast props do not steal the dominant title area.
+- `analyze/candidate.rs` proposes plausible writing-surface enclosures. Selection preserves the strongest surface hypothesis by default, rescues clear compact plaques from broad architectural enclosures, and uses guarded area dominance only to escape small high-contrast props such as magnifying glasses.
 - `analyze/tracking.rs` estimates placement/scene motion and supports authoritative screen-fixed trajectories.
 - `analyze/extraction.rs` recovers canonical source-underlay and structural data used by source surfaces and foreground analysis.
-- `analyze/occlusion.rs` estimates automatic foreground occlusion.
+- `analyze/occlusion.rs` estimates automatic foreground occlusion. When a crossing benefits from semantic refinement, `segmentation.rs` can automatically sharpen those masks through the replaceable Python worker.
 - `render/typography.rs` shapes and fits text and owns line-layout decisions.
 - `render/effects.rs` paints mask-derived text effects such as stroke, glow, and shadow.
 
@@ -69,7 +69,7 @@ A writing surface has two orthogonal properties: **placement/pose** and **writab
 External executables are kept behind two boundaries:
 
 1. `video.rs` owns FFmpeg/FFprobe process invocation for Rust workflows.
-2. `segmentation.rs` owns the versioned segmentation-worker protocol. `tools/segmentation_worker.py` exists only because the supported ML ecosystems are Python-native.
+2. `segmentation.rs` owns the versioned segmentation-worker protocol. Rust decides when authored or automatic foreground segmentation is useful; `tools/segmentation_worker.py` exists only because the supported ML ecosystems are Python-native. Worker/backend/model/device configuration participates in analysis cache provenance.
 
 Shell scripts do not implement scene-analysis algorithms. They build the Rust binary, choose assets, translate convenient command-line/environment settings, and invoke high-level commands.
 

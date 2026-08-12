@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+
+- Added automatic Python/ML foreground refinement after the Rust occlusion pass finds a useful crossing; authored prompted layers remain authoritative and automatic ML failures fall back to the Rust masks instead of destroying otherwise-useful analysis.
+- Added ML configuration and automatic-foreground participation to analysis provenance/cache identity and made review reports state whether Python participated.
+- Repaired writing-surface selection after the global "largest plausible rectangle" regression: preserve the strongest hypothesis, rescue clear compact plaques from broad enclosures, and use area only as a guarded escape from small high-contrast props.
+- Added minimal schema-2 project intent for every bundled sample asset, including the repeatedly ambiguous circular/cloud/wood/spider surfaces and the previously validated holographic plaques.
+- Added `assets/plaques/holographic-default.png` and preconfigured every bundled plaque-less sample to use it as an injected screen-fixed surface while retaining foreground analysis.
+- Added advanced production text effects/materials: chrome, holographic, fire, ice, nebula, liquid, halftone, chromatic split, trails, letterpress, flicker, wave/wobble, typewriter and deterministic dissolve, plus 13 new style presets.
+- Kept the capability matrix explicit about what remains approximate or unimplemented: per-glyph arc/orbit, arbitrary external texture mapping, scramble/split-flap, real particle simulation, and physically correct engraving/protrusion.
+- Restored quality-report generation as a first-class README workflow and made `review_assets.sh` build a single `output/review/index.html` over complete and partial analyses.
+- Added `scripts/reset_analysis.sh --yes`, constrained to generated `assets/analysis/` state; source videos, refinements, plaque assets, outputs and `/tmp/plaque-forge-python` are preserved.
+- Bumped analysis cache compatibility to `analysis-v7` because automatic ML participation, candidate selection, and source-surface motion semantics changed.
+
 ## 0.7.0
 
 - Implemented human-refinement schema 2 while retaining schema-1 compatibility.

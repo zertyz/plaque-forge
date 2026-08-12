@@ -23,3 +23,7 @@ The Python segmentation worker may remove its own temporary frame and model-cach
 ## Network access
 
 Normal analysis, rendering, and verification do not require network access. `scripts/setup_segmentation.sh` does require network access because it installs Python packages, clones pinned model repositories, and downloads model weights.
+
+## Explicit full analysis reset
+
+`./scripts/reset_analysis.sh --yes` is the only high-level command intended to wipe all generated scene-analysis caches. It resolves and verifies the deletion root as this repository's `assets/analysis/` and does not delete `assets/refinements`, source videos, plaque assets, `output/`, or `/tmp/plaque-forge-python`.

@@ -19,13 +19,14 @@ Do the expensive scene work once and cache everything reusable. The script:
   - reuses a cache only when Rust verifies it is current;
   - runs automatic writing-surface detection and tracking;
   - builds canonical/writable masks and foreground occlusion;
-  - materializes any prompted ML refinement layers that are still missing;
+  - automatically runs ML segmentation when Rust detects a useful foreground crossing;
+  - materializes any human-prompted ML refinement layers that are still missing;
   - retains partial diagnostics when a scene still needs human refinement;
   - builds review.html + review.txt automatically for failed quality gates.
 
 Options:
-  --force          Rebuild selected Rust scene-analysis caches. Cached ML layers are reused.
-  --force-ml       Regenerate prompted ML layer artifacts too (implies Python when prompts exist).
+  --force          Rebuild selected scene-analysis caches. Valid human-prompted ML artifacts are reused.
+  --force-ml       Regenerate human-prompted ML layer artifacts instead of reusing them.
   --no-ml          Do not invoke optional Python ML segmentation layers.
   --backend NAME   Segmentation backend (default: sam2-cutie-vitmatte).
   --model NAME     Segmentation model (default: facebook/sam2.1-hiera-large).

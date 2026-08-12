@@ -1,0 +1,9 @@
+# Sample-project intent: preserve the previously validated plaque placement while background motion remains automatic.
+schema_version = 2
+source = "../../static-holographic-plaque-with-background-movement.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 207
+bounds = [87.0, 208.0, 548.0, 391.0]

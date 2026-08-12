@@ -1,0 +1,22 @@
+version = 3
+
+[material]
+type = "chrome"
+
+[[effects]]
+type = "stroke"
+width = 0.025
+color = "#101822E8"
+
+[[effects]]
+type = "bevel"
+width = 0.028
+highlight = "#FFFFFFFF"
+shadow = "#0A111AC0"
+
+[[animations]]
+type = "shine"
+period_seconds = 2.4
+width = 0.10
+angle_degrees = 20
+color = "#FFFFFFFF"

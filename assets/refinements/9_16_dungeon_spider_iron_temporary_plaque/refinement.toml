@@ -1,0 +1,14 @@
+# Minimal surface intent for the temporary iron plaque; the foreground spider/web remains automatic.
+schema_version = 2
+source = "../../9_16_dungeon_spider_iron_temporary_plaque.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 10
+bounds = [143.0, 173.0, 435.0, 253.0]
+
+[plaques.writable_region]
+shape = "rounded-rect"
+bounds = [161.0, 192.0, 399.0, 215.0]
+radius = 22.0

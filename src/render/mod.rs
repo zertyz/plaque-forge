@@ -263,21 +263,16 @@ pub fn run(args: ComposeArgs) -> Result<()> {
             time_seconds,
         )?;
         let opacity = sample.plaque_visibility.clamp(0.0, 1.0) as f32 * style_opacity;
+        let mut presented = text_render.layer.clone();
         if let Some(overlay) = animated_overlay {
-            let mut presented = text_render.layer.clone();
             presented.blend_surface(&overlay, 0, 0, 1.0);
-            frame.warp_blend(
-                &presented,
-                transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
-                opacity,
-            )?;
-        } else {
-            frame.warp_blend(
-                &text_render.layer,
-                transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
-                opacity,
-            )?;
         }
+        let presented = style.frame_transform(&presented, time_seconds)?;
+        frame.warp_blend(
+            &presented,
+            transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+            opacity,
+        )?;
         let mut restore = foregrounds
             .frame_mask(frame_index, sample.transform)?
             .unwrap_or_default();

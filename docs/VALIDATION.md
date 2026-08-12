@@ -35,3 +35,13 @@ Reference results from the included acceptance assets:
 | `static-holographic-plaque` | 1.0000 |
 | `swamp-rusty-plaque` | 0.9960 |
 | `swamp-wooden-plaque-with-foreground-objects` | 0.9986 |
+
+## Human quality-report index
+
+After analysis/rendering, run:
+
+```bash
+./scripts/review_assets.sh
+```
+
+Open `output/review/index.html`. Each asset report uses the complete cache or newest retained partial and surfaces prioritized quality findings, candidate/tracking/extraction evidence, ML/Python participation, exact rerun/refinement commands, and render/verification provenance when available.

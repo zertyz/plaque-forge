@@ -67,6 +67,15 @@ pub struct InjectedSurfaceAsset {
     pub motion: InjectedMotion,
 }
 
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SegmentationConfig {
+    pub backend: String,
+    pub model: String,
+    pub device: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalysisManifest {
@@ -82,6 +91,10 @@ pub struct AnalysisManifest {
     pub motion_model: String,
     pub loop_closed: bool,
     pub has_occluder: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmentation: Option<SegmentationConfig>,
+    #[serde(default)]
+    pub automatic_ml_foreground: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub injected_surface: Option<InjectedSurfaceAsset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

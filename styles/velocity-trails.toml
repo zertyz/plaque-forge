@@ -1,0 +1,14 @@
+version = 3
+fill = "#F3FBFFFF"
+
+[[effects]]
+type = "trail"
+distance = 0.28
+copies = 9
+angle_degrees = 180
+color = "#46D8FF68"
+
+[[effects]]
+type = "stroke"
+width = 0.018
+color = "#08223DD0"

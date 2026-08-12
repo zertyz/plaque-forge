@@ -1,0 +1,14 @@
+# Minimal surface intent: the broad upper wooden sign. Foreground creatures/foliage remain automatic.
+schema_version = 2
+source = "../../9_16_swamp_wooden_plaque.mp4"
+default_plaque = "main"
+
+[[plaques]]
+id = "main"
+reference_frame = 10
+bounds = [14.0, 0.0, 693.0, 394.0]
+
+[plaques.writable_region]
+shape = "rounded-rect"
+bounds = [58.0, 70.0, 605.0, 238.0]
+radius = 30.0

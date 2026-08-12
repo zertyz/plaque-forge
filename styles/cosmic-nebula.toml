@@ -1,0 +1,16 @@
+version = 3
+
+[material]
+type = "nebula"
+
+[[effects]]
+type = "glow"
+radius = 10
+color = "#A75BFF68"
+
+[[animations]]
+type = "shine"
+period_seconds = 3.6
+width = 0.12
+angle_degrees = 28
+color = "#AEEBFF90"

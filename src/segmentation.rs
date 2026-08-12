@@ -9,12 +9,16 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    analysis::OCCLUDER_DIR,
     cli::SegmentArgs,
+    model::RectF,
     refinement::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Refinement, find_refinement,
-        layer_artifact_path, resolve_relative,
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Refinement,
+        SegmentationPrompt, SpatialCoordinates, find_refinement, layer_artifact_path,
+        resolve_relative,
     },
-    video, workspace,
+    video::{self, VideoInfo},
+    workspace,
 };
 
 const WORKER_PROTOCOL_VERSION: u32 = 1;
@@ -285,6 +289,253 @@ pub fn ensure_prompted_layers(
         })?;
     }
     Ok(pending.len())
+}
+
+
+/// Inputs for the analyzer's automatic ML refinement of a Rust-derived foreground mask.
+///
+/// Unlike authored refinement layers, this is generated cache state: the Rust analyzer
+/// first finds a rough crossing, then asks the replaceable Python worker to sharpen that
+/// source-pixel mask. A worker failure is handled by the caller as an optional fallback.
+pub struct AutomaticForegroundRequest<'a> {
+    pub input: &'a Path,
+    pub worker: &'a Path,
+    pub backend: &'a str,
+    pub model: &'a str,
+    pub device: &'a str,
+    pub info: &'a VideoInfo,
+    pub plaque: RectF,
+    pub seed_masks: &'a Path,
+    pub analysis_root: &'a Path,
+}
+
+pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> Result<bool> {
+    let prompts = automatic_foreground_prompts(request.seed_masks, request.info)?;
+    if prompts.is_empty() {
+        eprintln!(
+            "[ml] automatic foreground skipped: Rust found no stable non-empty seed mask"
+        );
+        return Ok(false);
+    }
+
+    let output = request.analysis_root.join("ml-foreground");
+    if output.exists() {
+        crate::staged_output::remove_child(request.analysis_root, &output)?;
+    }
+    fs::create_dir_all(&output)
+        .with_context(|| format!("failed to create automatic ML output {}", output.display()))?;
+
+    let request_document = WorkerRequest {
+        schema_version: WORKER_PROTOCOL_VERSION,
+        backend: request.backend.to_string(),
+        model: request.model.to_string(),
+        device: request.device.to_string(),
+        source: WorkerSource {
+            path: request
+                .input
+                .canonicalize()
+                .unwrap_or_else(|_| request.input.to_path_buf()),
+            sha256: crate::digest::file_sha256(request.input)?,
+            width: request.info.width,
+            height: request.info.height,
+            fps: request.info.fps,
+            frames: request.info.frames,
+        },
+        plaque: WorkerPlaque {
+            id: "automatic".to_string(),
+            reference_frame: prompts.first().map(|prompt| prompt.frame),
+            bounds: Some([
+                request.plaque.x,
+                request.plaque.y,
+                request.plaque.width,
+                request.plaque.height,
+            ]),
+            motion_track: None,
+        },
+        layer: WorkerLayer {
+            id: "automatic-foreground".to_string(),
+            role: LayerRole::Foreground,
+            affects_layout: false,
+            active_frames: None,
+            prompts,
+        },
+    };
+    let request_path = output.join("request.json");
+    fs::write(&request_path, serde_json::to_vec_pretty(&request_document)?)?;
+
+    eprintln!(
+        "[ml] automatic foreground required: {} seed frame(s), backend={}, model={}, device={}",
+        request_document.layer.prompts.len(),
+        request.backend,
+        request.model,
+        request.device
+    );
+    let mut child = Command::new(request.worker)
+        .arg("--request")
+        .arg(&request_path)
+        .arg("--output")
+        .arg(&output)
+        .spawn()
+        .with_context(|| format!("failed to start automatic worker {}", request.worker.display()))?;
+    eprintln!(
+        "[ml] automatic foreground worker started: pid={}, output={}",
+        child.id(),
+        output.display()
+    );
+    let status = child
+        .wait()
+        .context("failed while waiting for automatic foreground worker")?;
+    eprintln!(
+        "[ml] automatic foreground worker exited: pid={}, status={status}",
+        child.id()
+    );
+    if !status.success() {
+        bail!("automatic foreground worker exited with {status}");
+    }
+    validate_worker_output(&output, request.backend, request.model, request.info)?;
+    install_automatic_foreground_masks(request.analysis_root, request.info.frames)?;
+    eprintln!(
+        "[ml] automatic foreground installed: {} source-pixel mask(s)",
+        request.info.frames
+    );
+    Ok(true)
+}
+
+/// Reinstall already-generated ML masks after Rust recomputes extraction/occlusion during
+/// masked retracking. The ML masks are in source coordinates, so they remain valid across
+/// that internal refinement pass and do not need a second Python invocation.
+pub fn install_automatic_foreground_masks(
+    analysis_root: &Path,
+    expected_frames: usize,
+) -> Result<bool> {
+    let ml_root = analysis_root.join("ml-foreground");
+    let artifact_path = ml_root.join("artifact.toml");
+    if !artifact_path.is_file() {
+        return Ok(false);
+    }
+    let artifact = LayerArtifact::load(&artifact_path)?;
+    if artifact.kind != LayerArtifactKind::AlphaSequence
+        || artifact.coordinates != LayerCoordinates::SourcePixels
+    {
+        bail!("automatic ML foreground artifact must be a source-pixel alpha sequence");
+    }
+    let sources = artifact.referenced_paths(&artifact_path);
+    if sources.len() != expected_frames {
+        bail!(
+            "automatic ML foreground contains {} frames, expected {expected_frames}",
+            sources.len()
+        );
+    }
+
+    let destination = analysis_root.join(OCCLUDER_DIR);
+    if destination.exists() {
+        crate::staged_output::remove_child(analysis_root, &destination)?;
+    }
+    fs::create_dir_all(&destination)?;
+    for (frame, source) in sources.iter().enumerate() {
+        let target = destination.join(format!("{frame:06}.png"));
+        fs::copy(source, &target).with_context(|| {
+            format!(
+                "failed to install automatic ML mask {} -> {}",
+                source.display(),
+                target.display()
+            )
+        })?;
+    }
+    Ok(true)
+}
+
+fn automatic_foreground_prompts(
+    seed_masks: &Path,
+    info: &VideoInfo,
+) -> Result<Vec<SegmentationPrompt>> {
+    if !seed_masks.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut candidates = Vec::<(usize, u64, [f64; 4])>::new();
+    for entry in fs::read_dir(seed_masks)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("png") {
+            continue;
+        }
+        let Some(frame) = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .and_then(|value| value.parse::<usize>().ok())
+        else {
+            continue;
+        };
+        if frame >= info.frames {
+            continue;
+        }
+        let image = image::open(&path)
+            .with_context(|| format!("failed to inspect automatic occluder seed {}", path.display()))?
+            .to_luma8();
+        let mut min_x = image.width();
+        let mut min_y = image.height();
+        let mut max_x = 0u32;
+        let mut max_y = 0u32;
+        let mut count = 0u64;
+        for (x, y, pixel) in image.enumerate_pixels() {
+            if pixel[0] <= 24 {
+                continue;
+            }
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            count += 1;
+        }
+        if count < 24 || min_x > max_x || min_y > max_y {
+            continue;
+        }
+        let raw_width = max_x - min_x + 1;
+        let raw_height = max_y - min_y + 1;
+        let margin_x = ((raw_width as f64 * 0.14).round() as u32).max(6);
+        let margin_y = ((raw_height as f64 * 0.14).round() as u32).max(6);
+        let left = min_x.saturating_sub(margin_x);
+        let top = min_y.saturating_sub(margin_y);
+        let right = (max_x + margin_x).min(info.width.saturating_sub(1));
+        let bottom = (max_y + margin_y).min(info.height.saturating_sub(1));
+        candidates.push((
+            frame,
+            count,
+            [
+                left as f64,
+                top as f64,
+                (right - left + 1) as f64,
+                (bottom - top + 1) as f64,
+            ],
+        ));
+    }
+
+    candidates.sort_by(|left, right| right.1.cmp(&left.1));
+    let minimum_spacing = (info.frames / 8).max(1);
+    let mut selected = Vec::new();
+    for (frame, _count, bounds) in candidates {
+        if selected.iter().any(|prompt: &SegmentationPrompt| {
+            prompt.frame.abs_diff(frame) < minimum_spacing
+        }) {
+            continue;
+        }
+        let center = [bounds[0] + bounds[2] * 0.5, bounds[1] + bounds[3] * 0.5];
+        selected.push(SegmentationPrompt {
+            frame,
+            coordinates: SpatialCoordinates::SourcePixels,
+            object: Some("automatic-foreground".to_string()),
+            box_bounds: Some(bounds),
+            positive_points: vec![center],
+            negative_points: Vec::new(),
+            polygon: Vec::new(),
+            quad: None,
+        });
+        if selected.len() == 3 {
+            break;
+        }
+    }
+    selected.sort_by_key(|prompt| prompt.frame);
+    Ok(selected)
 }
 
 fn validate_worker_output(

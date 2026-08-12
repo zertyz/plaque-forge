@@ -11,7 +11,8 @@ use image::{GrayImage, ImageBuffer, Luma};
 use crate::{
     analysis::{
         ANALYSIS_SCHEMA_VERSION, INJECTED_SURFACE_FILE, Analysis, AnalysisManifest,
-        AnalysisStatus, InjectedSurfaceAsset, MOTION_FILE, OCCLUDER_DIR, SourceInfo,
+        AnalysisStatus, InjectedSurfaceAsset, MOTION_FILE, OCCLUDER_DIR, SegmentationConfig,
+        SourceInfo,
     },
     cli::AnalyzeArgs,
     layers::{self, LayerInput},
@@ -36,6 +37,7 @@ struct AnalysisRefinements {
     layers: Vec<LayerInput>,
     provenance: Option<RefinementProvenance>,
     injected_surface: Option<InjectedSurfaceInput>,
+    source_motion: Option<InjectedMotion>,
 }
 
 impl AnalysisRefinements {
@@ -108,7 +110,12 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         .map(Ok)
         .unwrap_or_else(|| workspace::analysis_path(&args.input))?;
     if output.exists() && args.if_needed && !args.force {
-        if analysis_cache_is_current(&output, &source_sha256, refinements.provenance.as_ref()) {
+        if analysis_cache_is_current(
+            &output,
+            &source_sha256,
+            refinements.provenance.as_ref(),
+            segmentation_config(&args),
+        ) {
             println!("analysis cache is current: {}", output.display());
             return Ok(());
         }
@@ -155,13 +162,24 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         ));
 
         let injected_motion = refinements.injected_surface.as_ref().map(|surface| surface.motion);
+        let surface_motion = refinements.source_motion.or(injected_motion);
         let candidate_area_ratio =
             candidate.rect.width * candidate.rect.height / (info.width as f64 * info.height as f64);
+        // Smooth clouds, dark circular canvases, holographic fields, and similar title
+        // surfaces can be excellent writing regions while containing almost no stable
+        // feature texture. Treat broad, strongly-detected canvases as a first-class
+        // structureless surface instead of requiring plaque-like interior detail.
+        let broad_canvas = candidate_area_ratio >= 0.34
+            && candidate.confidence >= 0.78
+            && (candidate.edge_completeness >= 0.18
+                || candidate.screen_stationarity >= 0.45
+                || candidate.temporal_support >= 0.62);
         let automatic_structureless_surface = args.plaque_hint.is_none()
             && refinements.motion_track.is_none()
-            && candidate_area_ratio >= 0.12
-            && candidate.screen_stationarity >= 0.72
-            && candidate.edge_completeness >= 0.18;
+            && ((candidate_area_ratio >= 0.12
+                && candidate.screen_stationarity >= 0.64
+                && candidate.edge_completeness >= 0.18)
+                || broad_canvas);
         let mut track = if let Some(refinement_track) = &refinements.motion_track
             && refinement_track.is_dense_locked(info.frames)
         {
@@ -174,13 +192,13 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 &mut progress,
             )
             .context("failed to load authoritative refined plaque track")?
-        } else if matches!(injected_motion, Some(InjectedMotion::Screen)) {
-            eprintln!("injected surface motion: screen-fixed (tracking skipped)");
+        } else if matches!(surface_motion, Some(InjectedMotion::Screen)) {
+            eprintln!("surface motion: screen-fixed (tracking skipped by human intent)");
             tracking::screen_fixed(
                 info.frames,
                 candidate.frame_index,
                 0.98,
-                "injected-screen-fixed",
+                "declared-screen-fixed",
             )
         } else {
             match tracking::track(
@@ -241,7 +259,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             );
         }
 
-        if automatic_structureless_surface && track.confidence < 0.50 {
+        if automatic_structureless_surface && track.confidence < 0.58 {
             let stationary_confidence = (0.58 + 0.34 * candidate.screen_stationarity).min(0.92);
             eprintln!(
                 "automatic surface is broad and screen-stationary (area {:.1}%, stationarity {:.3}); using screen-fixed motion instead of rejecting a structureless surface",
@@ -310,9 +328,51 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             )
             .context("foreground occlusion extraction failed")?
         };
+        let authoritative_foreground = layers::has_authored_foreground(&refinements.layers);
+        let mut automatic_ml_foreground = false;
+        if !authoritative_foreground && occlusion.has_occluder {
+            if let Some(worker) = args.segmentation_worker.as_deref() {
+                match crate::segmentation::refine_automatic_foreground(
+                    crate::segmentation::AutomaticForegroundRequest {
+                        input: &args.input,
+                        worker,
+                        backend: &args.segmentation_backend,
+                        model: &args.segmentation_model,
+                        device: &args.segmentation_device,
+                        info: &info,
+                        plaque: candidate.rect,
+                        seed_masks: &partial.join(OCCLUDER_DIR),
+                        analysis_root: &partial,
+                    },
+                ) {
+                    Ok(true) => {
+                        automatic_ml_foreground = true;
+                        occlusion.has_occluder = true;
+                        occlusion.confidence = occlusion.confidence.max(0.90);
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        // Automatic ML is a refinement of the already-available Rust
+                        // occlusion path. A model/runtime failure must not destroy an
+                        // otherwise useful analysis; authored ML layers remain strict.
+                        eprintln!(
+                            "warning: automatic ML foreground refinement failed; keeping Rust occlusion masks: {error:#}"
+                        );
+                    }
+                }
+            } else {
+                eprintln!(
+                    "[ml] automatic foreground opportunity detected, but no worker is configured"
+                );
+            }
+        } else if authoritative_foreground {
+            eprintln!("[ml] automatic foreground skipped: authoritative refinement layer exists");
+        } else {
+            eprintln!("[ml] automatic foreground skipped: Rust found no persistent foreground crossing");
+        }
+
         let automatic_exclusions = partial.join(OCCLUDER_DIR);
         let combined_exclusions = partial.join("tracking-exclusions");
-        let authoritative_foreground = layers::has_authored_foreground(&refinements.layers);
         let empty_exclusions = partial.join("no-automatic-exclusions");
         let automatic_tracking_exclusions = if authoritative_foreground {
             &empty_exclusions
@@ -416,6 +476,12 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 &mut progress,
             )
             .context("failed to rebuild foreground masks after masked tracking")?;
+            if automatic_ml_foreground {
+                crate::segmentation::install_automatic_foreground_masks(&partial, info.frames)
+                    .context("failed to restore ML foreground masks after masked retracking")?;
+                occlusion.has_occluder = true;
+                occlusion.confidence = occlusion.confidence.max(0.90);
+            }
             repaired
         } else {
             0
@@ -470,8 +536,9 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             declared_writable_region || automatic_structureless_surface || injected_surface;
         let extraction_floor = if structureless_surface { 0.45 } else { 0.65 };
         let structure_gate = structureless_surface || extraction.structural_area >= 0.001;
+        let motion_floor = if structureless_surface { 0.44 } else { 0.50 };
         let component_gate_passed = candidate.confidence >= 0.60
-            && track.confidence >= 0.50
+            && track.confidence >= motion_floor
             && extraction.confidence >= extraction_floor
             && structure_gate
             && occlusion.confidence >= 0.55;
@@ -498,14 +565,17 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 "surface_source": if injected_surface { "injected" } else { "source" },
                 "candidate_screen_stationarity": candidate.screen_stationarity,
                 "candidate_area_ratio": candidate_area_ratio,
+                "broad_canvas": broad_canvas,
                 "candidate_confidence": candidate.confidence,
                 "motion_confidence": track.confidence,
                 "structural_confidence": extraction.confidence,
                 "content_cavity_area": extraction.cavity_area,
                 "structural_area": extraction.structural_area,
                 "occlusion_confidence": occlusion.confidence,
+                "has_occluder": occlusion.has_occluder,
                 "occluder_mean_coverage": occlusion.mean_coverage,
                 "occlusion_stabilized_frames": stabilized_frames,
+                "automatic_ml_foreground": automatic_ml_foreground,
                 "overall": overall,
                 "minimum_analysis_confidence": args.minimum_analysis_confidence,
                 "component_gate_passed": component_gate_passed,
@@ -559,6 +629,8 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             motion_model: track.model_name,
             loop_closed: track.loop_closed,
             has_occluder: occlusion.has_occluder,
+            segmentation: segmentation_config(&args),
+            automatic_ml_foreground,
             injected_surface: injected_surface_asset,
             layers: packed_layers,
             refinements: refinements.provenance.clone(),
@@ -608,6 +680,7 @@ fn resolve_refinements(
     let mut embedded_track = None;
     let mut layer_inputs = Vec::new();
     let mut injected_surface = None;
+    let mut source_motion = None;
 
     if let Some(loaded) = &loaded {
         let declared_source = resolve_relative(&loaded.path, &loaded.document.source);
@@ -623,19 +696,26 @@ fn resolve_refinements(
         selected_id = Some(selected.id.clone());
         identity.manifest = Some(semantic_provenance(&loaded.path, &loaded.document)?);
         identity.plaque_id = Some(selected.id.clone());
-        if let Some(PlaqueSurface::Injected { image, motion, inset }) = &selected.surface {
-            let path = resolve_relative(&loaded.path, image);
-            if !path.is_file() {
-                bail!("injected plaque image does not exist: {}", path.display());
+        match &selected.surface {
+            Some(PlaqueSurface::Source { motion }) => {
+                source_motion = Some(*motion);
             }
-            image::open(&path)
-                .with_context(|| format!("failed to decode injected plaque image {}", path.display()))?;
-            identity.surface_asset = Some(provenance(&path)?);
-            injected_surface = Some(InjectedSurfaceInput {
-                path,
-                motion: *motion,
-                inset: *inset,
-            });
+            Some(PlaqueSurface::Injected { image, motion, inset }) => {
+                let path = resolve_relative(&loaded.path, image);
+                if !path.is_file() {
+                    bail!("injected plaque image does not exist: {}", path.display());
+                }
+                image::open(&path).with_context(|| {
+                    format!("failed to decode injected plaque image {}", path.display())
+                })?;
+                identity.surface_asset = Some(provenance(&path)?);
+                injected_surface = Some(InjectedSurfaceInput {
+                    path,
+                    motion: *motion,
+                    inset: *inset,
+                });
+            }
+            None => {}
         }
 
         if args.writable_region_hint.is_none()
@@ -797,6 +877,7 @@ fn resolve_refinements(
         layers: layer_inputs,
         provenance,
         injected_surface,
+        source_motion,
     })
 }
 
@@ -804,6 +885,7 @@ fn analysis_cache_is_current(
     output: &Path,
     source_sha256: &str,
     refinements: Option<&RefinementProvenance>,
+    segmentation: Option<SegmentationConfig>,
 ) -> bool {
     let Ok(pack) = Analysis::open(output) else {
         return false;
@@ -813,11 +895,22 @@ fn analysis_cache_is_current(
     {
         return false;
     }
+    if pack.manifest.segmentation != segmentation {
+        return false;
+    }
     match (pack.manifest.refinements.as_ref(), refinements) {
         (None, None) => true,
         (Some(cached), Some(current)) => cached.content_matches(current),
         _ => false,
     }
+}
+
+fn segmentation_config(args: &AnalyzeArgs) -> Option<SegmentationConfig> {
+    args.segmentation_worker.as_ref().map(|_| SegmentationConfig {
+        backend: args.segmentation_backend.clone(),
+        model: args.segmentation_model.clone(),
+        device: args.segmentation_device.clone(),
+    })
 }
 
 fn apply_surface_intent(

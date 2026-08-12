@@ -1,0 +1,14 @@
+version = 3
+
+[material]
+type = "fire"
+
+[[effects]]
+type = "glow"
+radius = 14
+color = "#FF5A1880"
+
+[[effects]]
+type = "stroke"
+width = 0.025
+color = "#5A1208E8"
