@@ -2,16 +2,28 @@
 
 ## 0.8.0
 
+- Fixed the severe artistic-fit performance regression by measuring shaped candidates
+  before rasterization and composing the full text material only once; the worst bundled
+  long-title fit dropped from minutes to seconds without reducing supersampling.
+- Added explicit plaque occlusion policy and active depth-layer semantics, preserved
+  holes in thin foreground mattes, derived visibility from in-frame geometry, and stopped
+  trailing occlusions from freezing title motion.
+- Made cache migration serialization-only and bumped analysis compatibility to
+  `analysis-v9`; migrations can no longer attach current provenance to stale geometry.
 - Added automatic Python/ML foreground refinement after the Rust occlusion pass finds a useful crossing; authored prompted layers remain authoritative and automatic ML failures fall back to the Rust masks instead of destroying otherwise-useful analysis.
 - Added ML configuration and automatic-foreground participation to analysis provenance/cache identity and made review reports state whether Python participated.
 - Repaired writing-surface selection after the global "largest plausible rectangle" regression: preserve the strongest hypothesis, rescue clear compact plaques from broad enclosures, and use area only as a guarded escape from small high-contrast props.
 - Added minimal schema-2 project intent for every bundled sample asset, including the repeatedly ambiguous circular/cloud/wood/spider surfaces and the previously validated holographic plaques.
-- Added `assets/plaques/holographic-default.png` and preconfigured every bundled plaque-less sample to use it as an injected screen-fixed surface while retaining foreground analysis.
+- Renamed the pre-existing holographic plaque to the aspect-explicit **Aetherglass Aurora** family, added its `9:16` counterpart, added the **Prismwraith Reliquary** pair, and introduced a portable hash catalog.
 - Added advanced production text effects/materials: chrome, holographic, fire, ice, nebula, liquid, halftone, chromatic split, trails, letterpress, flicker, wave/wobble, typewriter and deterministic dissolve, plus 13 new style presets.
 - Kept the capability matrix explicit about what remains approximate or unimplemented: per-glyph arc/orbit, arbitrary external texture mapping, scramble/split-flap, real particle simulation, and physically correct engraving/protrusion.
-- Restored quality-report generation as a first-class README workflow and made `review_assets.sh` build a single `output/review/index.html` over complete and partial analyses.
+- Restored quality-report generation as a first-class README workflow and made `review_assets.sh` build a single `output/review/index.html` over complete analyses and compact retained failure evidence.
 - Added `scripts/reset_analysis.sh --yes`, constrained to generated `assets/analysis/` state; source videos, refinements, plaque assets, outputs and `/tmp/plaque-forge-python` are preserved.
-- Bumped analysis cache compatibility to `analysis-v7` because automatic ML participation, candidate selection, and source-surface motion semantics changed.
+- Added path-free analysis/render/verification schemas, a validated cache migration command, transactional `/tmp` staging, bounded failure retention, and a legacy-work cleanup command.
+- Upgraded the worker protocol with lossless PNG frames/masks, exact alpha seed masks, pinned source/model identities, semantic cache validation, and strict Rust-side output checks.
+- Corrected compositing to linear-light premultiplied alpha, hardened alpha-aware verification/provenance, and made direct render publication transactional.
+- Made the source text-free limitation explicit and rejected unsupported HDR/BT.2020 compositing instead of silently producing misleading output.
+- Bumped analysis cache compatibility to `analysis-v8` for the hardened analysis/ML semantics and schema 2.
 
 ## 0.7.0
 

@@ -14,12 +14,19 @@ Useful controls:
 
 ```bash
 ./scripts/analyze_assets.sh --force asset       # rebuild scene cache; human-prompted ML artifacts are reused when valid
-./scripts/analyze_assets.sh --force-ml asset    # regenerate human-prompted ML artifacts; automatic foreground ML is recomputed with forced scene analysis
+./scripts/analyze_assets.sh --force-ml asset    # regenerate authored and automatic ML artifacts even if still valid
 ./scripts/analyze_assets.sh --no-ml asset       # intentionally pure Rust
 ./scripts/ml_status.sh                           # active/recent Python workers
 ```
 
 The ML runtime is a prerequisite for the default high-level command and lives entirely under `/tmp/plaque-forge-python`.
+
+A forced scene rebuild can reuse the prior automatic foreground sequence when its
+source, seed masks, model, worker, runtime, and request identity all still validate.
+`--force-ml` remains the explicit way to regenerate every ML layer; changing an
+automatic request invalidates that generated sequence without user intervention.
+
+The script asserts `--source-is-text-free` for this sample project. If your source plaque already contains lettering, remove it in an external inpainting/clean-plate workflow first; analysis intentionally refuses to imply that Plaque Forge can erase it.
 
 ## Reset generated analysis
 
@@ -28,16 +35,24 @@ The ML runtime is a prerequisite for the default high-level command and lives en
 ./scripts/analyze_assets.sh
 ```
 
-Only `assets/analysis/*` is deleted. Source videos, refinements, injected plaque images, outputs and `/tmp/plaque-forge-python` are preserved. Use `./scripts/analyze_assets.sh --force-ml` after the reset when you also want to regenerate human-prompted Python layer artifacts; refinement-owned non-ML artifacts are preserved deliberately.
+Only `assets/analysis/*` is deleted. Source videos, refinements, injected plaque images, outputs and `/tmp/plaque-forge-python` are preserved. Use `./scripts/analyze_assets.sh --force-ml` after the reset when you also want to regenerate refinement-owned prompted Python artifacts; refinement-owned non-ML artifacts are preserved deliberately.
+
+Failed work normally cleans itself. To remove debris from older versions:
+
+```bash
+./scripts/cleanup_work.sh --yes
+```
+
+Current work lives under `/tmp/plaque-forge/work`; compact failure evidence lives under `/tmp/plaque-forge/failures` and is automatically bounded.
 
 ## Plaque-less / injected surfaces
 
-The included plaque-less assets already have refinements referencing `assets/plaques/holographic-default.png`; simply run the normal analyzer.
+The included plaque-less assets already reference the aspect-matched Aetherglass Aurora pair; simply run the normal analyzer. The catalog also provides the alternative Prismwraith Reliquary pair.
 
 For another video:
 
 ```bash
-./scripts/place_plaque.sh my-video assets/plaques/holographic-default.png
+./scripts/place_plaque.sh my-video assets/plaques/aetherglass-aurora-16_9.png
 ./scripts/analyze_assets.sh my-video
 ```
 
@@ -88,13 +103,26 @@ The normal analyzer invokes ML automatically when appropriate. Direct segmentati
 
 `artistic` fitting is the default. Rendering requires a complete current analysis cache and does not silently run expensive analysis.
 
+Custom `--encoder-arg` values must be self-contained settings, not workstation paths or file-backed filters. Arguments are persisted in the portable render manifest; fonts and style files are represented by basename plus content hash instead of an absolute path.
+
 ## Quality reports
 
 ```bash
 ./scripts/review_assets.sh
 ```
 
-This creates/rebuilds each asset's actionable `diagnostics/review.html`/`review.txt` and writes the browsable `output/review/index.html`. It uses a complete analysis when available, otherwise the newest retained partial. Reports include prioritized failure reasons, visual evidence, exact rerun/refinement guidance, ML/Python participation, typography provenance, and verification data when available.
+This creates/rebuilds each asset's actionable `diagnostics/review.html`/`review.txt` and writes the browsable `output/review/index.html`. It uses a complete analysis when available, otherwise the newest compact retained failure. Reports include prioritized failure reasons, visual evidence, exact rerun/refinement guidance, ML/Python participation, typography provenance, and verification data when available. When the current lossless rendered-video verification passes, the report treats that outcome as authoritative instead of asking for unnecessary refinement solely because a low-texture surface has low raw feature confidence.
+
+## Portable cache migration
+
+Audit first, then apply if older generated manifests contain workstation paths or schema/build identities:
+
+```bash
+cargo run -- migrate-analysis --root assets/analysis
+cargo run -- migrate-analysis --root assets/analysis --apply
+```
+
+Migration does not rerun tracking or ML. It validates every upgraded cache and deterministically refreshes injected plaque derivatives when needed.
 
 ## Validation
 

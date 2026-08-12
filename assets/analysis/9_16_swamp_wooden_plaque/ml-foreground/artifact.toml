@@ -1,0 +1,18 @@
+schema_version = 2
+kind = "alpha-sequence"
+coordinates = "source-pixels"
+pattern = "masks/%06d.png"
+first_frame = 0
+last_frame = 239
+affects_layout = false
+
+[generator]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0@xpu+cutie-1.0.0@xpu+vitmatte-4.57.1@xpu"
+requested_device = "auto"
+source_sha256 = "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33"
+prompt_sha256 = "89d712cff13f71ff67d5dde84c343994cb07bdc62acecafc3bd3b1e6b79d14b1"
+worker_sha256 = "4e6e506631a7984b629cddee755dc7f8b39230fe55ca901be2e63578018cce7b"
+runtime_sha256 = "d9061d16e6890517575777af1e1589478040db364d30fc82366e819ba2246cae"
+request_sha256 = "78affc830d777301250ddf1cea4bca1ae52e8efa5259959295fb2db27f8032eb"

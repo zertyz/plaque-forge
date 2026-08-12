@@ -145,7 +145,7 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
         vertical_align,
         style,
     };
-    let preflight = rasterize_candidate(
+    let preflight = measure_candidate(
         &mut font_system,
         text,
         24.0 * supersampling as f32,
@@ -187,22 +187,23 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
                     max_lines
                 );
             }
-            let result = compose_layer(&context, size, candidate)?;
-            if result.clipped_pixels > 0 {
+            let fitted = probe_masked_candidate(&context, size, candidate)?;
+            if fitted.clipped_pixels > 0 {
                 bail!(
                     "font size {:.2}px fits the bounding rectangle but its final glyph/effect layer crosses the plaque mask by {} pixels in {}; increase --padding or reduce --font-size",
                     requested_font_size.expect("validated"),
-                    result.clipped_pixels,
-                    format_bounds(result.clipped_bounds)
+                    fitted.clipped_pixels,
+                    format_bounds(fitted.clipped_bounds)
                 );
             }
+            let result = compose_layer(&context, size, fitted)?;
             (size, size, result, text.to_string())
         }
         FitMode::Artistic => find_artistic_layout(&mut font_system, text, upper, &context)?,
         FitMode::Maximize | FitMode::Balanced => {
             let (rectangle_maximum, _) =
                 find_maximum_candidate(&mut font_system, text, upper, &context, Wrap::WordOrGlyph)?;
-            let (maximum_size, maximum_composed) = find_maximum_masked_candidate(
+            let (maximum_size, maximum_fitted) = find_maximum_masked_candidate(
                 &mut font_system,
                 text,
                 rectangle_maximum,
@@ -210,9 +211,9 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
                 Wrap::WordOrGlyph,
             )?;
             if matches!(fit_mode, FitMode::Balanced)
-                && maximum_composed.fill_ratio > target_fill as f64
+                && maximum_fitted.fill_ratio > target_fill as f64
             {
-                let scale = (target_fill as f64 / maximum_composed.fill_ratio)
+                let scale = (target_fill as f64 / maximum_fitted.fill_ratio)
                     .sqrt()
                     .clamp(0.65, 1.0) as f32;
                 let size = maximum_size * scale;
@@ -224,11 +225,16 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
                     Wrap::WordOrGlyph,
                 )?;
                 match balanced.filter(|result| result.clipped_pixels == 0) {
-                    Some(result) => (maximum_size, size, result, text.to_string()),
+                    Some(result) => (
+                        maximum_size,
+                        size,
+                        compose_layer(&context, size, result)?,
+                        text.to_string(),
+                    ),
                     None => (
                         maximum_size,
                         maximum_size,
-                        maximum_composed,
+                        compose_layer(&context, maximum_size, maximum_fitted)?,
                         text.to_string(),
                     ),
                 }
@@ -236,7 +242,7 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
                 (
                     maximum_size,
                     maximum_size,
-                    maximum_composed,
+                    compose_layer(&context, maximum_size, maximum_fitted)?,
                     text.to_string(),
                 )
             }
@@ -271,15 +277,42 @@ fn find_artistic_layout(
     context: &TypographyContext<'_>,
 ) -> Result<(f32, f32, Composed, String)> {
     let candidates = artistic_line_break_candidates(text, context.max_lines);
-    let mut best: Option<(f64, String, f32, Composed)> = None;
+    let mut proposals = Vec::<(String, f32, Vec<f32>)>::new();
 
     for candidate_text in candidates {
-        let Ok((rectangle_maximum, _)) =
+        let Ok((rectangle_maximum, measured)) =
             find_maximum_candidate(font_system, &candidate_text, upper, context, Wrap::None)
         else {
             continue;
         };
-        let Ok((maximum_size, composed)) = find_maximum_masked_candidate(
+        proposals.push((candidate_text, rectangle_maximum, measured.line_widths));
+    }
+
+    // Exact irregular-mask probing rasterizes glyphs. Rank the cheap font-aware
+    // measurements first and keep a deliberately small Pareto-like finalist set.
+    // This includes real advances for spaces, kerning, punctuation, and script
+    // shaping because cosmic-text supplied every `line_widths` value above.
+    proposals.sort_by(
+        |(left_text, left_size, left_widths), (right_text, right_size, right_widths)| {
+            artistic_layout_score(*right_size, right_widths, right_text)
+                .total_cmp(&artistic_layout_score(*left_size, left_widths, left_text))
+                .then_with(|| right_size.total_cmp(left_size))
+        },
+    );
+    let largest_proposal = proposals
+        .iter()
+        .max_by(|left, right| left.1.total_cmp(&right.1))
+        .cloned();
+    proposals.truncate(1);
+    if let Some(largest) = largest_proposal
+        && proposals.iter().all(|proposal| proposal.0 != largest.0)
+    {
+        proposals.push(largest);
+    }
+
+    let mut finalists = Vec::<(String, f32, FittedCandidate)>::new();
+    for (candidate_text, rectangle_maximum, _) in proposals {
+        let Ok((maximum_size, fitted)) = find_maximum_masked_candidate(
             font_system,
             &candidate_text,
             rectangle_maximum,
@@ -289,18 +322,33 @@ fn find_artistic_layout(
             continue;
         };
 
-        let score = artistic_layout_score(maximum_size, &composed.line_widths, &candidate_text);
-        if best
-            .as_ref()
-            .is_none_or(|(best_score, ..)| score > *best_score)
-        {
-            best = Some((score, candidate_text, maximum_size, composed));
-        }
+        finalists.push((candidate_text, maximum_size, fitted));
     }
 
-    let (_, selected_text, maximum_size, maximum_composed) = best.context(
+    let largest = finalists
+        .iter()
+        .map(|(_, size, _)| *size)
+        .max_by(f32::total_cmp)
+        .context(
         "no artistic word-boundary layout fits the plaque; use --fit maximize, increase --max-lines, use a narrower font, or shorten the title",
     )?;
+
+    // Size is the primary quality constraint. Aesthetics choose only among layouts
+    // within three percent of the largest safe type, so a tidy but timid layout
+    // cannot leave a large part of the plaque unused.
+    let minimum_finalist = largest * 0.97;
+    let (selected_text, maximum_size, selected) = finalists
+        .into_iter()
+        .filter(|(_, size, _)| *size >= minimum_finalist)
+        .max_by(
+            |(left_text, left_size, left), (right_text, right_size, right)| {
+                artistic_layout_score(*left_size, &left.candidate.line_widths, left_text).total_cmp(
+                    &artistic_layout_score(*right_size, &right.candidate.line_widths, right_text),
+                )
+            },
+        )
+        .context("artistic layout finalist set is empty")?;
+    let maximum_composed = compose_layer(context, maximum_size, selected)?;
 
     // Artistic mode chooses the best explicit line composition and then uses its
     // maximum safe size. `--target-fill` remains a Balanced-mode control; shrinking
@@ -514,7 +562,7 @@ fn find_maximum_candidate(
     for _ in 0..32 {
         let size = (low + high) * 0.5;
         let candidate =
-            rasterize_candidate(font_system, text, size, context.max_lines, context, wrap)?;
+            measure_candidate(font_system, text, size, context.max_lines, context, wrap)?;
         if candidate.fits(context.max_lines) {
             best = Some((size, candidate));
             low = size + 0.05;
@@ -533,62 +581,37 @@ fn find_maximum_masked_candidate(
     rectangle_maximum: f32,
     context: &TypographyContext<'_>,
     wrap: Wrap,
-) -> Result<(f32, Composed)> {
+) -> Result<(f32, FittedCandidate)> {
     let minimum_size = 5.0_f32;
-    let mut previous_failure = rectangle_maximum;
-    let mut last_clipping = None;
-
-    for attempt in 0..=64 {
-        let size = if attempt == 0 {
-            rectangle_maximum
-        } else {
-            (rectangle_maximum * 0.96_f32.powi(attempt)).max(minimum_size)
-        };
-        if let Some(result) = evaluate_masked_candidate(font_system, text, size, context, wrap)? {
-            if result.clipped_pixels == 0 {
-                let mut low = size;
-                let mut high = previous_failure.max(size);
-                let mut best = result;
-                for _ in 0..14 {
-                    if high - low <= 0.05 {
-                        break;
-                    }
-                    let candidate_size = (low + high) * 0.5;
-                    match evaluate_masked_candidate(
-                        font_system,
-                        text,
-                        candidate_size,
-                        context,
-                        wrap,
-                    )? {
-                        Some(result) if result.clipped_pixels == 0 => {
-                            low = candidate_size;
-                            best = result;
-                        }
-                        _ => high = candidate_size,
-                    }
-                }
-                return Ok((low, best));
-            }
-            last_clipping = Some((result.clipped_pixels, result.clipped_bounds));
-        }
-        previous_failure = size;
-        if size <= minimum_size {
-            break;
-        }
+    let maximum = evaluate_masked_candidate(font_system, text, rectangle_maximum, context, wrap)?;
+    if let Some(result) = maximum
+        && result.clipped_pixels == 0
+    {
+        return Ok((rectangle_maximum, result));
     }
 
-    let detail = last_clipping
-        .map(|(pixels, bounds)| {
-            format!(
-                "the smallest candidate still loses {pixels} pixels in {}",
-                format_bounds(bounds)
-            )
-        })
-        .unwrap_or_else(|| "no visible candidate satisfied the shaped layout".to_string());
-    bail!(
-        "text cannot fit the irregular plaque mask without clipping: {detail}; increase --padding, increase --max-lines, use a narrower font, or shorten the text"
-    )
+    let minimum = evaluate_masked_candidate(font_system, text, minimum_size, context, wrap)?;
+    let Some(mut best) = minimum.filter(|candidate| candidate.clipped_pixels == 0) else {
+        bail!(
+            "text cannot fit the irregular plaque mask without clipping even at the minimum size; increase --padding, increase --max-lines, use a narrower font, or shorten the text"
+        );
+    };
+    let mut low = minimum_size;
+    let mut high = rectangle_maximum;
+    for _ in 0..12 {
+        if high - low <= 0.05 {
+            break;
+        }
+        let candidate_size = (low + high) * 0.5;
+        match evaluate_masked_candidate(font_system, text, candidate_size, context, wrap)? {
+            Some(result) if result.clipped_pixels == 0 => {
+                low = candidate_size;
+                best = result;
+            }
+            _ => high = candidate_size,
+        }
+    }
+    Ok((low, best))
 }
 
 fn evaluate_masked_candidate(
@@ -597,12 +620,12 @@ fn evaluate_masked_candidate(
     size: f32,
     context: &TypographyContext<'_>,
     wrap: Wrap,
-) -> Result<Option<Composed>> {
+) -> Result<Option<FittedCandidate>> {
     let candidate = rasterize_candidate(font_system, text, size, context.max_lines, context, wrap)?;
     if !candidate.fits(context.max_lines) {
         return Ok(None);
     }
-    compose_layer(context, size, candidate).map(Some)
+    probe_masked_candidate(context, size, candidate).map(Some)
 }
 
 fn format_bounds(bounds: Option<(u32, u32, u32, u32)>) -> String {
@@ -616,29 +639,31 @@ struct Composed {
     layer: Surface,
     glyph_mask: Vec<u8>,
     lines: usize,
-    line_widths: Vec<f32>,
     fill_ratio: f64,
     minimum_padding_ratio: f64,
     clipped_pixels: u64,
-    clipped_bounds: Option<(u32, u32, u32, u32)>,
     missing_glyphs: usize,
     fallback_glyphs: usize,
 }
 
-fn compose_layer(
-    context: &TypographyContext<'_>,
-    font_size: f32,
+struct FittedCandidate {
     candidate: Candidate,
-) -> Result<Composed> {
-    let mut high_resolution = Surface::new(
-        context.width * context.supersampling,
-        context.height * context.supersampling,
-    );
+    fill_ratio: f64,
+    minimum_padding_ratio: f64,
+    clipped_pixels: u64,
+    clipped_bounds: Option<(u32, u32, u32, u32)>,
+}
+
+fn position_candidate_alpha(
+    context: &TypographyContext<'_>,
+    candidate: Candidate,
+) -> Result<(Vec<u8>, Candidate)> {
+    let high_width = context.width * context.supersampling;
+    let high_height = context.height * context.supersampling;
+    let mut high_resolution = vec![0_u8; high_width as usize * high_height as usize];
     let x = (context.bounds.0 + context.pad_x) * context.supersampling;
     let y = (context.bounds.1 + context.pad_y) * context.supersampling;
-    let block = candidate.surface;
-    let block_bounds = block
-        .alpha_bounds()
+    let block_bounds = alpha_mask_bounds(&candidate.alpha, context.raster_width)
         .context("font produced no visible glyphs")?;
     let block_height = block_bounds.3 - block_bounds.1 + 1;
     let vertical_offset = match context.vertical_align {
@@ -650,32 +675,51 @@ fn compose_layer(
             (context.raster_height - block_height) as i32 - block_bounds.1 as i32
         }
     };
-    high_resolution.blend_surface(&block, x as i32, y as i32 + vertical_offset, 1.0);
+    blit_alpha(
+        &mut high_resolution,
+        high_width,
+        high_height,
+        &candidate.alpha,
+        context.raster_width,
+        context.raster_height,
+        x as i32,
+        y as i32 + vertical_offset,
+    );
+    Ok((high_resolution, candidate))
+}
 
-    // Typography owns shaping and placement; mask-derived paint effects live in
-    // render::effects so new visual effects do not accumulate in this function.
-    let combined = context
-        .style
-        .compose(&high_resolution, font_size, context.supersampling)?;
-    let fit_envelope = context.style.fit_envelope(&high_resolution, font_size)?;
-
-    let mut glyph_layer = downsample(&high_resolution, context.width, context.height)?;
-    glyph_layer.apply_alpha_mask(context.mask)?;
-    let glyph_mask = glyph_layer.alpha_mask();
+fn probe_masked_candidate(
+    context: &TypographyContext<'_>,
+    font_size: f32,
+    candidate: Candidate,
+) -> Result<FittedCandidate> {
+    let (high_alpha, candidate) = position_candidate_alpha(context, candidate)?;
 
     // Fit safety is based on glyphs and hard geometry such as stroke/extrusion. Glow
     // and blurred shadows are intentionally soft: their tails may be clipped by the
     // writable mask rather than forcing the title to shrink.
-    let mut fit_layer = downsample(&fit_envelope, context.width, context.height)?;
-    let alpha_before = fit_layer.alpha_mask();
-    fit_layer.apply_alpha_mask(context.mask)?;
-    let alpha_after = fit_layer.alpha_mask();
+    let glyph_alpha = downsample_alpha(
+        &high_alpha,
+        context.width * context.supersampling,
+        context.height * context.supersampling,
+        context.width,
+        context.height,
+    )?;
+    let alpha_before = context.style.fit_envelope_alpha(
+        &glyph_alpha,
+        context.width,
+        context.height,
+        font_size / context.supersampling as f32,
+    );
+    let alpha_after: Vec<u8> = alpha_before
+        .iter()
+        .zip(context.mask)
+        .map(|(&alpha, &mask)| ((alpha as u16 * mask as u16 + 127) / 255) as u8)
+        .collect();
     let (clipped_pixels, clipped_bounds) =
         clipping_summary(&alpha_before, &alpha_after, context.width);
-    let final_bounds = fit_layer.alpha_bounds().context("final text layer is empty")?;
-
-    let mut layer = downsample(&combined, context.width, context.height)?;
-    layer.apply_alpha_mask(context.mask)?;
+    let final_bounds =
+        alpha_mask_bounds(&alpha_after, context.width).context("final text layer is empty")?;
     let block_area =
         (final_bounds.2 - final_bounds.0 + 1) as f64 * (final_bounds.3 - final_bounds.1 + 1) as f64;
     let safe_width = (context.bounds.2 - context.bounds.0 + 1)
@@ -696,22 +740,58 @@ fn compose_layer(
     .unwrap_or(0) as f64
         / safe_width.min(safe_height).max(1) as f64;
 
-    Ok(Composed {
-        layer,
-        glyph_mask,
-        lines: candidate.lines,
-        line_widths: candidate.line_widths,
+    Ok(FittedCandidate {
+        candidate,
         fill_ratio: (block_area / safe_area).clamp(0.0, 1.0),
         minimum_padding_ratio,
         clipped_pixels,
         clipped_bounds,
+    })
+}
+
+fn compose_layer(
+    context: &TypographyContext<'_>,
+    font_size: f32,
+    fitted: FittedCandidate,
+) -> Result<Composed> {
+    let (high_alpha, candidate) = position_candidate_alpha(context, fitted.candidate)?;
+    let high_resolution = Surface::from_alpha_mask(
+        context.width * context.supersampling,
+        context.height * context.supersampling,
+        &high_alpha,
+        Rgba::new(235, 255, 255, 255),
+    )?;
+    // Full paint is performed once, after geometry selection. Rejected probes never
+    // evaluate RGB material, blur, bevel, or the linear-light compositor.
+    let combined = context
+        .style
+        .compose(&high_resolution, font_size, context.supersampling)?;
+    let mut layer = downsample(&combined, context.width, context.height)?;
+    layer.apply_alpha_mask(context.mask)?;
+    let mut glyph_mask = downsample_alpha(
+        &high_alpha,
+        context.width * context.supersampling,
+        context.height * context.supersampling,
+        context.width,
+        context.height,
+    )?;
+    for (alpha, &mask) in glyph_mask.iter_mut().zip(context.mask) {
+        *alpha = ((*alpha as u16 * mask as u16 + 127) / 255) as u8;
+    }
+    Ok(Composed {
+        layer,
+        glyph_mask,
+        lines: candidate.lines,
+        fill_ratio: fitted.fill_ratio,
+        minimum_padding_ratio: fitted.minimum_padding_ratio,
+        clipped_pixels: fitted.clipped_pixels,
         missing_glyphs: candidate.missing_glyphs,
         fallback_glyphs: candidate.fallback_glyphs,
     })
 }
 
 struct Candidate {
-    surface: Surface,
+    alpha: Vec<u8>,
     bounds: Option<(u32, u32, u32, u32)>,
     lines: usize,
     line_widths: Vec<f32>,
@@ -736,6 +816,30 @@ fn rasterize_candidate(
     max_lines: usize,
     context: &TypographyContext<'_>,
     wrap: Wrap,
+) -> Result<Candidate> {
+    shape_candidate(font_system, text, size, max_lines, context, wrap, true)
+}
+
+fn measure_candidate(
+    font_system: &mut FontSystem,
+    text: &str,
+    size: f32,
+    max_lines: usize,
+    context: &TypographyContext<'_>,
+    wrap: Wrap,
+) -> Result<Candidate> {
+    shape_candidate(font_system, text, size, max_lines, context, wrap, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shape_candidate(
+    font_system: &mut FontSystem,
+    text: &str,
+    size: f32,
+    max_lines: usize,
+    context: &TypographyContext<'_>,
+    wrap: Wrap,
+    rasterize: bool,
 ) -> Result<Candidate> {
     let line_height = size * context.line_height_ratio;
     let mut buffer = Buffer::new(font_system, Metrics::new(size, line_height));
@@ -781,7 +885,7 @@ fn rasterize_candidate(
         || measured_height > context.raster_height as f32 + 0.5
     {
         return Ok(Candidate {
-            surface: Surface::new(context.raster_width, context.raster_height),
+            alpha: Vec::new(),
             bounds: None,
             lines,
             line_widths: Vec::new(),
@@ -790,25 +894,47 @@ fn rasterize_candidate(
         });
     }
 
-    let mut surface = Surface::new(context.raster_width, context.raster_height);
+    if !rasterize {
+        return Ok(Candidate {
+            alpha: Vec::new(),
+            // Measurement already proved that the shaped block is visible and in
+            // bounds. Exact ink bounds are needed only by masked finalists.
+            bounds: Some((0, 0, 0, 0)),
+            lines,
+            line_widths,
+            missing_glyphs,
+            fallback_glyphs,
+        });
+    }
+
+    let mut alpha = vec![0_u8; context.raster_width as usize * context.raster_height as usize];
     let mut cache = SwashCache::new();
     buffer.draw(
         font_system,
         &mut cache,
         Color::rgba(235, 255, 255, 255),
         |x, y, width, height, color| {
-            let (r, g, b, a) = color.as_rgba_tuple();
-            let color = Rgba::new(r, g, b, a);
+            let (_, _, _, source_alpha) = color.as_rgba_tuple();
             for py in y..y.saturating_add(height as i32) {
                 for px in x..x.saturating_add(width as i32) {
-                    surface.blend_pixel(px, py, color, 1.0);
+                    if px < 0
+                        || py < 0
+                        || px >= context.raster_width as i32
+                        || py >= context.raster_height as i32
+                    {
+                        continue;
+                    }
+                    let value =
+                        &mut alpha[py as usize * context.raster_width as usize + px as usize];
+                    let remaining = (255 - *value as u16) * (255 - source_alpha as u16);
+                    *value = (255 - (remaining + 127) / 255) as u8;
                 }
             }
         },
     );
-    let bounds = surface.alpha_bounds();
+    let bounds = alpha_mask_bounds(&alpha, context.raster_width);
     Ok(Candidate {
-        surface,
+        alpha,
         bounds,
         lines,
         line_widths,
@@ -870,6 +996,60 @@ fn mask_bounds(width: u32, height: u32, mask: &[u8]) -> Option<(u32, u32, u32, u
         }
     }
     any.then_some((x0, y0, x1, y1))
+}
+
+fn alpha_mask_bounds(mask: &[u8], width: u32) -> Option<(u32, u32, u32, u32)> {
+    if width == 0 || mask.is_empty() || !mask.len().is_multiple_of(width as usize) {
+        return None;
+    }
+    mask_bounds(width, (mask.len() / width as usize) as u32, mask)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_alpha(
+    destination: &mut [u8],
+    destination_width: u32,
+    destination_height: u32,
+    alpha: &[u8],
+    width: u32,
+    height: u32,
+    dx: i32,
+    dy: i32,
+) {
+    debug_assert_eq!(
+        destination.len(),
+        destination_width as usize * destination_height as usize
+    );
+    debug_assert_eq!(alpha.len(), width as usize * height as usize);
+    for y in 0..height {
+        let destination_y = dy + y as i32;
+        if destination_y < 0 || destination_y >= destination_height as i32 {
+            continue;
+        }
+        for x in 0..width {
+            let destination_x = dx + x as i32;
+            if destination_x < 0 || destination_x >= destination_width as i32 {
+                continue;
+            }
+            let coverage = alpha[(y * width + x) as usize];
+            if coverage > 0 {
+                destination[destination_y as usize * destination_width as usize
+                    + destination_x as usize] = coverage;
+            }
+        }
+    }
+}
+
+fn downsample_alpha(
+    alpha: &[u8],
+    source_width: u32,
+    source_height: u32,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>> {
+    let image = image::GrayImage::from_raw(source_width, source_height, alpha.to_vec())
+        .context("invalid supersampled alpha surface")?;
+    Ok(image::imageops::resize(&image, width, height, FilterType::Lanczos3).into_raw())
 }
 
 fn downsample(surface: &Surface, width: u32, height: u32) -> Result<Surface> {

@@ -17,6 +17,17 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
+MODEL_REVISIONS = {
+    "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
+    "hustvl/vitmatte-small-composition-1k": "6a58ad7646403c1df626fbd746900aec7361ea1d",
+    "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
+}
+
+
+def model_revision(model_name):
+    revision = MODEL_REVISIONS.get(model_name)
+    return {"revision": revision} if revision else {}
+
 
 # Upstream dependencies emit several warnings that are expected in Plaque Forge's
 # Intel-XPU/CPU runtime. Replace those dependency implementation details with our
@@ -64,6 +75,14 @@ def package_version(*names):
         except importlib.metadata.PackageNotFoundError:
             pass
     return "unknown"
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def device_candidates(requested, allow_xpu=True):
@@ -119,20 +138,23 @@ def extract_frames(source, directory):
             "-hide_banner",
             "-loglevel",
             "error",
+            "-noautorotate",
             "-i",
             str(source),
             "-start_number",
             "0",
             "-c:v",
             "png",
+            "-pix_fmt",
+            "rgba",
             "-f",
             "image2",
             "-y",
-            str(directory / "%06d.jpg"),
+            str(directory / "%06d.png"),
         ],
         check=True,
     )
-    return sorted(directory.glob("*.jpg"))
+    return sorted(directory.glob("*.png"))
 
 
 def prompt_shape(prompt, size):
@@ -149,9 +171,25 @@ def prompt_shape(prompt, size):
     return mask
 
 
-def seed_mask(prompts, frame, size):
+def exact_seed_mask(request, frame, size):
+    for seed in request["layer"].get("seed_masks", []):
+        if seed["frame"] != frame:
+            continue
+        if file_sha256(seed["path"]) != seed["sha256"]:
+            raise ValueError(f"seed mask changed after request creation on frame {frame}")
+        image = Image.open(seed["path"]).convert("L")
+        if image.size != size:
+            raise ValueError(f"seed mask dimensions differ on frame {frame}")
+        return image
+    return None
+
+
+def seed_mask(request, frame, size):
+    exact = exact_seed_mask(request, frame, size)
+    if exact is not None:
+        return exact
     mask = Image.new("L", size, 0)
-    for prompt in prompts:
+    for prompt in request["layer"]["prompts"]:
         if prompt["frame"] == frame:
             mask = Image.fromarray(
                 np.maximum(np.asarray(mask), np.asarray(prompt_shape(prompt, size))).astype(np.uint8)
@@ -186,39 +224,71 @@ def cleanup_small_mask_defects(probability, max_area=16):
         if int(stats[component, cv2.CC_STAT_AREA]) <= max_area:
             cleaned[labels == component] = 0
 
-    ys, xs = np.nonzero(cleaned)
-    if len(xs):
-        x0, x1 = int(xs.min()), int(xs.max())
-        y0, y1 = int(ys.min()), int(ys.max())
-        region = cleaned[y0 : y1 + 1, x0 : x1 + 1]
-        inverse = (1 - region).astype(np.uint8)
-        count, labels, stats, _ = cv2.connectedComponentsWithStats(inverse, connectivity=8)
-        for component in range(1, count):
-            area = int(stats[component, cv2.CC_STAT_AREA])
-            if area > max_area:
-                continue
-            component_mask = labels == component
-            # A component touching the local bounding-box edge is background, not a hole.
-            if (
-                component_mask[0].any()
-                or component_mask[-1].any()
-                or component_mask[:, 0].any()
-                or component_mask[:, -1].any()
-            ):
-                continue
-            region[component_mask] = 1
-
     result = probability.copy()
     removed = (binary == 1) & (cleaned == 0)
-    filled = (binary == 0) & (cleaned == 1)
     result[removed] = 0.0
-    result[filled] = 1.0
     return result
 
 
 def sam2_masks(request, frames, device):
     import torch
-    from sam2.sam2_video_predictor import SAM2VideoPredictor
+    from sam2 import sam2_video_predictor as predictor_module
+    from sam2.utils import misc as sam2_misc
+
+    # Upstream SAM2 filters directory input by a JPEG-only suffix even though its PIL
+    # decoder already supports PNG. Install a narrow eager loader so model input stays
+    # lossless and the filename truthfully describes its bytes.
+    if not hasattr(predictor_module, "_plaque_forge_original_load_video_frames"):
+        predictor_module._plaque_forge_original_load_video_frames = (
+            predictor_module.load_video_frames
+        )
+
+    def load_lossless_frames(
+        video_path,
+        image_size,
+        offload_video_to_cpu,
+        img_mean=(0.485, 0.456, 0.406),
+        img_std=(0.229, 0.224, 0.225),
+        async_loading_frames=False,
+        compute_device=torch.device("cuda"),
+    ):
+        png_paths = (
+            sorted(Path(video_path).glob("*.png"), key=lambda path: int(path.stem))
+            if isinstance(video_path, str) and Path(video_path).is_dir()
+            else []
+        )
+        if not png_paths:
+            return predictor_module._plaque_forge_original_load_video_frames(
+                video_path,
+                image_size,
+                offload_video_to_cpu,
+                img_mean,
+                img_std,
+                async_loading_frames,
+                compute_device,
+            )
+        if async_loading_frames:
+            raise ValueError("lossless PNG loading does not support asynchronous loading")
+        images = torch.zeros(
+            len(png_paths), 3, image_size, image_size, dtype=torch.float32
+        )
+        video_height = video_width = 0
+        for index, path in enumerate(png_paths):
+            images[index], video_height, video_width = sam2_misc._load_img_as_tensor(
+                str(path), image_size
+            )
+        mean = torch.tensor(img_mean, dtype=torch.float32)[:, None, None]
+        std = torch.tensor(img_std, dtype=torch.float32)[:, None, None]
+        if not offload_video_to_cpu:
+            images = images.to(compute_device)
+            mean = mean.to(compute_device)
+            std = std.to(compute_device)
+        images -= mean
+        images /= std
+        return images, video_height, video_width
+
+    predictor_module.load_video_frames = load_lossless_frames
+    SAM2VideoPredictor = predictor_module.SAM2VideoPredictor
 
     native_postprocessing = sam2_native_postprocessing_available()
     if not native_postprocessing:
@@ -228,7 +298,9 @@ def sam2_masks(request, frames, device):
             file=sys.stderr,
             flush=True,
         )
-    predictor = SAM2VideoPredictor.from_pretrained(request["model"], device=device)
+    predictor = SAM2VideoPredictor.from_pretrained(
+        request["model"], device=device, **model_revision(request["model"])
+    )
     state = predictor.init_state(video_path=str(frames[0].parent), offload_video_to_cpu=True)
     prompts = request["layer"]["prompts"]
     active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
@@ -245,8 +317,14 @@ def sam2_masks(request, frames, device):
                 "frame_idx": prompt["frame"],
                 "obj_id": object_id,
             }
+            exact = exact_seed_mask(request, prompt["frame"], Image.open(frames[0]).size)
             polygon = prompt.get("polygon") or prompt.get("quad")
-            if polygon:
+            if exact is not None:
+                predictor.add_new_mask(
+                    **kwargs,
+                    mask=torch.from_numpy(np.asarray(exact, dtype=np.uint8) > 24).to(device),
+                )
+            elif polygon:
                 mask = prompt_shape(prompt, Image.open(frames[0]).size)
                 predictor.add_new_mask(
                     **kwargs,
@@ -328,7 +406,7 @@ def cutie_masks(request, frames, device, guides=None):
     if device == "cpu":
         torch.set_num_threads(min(8, len(os.sched_getaffinity(0))))
     seed = min(prompt["frame"] for prompt in prompts)
-    initial = None if guides is not None else seed_mask(prompts, seed, Image.open(frames[0]).size)
+    initial = None if guides is not None else seed_mask(request, seed, Image.open(frames[0]).size)
     prompt_frames = {prompt["frame"] for prompt in prompts}
     source_width, source_height = Image.open(frames[0]).size
     scale = min(1.0, 512.0 / max(source_width, source_height))
@@ -384,8 +462,9 @@ def refine_vitmatte(probabilities, frames, model_name, device):
     import torch
     from transformers import VitMatteForImageMatting, VitMatteImageProcessor
 
-    processor = VitMatteImageProcessor.from_pretrained(model_name)
-    model = VitMatteForImageMatting.from_pretrained(model_name).to(device).eval()
+    revision = model_revision(model_name)
+    processor = VitMatteImageProcessor.from_pretrained(model_name, **revision)
+    model = VitMatteForImageMatting.from_pretrained(model_name, **revision).to(device).eval()
     output = []
     for probability, frame_path in zip(probabilities, frames):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
@@ -504,11 +583,13 @@ def matanyone2_masks(request, output, size, frames, device):
     prompts = request["layer"]["prompts"]
     if min(prompt["frame"] for prompt in prompts) != 0:
         raise ValueError("MatAnyone2 requires a frame-0 area seed")
-    seed = seed_mask(prompts, 0, size)
+    seed = seed_mask(request, 0, size)
     seed_path = output / "seed.png"
     seed.save(seed_path)
     model_module.device = torch.device(device)
-    model = MatAnyone2.from_pretrained(request["model"]).to(device).eval()
+    model = MatAnyone2.from_pretrained(
+        request["model"], **model_revision(request["model"])
+    ).to(device).eval()
     processor = InferenceCore(model, device=device)
     work = output / "matanyone2"
     processor.process_video(
@@ -637,11 +718,11 @@ def verify_sam2_device(device):
         directory = Path(directory)
         frames = []
         for frame in range(2):
-            path = directory / f"{frame:06}.jpg"
+            path = directory / f"{frame:06}.png"
             image = Image.new("RGB", (64, 64), (24, 32, 40))
             draw = ImageDraw.Draw(image)
             draw.rectangle((20 + frame, 20, 44 + frame, 44), fill=(210, 210, 210))
-            image.save(path, quality=95)
+            image.save(path)
             frames.append(path)
         request = {
             "model": "facebook/sam2.1-hiera-large",
@@ -687,9 +768,12 @@ def verify_vitmatte_device(device):
     from transformers import VitMatteForImageMatting, VitMatteImageProcessor
 
     model_name = "hustvl/vitmatte-small-composition-1k"
-    processor = VitMatteImageProcessor.from_pretrained(model_name, local_files_only=True)
+    revision = model_revision(model_name)
+    processor = VitMatteImageProcessor.from_pretrained(
+        model_name, local_files_only=True, **revision
+    )
     model = VitMatteForImageMatting.from_pretrained(
-        model_name, local_files_only=True
+        model_name, local_files_only=True, **revision
     ).to(device).eval()
     image = Image.new("RGB", (64, 64), (90, 100, 110))
     trimap = Image.new("L", (64, 64), 0)
@@ -718,12 +802,8 @@ def verify_runtime():
     print(f"[verify] Intel XPU available: {torch.xpu.is_available()}", file=sys.stderr)
 
     # Verification runs offline: these calls prove setup cached every required snapshot.
-    for repo_id in (
-        "facebook/sam2.1-hiera-large",
-        "hustvl/vitmatte-small-composition-1k",
-        "PeiqingYang/MatAnyone2",
-    ):
-        snapshot_download(repo_id=repo_id, local_files_only=True)
+    for repo_id, revision in MODEL_REVISIONS.items():
+        snapshot_download(repo_id=repo_id, revision=revision, local_files_only=True)
         print(f"[verify] cached model: {repo_id}", file=sys.stderr)
 
     checkpoints = Path(torch.hub.get_dir()) / "checkpoints"
@@ -754,17 +834,29 @@ def write_output(request, output, probabilities, version):
     mask_dir = output / "masks"
     mask_dir.mkdir(parents=True, exist_ok=True)
     confidences = []
+    coverages = []
+    soft_edge_pixels = 0
+    active_start, active_end = request["layer"].get("active_frames") or [
+        0,
+        len(probabilities) - 1,
+    ]
     for frame, probability in enumerate(probabilities):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
-        foreground = probability[probability >= 0.5]
-        confidences.append(float(foreground.mean()) if foreground.size else 0.0)
-        Image.fromarray(np.round(probability * 255).astype(np.uint8), "L").save(
-            mask_dir / f"{frame:06}.png"
+        if not active_start <= frame <= active_end:
+            probability = np.zeros_like(probability)
+        encoded = np.round(probability * 255).astype(np.uint8)
+        support = probability[encoded > 0]
+        confidences.append(
+            float(np.mean(2.0 * np.abs(support - 0.5))) if support.size else 0.0
         )
+        if active_start <= frame <= active_end:
+            coverages.append(float(np.count_nonzero(encoded > 8) / encoded.size))
+        soft_edge_pixels += int(np.count_nonzero((encoded > 0) & (encoded < 255)))
+        Image.fromarray(encoded, "L").save(mask_dir / f"{frame:06}.png")
     backend = request["backend"]
     model = request["model"]
     artifact = (
-        "schema_version = 1\n"
+        "schema_version = 2\n"
         'kind = "alpha-sequence"\n'
         'coordinates = "source-pixels"\n'
         'pattern = "masks/%06d.png"\n'
@@ -774,16 +866,35 @@ def write_output(request, output, probabilities, version):
         f"backend = {json.dumps(backend)}\n"
         f"model = {json.dumps(model)}\n"
         f"version = {json.dumps(version)}\n"
+        f"requested_device = {json.dumps(request.get('device', 'auto'))}\n"
+        f"source_sha256 = {json.dumps(request['source']['sha256'])}\n"
+        f"prompt_sha256 = {json.dumps(request['prompt_sha256'])}\n"
+        f"worker_sha256 = {json.dumps(request['worker_sha256'])}\n"
+        + (
+            f"runtime_sha256 = {json.dumps(request['runtime_sha256'])}\n"
+            if request.get("runtime_sha256")
+            else ""
+        )
+        + f"request_sha256 = {json.dumps(request['request_sha256'])}\n"
     )
     (output / "artifact.toml").write_text(artifact, encoding="utf-8")
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "backend": backend,
         "model": model,
         "version": version,
         "frames": len(probabilities),
         "mean_confidence": float(np.mean(confidences)),
         "minimum_confidence": float(np.min(confidences)),
+        "request_sha256": request["request_sha256"],
+        "source_sha256": request["source"]["sha256"],
+        "prompt_sha256": request["prompt_sha256"],
+        "worker_sha256": request["worker_sha256"],
+        "runtime_sha256": request.get("runtime_sha256"),
+        "nonempty_frames": int(sum(coverage > 0 for coverage in coverages)),
+        "mean_coverage": float(np.mean(coverages)),
+        "maximum_coverage": float(np.max(coverages)),
+        "soft_edge_pixels": soft_edge_pixels,
     }
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
@@ -815,7 +926,8 @@ def main():
         backend=request.get("backend"),
         model=request.get("model"),
         requested_device=request.get("device", "auto"),
-        source=request.get("source", {}).get("path"),
+        source_sha256=request.get("source", {}).get("sha256"),
+        source_name=Path(request.get("source", {}).get("path", "source")).name,
     )
     print(
         f"[ml] Python worker active: pid={os.getpid()}, backend={request.get('backend')}, "
@@ -823,8 +935,10 @@ def main():
         file=sys.stderr,
         flush=True,
     )
-    if request.get("schema_version") != 1:
+    if request.get("schema_version") != 2:
         raise ValueError("unsupported worker protocol")
+    if file_sha256(request["source"]["path"]) != request["source"]["sha256"]:
+        raise ValueError("source changed after the segmentation request was created")
     args.output.mkdir(parents=True, exist_ok=True)
     backend = request["backend"]
     frame_count = request["source"]["frames"]
@@ -869,5 +983,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as error:
-        runtime_log("failed", error=f"{type(error).__name__}: {error}")
+        runtime_log("failed", error_type=type(error).__name__)
         raise

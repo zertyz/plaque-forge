@@ -1,0 +1,51 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 10
+canonical_width = 1128
+canonical_height = 177
+motion_model = "adaptive-anchors-sift-adaptive-inertia-0.35"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "none"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../16_9_mountain_top_day_humminbird_cloudy_plaque.mp4"
+sha256 = "cd69662e64812aae3845a2875857a8dad17b7c81cf88a9153aece77e367f9f9b"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 76.0
+y = 28.0
+width = 1128.0
+height = 177.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/16_9_mountain_top_day_humminbird_cloudy_plaque/refinement.toml"
+sha256 = "a6bbbc6563bdf430697a171e83003a91ff5251cbe1eae650c09b5b00f3d54eeb"
+semantic_sha256 = "59cbd797e83e0dbc094e16d63ea72303ec2238ce009bcba9d90a840b32e18f10"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.5579421244426778
+extraction = 0.8625825586675749
+occlusion = 0.8
+overall = 0.783748047177275

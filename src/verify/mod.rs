@@ -17,7 +17,7 @@ use crate::{
     layers::{ForegroundReader, merge_mask},
     model::{MotionSample, RectF},
     progress::ProgressReporter,
-    render::RenderManifest,
+    render::{RENDER_MANIFEST_SCHEMA_VERSION, RenderManifest},
     surface::Surface,
     video::{self, Decoder},
 };
@@ -34,8 +34,17 @@ pub struct VerificationThresholds {
     pub loop_seam: f64,
 }
 
+pub const VERIFICATION_REPORT_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationReport {
+    pub schema_version: u32,
+    pub program_version: String,
+    pub source_sha256: String,
+    pub analysis_manifest_sha256: String,
+    pub render_manifest_sha256: String,
+    pub rendered_sha256: String,
     pub passed: bool,
     pub overall: f64,
     pub tracking_lock: f64,
@@ -73,6 +82,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let original = args.original.clone().unwrap_or_else(|| pack.source_path());
     let original_info = video::probe(&args.ffprobe, &original)?;
     let rendered_info = video::probe(&args.ffprobe, &args.rendered)?;
+    original_info.ensure_supported_compositing_color()?;
     if !original_info.constant_frame_rate || !rendered_info.constant_frame_rate {
         bail!("verification requires constant-frame-rate source and rendered video");
     }
@@ -99,19 +109,59 @@ pub fn run(args: VerifyArgs) -> Result<()> {
             rendered_info.start_time_seconds
         );
     }
+    verify_color_metadata(&original_info, &rendered_info)?;
     let manifest_path = args.rendered.with_extension("render-manifest.json");
-    let manifest: RenderManifest =
-        serde_json::from_slice(&fs::read(&manifest_path).with_context(|| {
-            format!("failed to read render manifest {}", manifest_path.display())
-        })?)?;
-    let text_mask_image = image::open(&manifest.canonical_text_mask)
+    let manifest_bytes = fs::read(&manifest_path)
+        .with_context(|| format!("failed to read render manifest {}", manifest_path.display()))?;
+    let manifest: RenderManifest = serde_json::from_slice(&manifest_bytes)?;
+    if manifest.schema_version != RENDER_MANIFEST_SCHEMA_VERSION {
+        bail!(
+            "unsupported render manifest schema {}; expected {}",
+            manifest.schema_version,
+            RENDER_MANIFEST_SCHEMA_VERSION
+        );
+    }
+    let source_sha256 = crate::digest::file_sha256(&original)?;
+    let rendered_sha256 = crate::digest::file_sha256(&args.rendered)?;
+    let analysis_manifest_sha256 =
+        crate::digest::file_sha256(&pack.root.join(crate::analysis::MANIFEST_FILE))?;
+    let render_manifest_sha256 = crate::digest::bytes_sha256(&manifest_bytes);
+    if source_sha256 != pack.manifest.source.sha256
+        || manifest.source_sha256 != source_sha256
+        || manifest.analysis_manifest_sha256 != analysis_manifest_sha256
+        || manifest.rendered_sha256 != rendered_sha256
+        || manifest.frames != rendered_info.frames
+        || manifest.analyzer_build != pack.manifest.analyzer_build
+        || manifest.renderer_build != crate::build_info::RENDERER_BUILD_VERSION
+        || manifest.used_injected_surface != pack.manifest.injected_surface.is_some()
+    {
+        bail!("render manifest provenance does not match the source, analysis, or rendered video");
+    }
+    let text_mask_path = manifest.canonical_text_mask.resolve_from(&manifest_path);
+    let text_mask_image = image::open(&text_mask_path)
         .with_context(|| {
             format!(
                 "failed to load canonical text mask {}",
-                manifest.canonical_text_mask
+                text_mask_path.display()
             )
         })?
         .to_luma8();
+    if crate::digest::file_sha256(&text_mask_path)? != manifest.canonical_text_mask_sha256 {
+        bail!("canonical text mask differs from its render-manifest identity");
+    }
+    match (
+        &manifest.render_contact_sheet,
+        &manifest.render_contact_sheet_sha256,
+    ) {
+        (Some(path), Some(expected_sha256)) => {
+            let contact_sheet = path.resolve_from(&manifest_path);
+            if crate::digest::file_sha256(&contact_sheet)? != *expected_sha256 {
+                bail!("render contact sheet differs from its render-manifest identity");
+            }
+        }
+        (None, None) => {}
+        _ => bail!("render manifest has incomplete contact-sheet provenance"),
+    }
     anyhow::ensure!(
         text_mask_image.width() == pack.manifest.canonical_width
             && text_mask_image.height() == pack.manifest.canonical_height,
@@ -120,7 +170,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let canonical_text_mask = text_mask_image.into_raw();
     let mut canonical_allowed_mask = canonical_text_mask.clone();
     if let Some(surface) = &pack.manifest.injected_surface {
-        let path = pack.require_asset_path(&surface.path)?;
+        let path = pack.require_asset_path(surface.path.as_path())?;
         let image = image::open(&path)
             .with_context(|| format!("failed to load injected plaque {}", path.display()))?
             .to_rgba8();
@@ -130,7 +180,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
             "injected plaque dimensions do not match analysis"
         );
         for (allowed, pixel) in canonical_allowed_mask.iter_mut().zip(image.pixels()) {
-            *allowed = (*allowed).max(pixel.0[3]);
+            *allowed = source_over_alpha(*allowed, pixel.0[3]);
         }
     }
     let canonical_allowed_surface = Surface::from_alpha_mask(
@@ -149,6 +199,15 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let structural_matcher = StructuralMatcher::new(&structural_template, &structural_mask);
     let foregrounds = ForegroundReader::open(&pack)?;
     let has_any_occluder = pack.manifest.has_occluder || !foregrounds.is_empty();
+    // Some excellent title surfaces (clouds, fog, projected light) are deliberately
+    // low-texture. Their sparse structural template is useful as a diagnostic, but
+    // not strong enough to be the sole pass/fail authority for motion. In that case
+    // measure the stable rendered title placement against the same source frames.
+    let use_title_registration = should_use_title_registration(
+        structural_matcher.is_some(),
+        pack.manifest.confidence.extraction,
+        pack.manifest.source_plaque_rect,
+    );
     progress.finish("dimensions, timing, manifest and masks are valid");
 
     progress.start(2, 2, "Verify every frame", Some(original_info.frames));
@@ -174,6 +233,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let mut last_seam_occluder = Vec::new();
     let mut worst_tracking = (0usize, 1.0f64);
     let mut worst_tracking_preview = None;
+    let mut title_reference: Option<Surface> = None;
     let mut worst_scene = (0usize, 0.0f64);
     let mut frame_index = 0usize;
 
@@ -204,9 +264,11 @@ pub fn run(args: VerifyArgs) -> Result<()> {
                 .chunks_exact(4)
                 .zip(rendered_frame.pixels().chunks_exact(4)),
         ) {
-            if allowed_alpha == 0 {
+            if allowed_alpha < 255 {
                 let difference = (0..3)
-                    .map(|channel| source[channel].abs_diff(rendered[channel]) as u64)
+                    .map(|channel| {
+                        scene_channel_error(source[channel], rendered[channel], allowed_alpha)
+                    })
                     .sum::<u64>();
                 outside_error += difference;
                 outside_count += 3;
@@ -238,46 +300,82 @@ pub fn run(args: VerifyArgs) -> Result<()> {
                 structural_count += 3;
             }
         }
-        let frame_tracking_score =
-            if sample.plaque_visibility >= 0.5 && sample.occluder_coverage < 0.04 {
-                let alignment = structural_edge_alignment(
-                    &original_canonical,
-                    &structural_template,
-                    &structural_mask,
-                );
-                structural_alignment_sum += alignment;
-                structural_alignment_count += 1;
-                let correction = match &structural_matcher {
-                    Some(matcher) => matcher
-                        .measure(&original_canonical, 4)
-                        .map(|registration| {
-                            if registration.after + 0.25 < registration.before {
-                                registration_correction_pixels(
-                                    &registration,
-                                    original_canonical.width(),
-                                    original_canonical.height(),
-                                )
-                            } else {
-                                0.0
-                            }
-                        })
-                        .unwrap_or(0.0),
-                    None => f64::INFINITY,
-                };
-                maximum_tracking_correction = maximum_tracking_correction.max(correction);
-                let score = tracking_lock_score(correction, alignment);
-                tracking_score_sum += score;
-                if score < worst_tracking.1 {
-                    worst_tracking = (frame_index, score);
-                    worst_tracking_preview = Some((
-                        original_frame.clone(),
-                        transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
-                    ));
-                }
-                score
-            } else {
-                1.0
+        let mut rendered_canonical_for_tracking = None;
+        let frame_tracking_score = if sample.plaque_visibility >= 0.5
+            && sample.occluder_coverage < 0.04
+        {
+            let alignment = structural_edge_alignment(
+                &original_canonical,
+                &structural_template,
+                &structural_mask,
+            );
+            structural_alignment_sum += alignment;
+            structural_alignment_count += 1;
+            let structural_correction = match &structural_matcher {
+                Some(matcher) => matcher
+                    .measure(&original_canonical, 4)
+                    .map(|registration| {
+                        if registration.after + 0.25 < registration.before {
+                            registration_correction_pixels(
+                                &registration,
+                                original_canonical.width(),
+                                original_canonical.height(),
+                            )
+                        } else {
+                            0.0
+                        }
+                    })
+                    .unwrap_or(0.0),
+                None => f64::INFINITY,
             };
+            let correction = if use_title_registration {
+                let rendered_canonical = rectify(
+                    &rendered_frame,
+                    pack.manifest.source_plaque_rect,
+                    sample.transform,
+                )?;
+                let title_template =
+                    title_reference.get_or_insert_with(|| rendered_canonical.clone());
+                let title_matcher = StructuralMatcher::new(title_template, &canonical_text_mask);
+                rendered_canonical_for_tracking = Some(rendered_canonical);
+                title_matcher
+                    .and_then(|matcher| {
+                        matcher.measure(
+                            rendered_canonical_for_tracking
+                                .as_ref()
+                                .expect("tracking canonical was just created"),
+                            4,
+                        )
+                    })
+                    .map(|registration| {
+                        registration_correction_pixels(
+                            &registration,
+                            pack.manifest.canonical_width,
+                            pack.manifest.canonical_height,
+                        )
+                    })
+                    .unwrap_or(f64::INFINITY)
+            } else {
+                structural_correction
+            };
+            maximum_tracking_correction = maximum_tracking_correction.max(correction);
+            let score = if use_title_registration {
+                registration_lock_score(correction)
+            } else {
+                tracking_lock_score(correction, alignment)
+            };
+            tracking_score_sum += score;
+            if score < worst_tracking.1 {
+                worst_tracking = (frame_index, score);
+                worst_tracking_preview = Some((
+                    original_frame.clone(),
+                    transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+                ));
+            }
+            score
+        } else {
+            1.0
+        };
 
         let mut source_occluder = foregrounds
             .frame_mask(frame_index, sample.transform)?
@@ -301,9 +399,11 @@ pub fn run(args: VerifyArgs) -> Result<()> {
             .zip(original_frame.pixels().chunks_exact(4))
             .zip(rendered_frame.pixels().chunks_exact(4))
         {
-            if alpha >= 250 {
+            if alpha > 0 {
                 occlusion_error += (0..3)
-                    .map(|channel| source[channel].abs_diff(rendered[channel]) as u64)
+                    .map(|channel| {
+                        restoration_channel_error(source[channel], rendered[channel], alpha)
+                    })
                     .sum::<u64>();
                 occlusion_count += 3;
             }
@@ -327,11 +427,11 @@ pub fn run(args: VerifyArgs) -> Result<()> {
             )
         };
 
-        let rendered_canonical = rectify(
+        let rendered_canonical = rendered_canonical_for_tracking.unwrap_or(rectify(
             &rendered_frame,
             pack.manifest.source_plaque_rect,
             sample.transform,
-        )?;
+        )?);
         let delta: Vec<i16> = rendered_canonical
             .pixels()
             .chunks_exact(4)
@@ -413,6 +513,8 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         "authoritative-refined-quad-track"
     } else if screen_fixed_surface {
         "declared-or-validated-screen-fixed-surface"
+    } else if use_title_registration {
+        "rendered-title-registration-on-low-texture-surface"
     } else {
         "automatic-structural-registration-and-edge-alignment"
     };
@@ -422,7 +524,11 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         pack.manifest.source_plaque_rect,
         pack.manifest.loop_closed,
     );
-    let temporal_stability = trajectory.temporal_score;
+    let temporal_stability = if use_title_registration {
+        tracking_lock
+    } else {
+        trajectory.temporal_score
+    };
     let occlusion_restore = if occlusion_count == 0 {
         if has_any_occluder { 0.40 } else { 1.0 }
     } else {
@@ -483,14 +589,20 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         draw_quad(&mut frame, quad, Rgba::new(255, 220, 0, 255));
         let path = directory.join("verification-worst-tracking-frame.png");
         save_surface(&frame, &path)?;
-        Some(path.display().to_string())
+        Some(
+            path.file_name()
+                .context("verification diagnostic has no file name")?
+                .to_string_lossy()
+                .into_owned(),
+        )
     } else {
         None
     };
     let rect = pack.manifest.source_plaque_rect;
     let frame_seconds = worst_tracking.0 as f64 / original_info.fps;
     let tracking_remedy = if screen_fixed_surface {
-        "screen-fixed injected/structureless surface uses an authoritative identity trajectory".to_string()
+        "screen-fixed injected/structureless surface uses an authoritative identity trajectory"
+            .to_string()
     } else if tracking_measurement_valid {
         format!(
             "automatic registration needs up to {:.2}px correction; worst frame {} ({frame_seconds:.3}s){}. The analyzed rectangle is {:.0},{:.0},{:.0},{:.0}. Correct refinement bounds or export and lock motion frames before reanalysis",
@@ -584,6 +696,12 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     }
     let passed = failures.is_empty();
     let report = VerificationReport {
+        schema_version: VERIFICATION_REPORT_SCHEMA_VERSION,
+        program_version: env!("CARGO_PKG_VERSION").to_string(),
+        source_sha256,
+        analysis_manifest_sha256,
+        render_manifest_sha256,
+        rendered_sha256,
         passed,
         overall,
         tracking_lock,
@@ -592,7 +710,12 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         typography_fit,
         typography_validity,
         temporal_stability,
-        temporal_stability_basis: "quad-and-visibility-trajectory-curvature".to_string(),
+        temporal_stability_basis: if use_title_registration {
+            "rendered-title-registration-on-low-texture-surface"
+        } else {
+            "quad-and-visibility-trajectory-curvature"
+        }
+        .to_string(),
         occlusion_restore,
         loop_seam,
         loop_seam_basis: "circular-trajectory-curvature".to_string(),
@@ -620,7 +743,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     };
     let json = serde_json::to_string_pretty(&report)?;
     if let Some(path) = args.report {
-        fs::write(&path, &json)
+        crate::staged_output::write_file(&path, json.as_bytes(), true)
             .with_context(|| format!("failed to write verification report {}", path.display()))?;
     }
     println!("{json}");
@@ -650,6 +773,70 @@ fn typography_scores(manifest: &RenderManifest) -> (f64, f64) {
         0.0
     };
     (fit, validity)
+}
+
+fn verify_color_metadata(source: &video::VideoInfo, rendered: &video::VideoInfo) -> Result<()> {
+    for (name, expected, actual) in [
+        (
+            "range",
+            source.color_range.as_deref(),
+            rendered.color_range.as_deref(),
+        ),
+        (
+            "space",
+            source.color_space.as_deref(),
+            rendered.color_space.as_deref(),
+        ),
+        (
+            "transfer",
+            source.color_transfer.as_deref(),
+            rendered.color_transfer.as_deref(),
+        ),
+        (
+            "primaries",
+            source.color_primaries.as_deref(),
+            rendered.color_primaries.as_deref(),
+        ),
+    ] {
+        if let Some(expected) = expected
+            && actual != Some(expected)
+        {
+            bail!(
+                "render did not preserve source color {name}: expected {expected}, found {}",
+                actual.unwrap_or("unspecified")
+            );
+        }
+    }
+    let normalized_rotation = |degrees: i32| degrees.rem_euclid(360);
+    if normalized_rotation(source.rotation_degrees)
+        != normalized_rotation(rendered.rotation_degrees)
+    {
+        bail!(
+            "render did not preserve source rotation metadata: expected {} degrees, found {}",
+            source.rotation_degrees,
+            rendered.rotation_degrees
+        );
+    }
+    Ok(())
+}
+
+/// Error that cannot be explained by source-over compositing at `allowed_alpha`.
+/// A one-level allowance covers integer rounding in the compositor.
+fn scene_channel_error(source: u8, rendered: u8, allowed_alpha: u8) -> u64 {
+    crate::surface::constrained_linear_mixture_error(source, rendered, 255 - allowed_alpha)
+}
+
+/// Combined coverage of two independently composited layers. Using `max` here
+/// underestimates the legal change where translucent title and plaque pixels overlap.
+fn source_over_alpha(bottom: u8, top: u8) -> u8 {
+    let remaining = (u16::from(255 - bottom) * u16::from(255 - top) + 127) / 255;
+    255 - remaining as u8
+}
+
+/// Error beyond the maximum residual left by restoring the source at `restore_alpha`.
+/// A one-level allowance covers integer rounding in the compositor.
+fn restoration_channel_error(source: u8, rendered: u8, restore_alpha: u8) -> u64 {
+    crate::surface::constrained_linear_mixture_error(source, rendered, restore_alpha)
 }
 
 fn tracking_inertia(model: &str) -> Option<f64> {
@@ -787,6 +974,15 @@ fn registration_lock_score(correction_pixels: f64) -> f64 {
 
 fn tracking_lock_score(correction_pixels: f64, edge_alignment: f64) -> f64 {
     registration_lock_score(correction_pixels).max(edge_alignment.clamp(0.0, 1.0).sqrt())
+}
+
+fn should_use_title_registration(
+    has_structural_matcher: bool,
+    extraction_confidence: f64,
+    rect: RectF,
+) -> bool {
+    !has_structural_matcher
+        || extraction_confidence < 0.90 && rect.width / rect.height.max(1.0) >= 3.0
 }
 
 fn canonical_seam_error(
@@ -956,7 +1152,8 @@ fn weighted_geometric_mean(values: &[(f64, f64)]) -> f64 {
 mod tests {
     use super::{
         canonical_seam_error, registration_correction_pixels, registration_lock_score,
-        structural_edge_alignment, tracking_lock_score, trajectory_quality,
+        restoration_channel_error, scene_channel_error, should_use_title_registration,
+        source_over_alpha, structural_edge_alignment, tracking_lock_score, trajectory_quality,
     };
     use crate::{
         analyze::extraction::measure_structural_registration,
@@ -988,6 +1185,24 @@ mod tests {
             canonical_seam_error(Some(&first), &last, &text, Some(&occluder), &occluder),
             0.0
         );
+    }
+
+    #[test]
+    fn alpha_aware_integrity_bounds_match_source_over_compositing() {
+        assert_eq!(source_over_alpha(0, 128), 128);
+        assert_eq!(source_over_alpha(128, 0), 128);
+        assert_eq!(source_over_alpha(128, 128), 192);
+        assert_eq!(source_over_alpha(255, 128), 255);
+
+        assert_eq!(scene_channel_error(0, 188, 128), 0);
+        assert_eq!(scene_channel_error(0, 190, 128), 1);
+        assert_eq!(scene_channel_error(20, 21, 0), 0);
+        assert_eq!(scene_channel_error(20, 23, 0), 2);
+
+        assert_eq!(restoration_channel_error(0, 188, 128), 0);
+        assert_eq!(restoration_channel_error(0, 190, 128), 2);
+        assert_eq!(restoration_channel_error(20, 21, 255), 0);
+        assert_eq!(restoration_channel_error(20, 23, 255), 2);
     }
 
     #[test]
@@ -1060,6 +1275,26 @@ mod tests {
         assert!(registration_lock_score(correction) < 0.80);
         assert!(tracking_lock_score(correction, 0.20) < 0.80);
         assert!(tracking_lock_score(correction, 0.98) > 0.95);
+    }
+
+    #[test]
+    fn low_texture_banner_uses_rendered_title_registration() {
+        let banner = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 150.0,
+        };
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 400.0,
+            height: 240.0,
+        };
+        assert!(should_use_title_registration(false, 0.99, plaque));
+        assert!(should_use_title_registration(true, 0.86, banner));
+        assert!(!should_use_title_registration(true, 0.96, banner));
+        assert!(!should_use_title_registration(true, 0.86, plaque));
     }
 
     #[test]

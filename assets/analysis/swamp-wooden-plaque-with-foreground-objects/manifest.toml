@@ -1,0 +1,146 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 72
+canonical_width = 641
+canonical_height = 285
+motion_model = "declared-screen-fixed"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "authored-only"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../swamp-wooden-plaque-with-foreground-objects.mp4"
+sha256 = "5d575c9efcbaf5985bc5978478d4ad422ab013af9b2a972e67da3bce98bfb60f"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 327.0
+y = 30.0
+width = 641.0
+height = 285.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[[layers]]
+id = "writing-surface"
+role = "writing-surface"
+coordinates = "plaque-canonical"
+kind = "alpha-image"
+affects_layout = true
+path = "layers/writing-surface/mask.png"
+
+[[layers]]
+id = "attached"
+role = "foreground"
+coordinates = "plaque-canonical"
+kind = "alpha-image"
+affects_layout = false
+path = "layers/attached/mask.png"
+
+[layers.generator]
+backend = "sam2-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0@xpu+vitmatte-4.57.1@xpu"
+
+[[layers]]
+id = "attached-shadow"
+role = "shadow"
+coordinates = "plaque-canonical"
+kind = "alpha-image"
+affects_layout = false
+path = "layers/attached-shadow/mask.png"
+
+[layers.generator]
+backend = "derived-shadow"
+model = "gaussian-alpha"
+version = "1"
+
+[[layers]]
+id = "lizard"
+role = "foreground"
+coordinates = "source-pixels"
+kind = "alpha-sequence"
+affects_layout = false
+path = "layers/lizard/%06d.png"
+first_frame = 0
+last_frame = 239
+
+[layers.generator]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0@xpu+cutie-1.0.0@xpu+vitmatte-4.57.1@xpu"
+requested_device = "auto"
+source_sha256 = "5d575c9efcbaf5985bc5978478d4ad422ab013af9b2a972e67da3bce98bfb60f"
+prompt_sha256 = "cfde4cc4aea7d0994850834e1a90ee17bb9c82b5885015400c8943c9e3c7e2d5"
+worker_sha256 = "4e6e506631a7984b629cddee755dc7f8b39230fe55ca901be2e63578018cce7b"
+runtime_sha256 = "d9061d16e6890517575777af1e1589478040db364d30fc82366e819ba2246cae"
+request_sha256 = "a3ee4c9a52430ea83ad65795b7eff1e886b289ac282414a29badd9e0c1d63181"
+
+[[layers]]
+id = "lizard-shadow"
+role = "shadow"
+coordinates = "source-pixels"
+kind = "alpha-sequence"
+affects_layout = false
+path = "layers/lizard-shadow/%06d.png"
+first_frame = 0
+last_frame = 239
+
+[layers.generator]
+backend = "derived-shadow"
+model = "gaussian-alpha"
+version = "1"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/swamp-wooden-plaque-with-foreground-objects/refinement.toml"
+sha256 = "1b9d433b5a32c604d93518c24f940e328765c21c0d57e39c0a866e206403d6e2"
+semantic_sha256 = "b68132bb9255ba1a3d29e423827f2ecc68ef25a18a1fb4ae6778bfc1c28fb6da"
+
+[[refinements.layer_artifacts]]
+path = "../../refinements/swamp-wooden-plaque-with-foreground-objects/writing-surface.toml"
+sha256 = "fc21af6d3c0156a267df3b69a33cd16f76d39c7a4ef60bb89584d1294bf445be"
+semantic_sha256 = "e94f46010c54145ec290f215b991cfd62b2f0f7715262249dd2bce2408437e95"
+
+[[refinements.layer_artifacts]]
+path = "../../refinements/swamp-wooden-plaque-with-foreground-objects/attached.toml"
+sha256 = "df2581f7a30a49711e1d27437a3af994baed93966291ad711c655fa96c54a44d"
+semantic_sha256 = "d7cf3ae2574a7ebaf1283c149bd031740ba032ca007a2f3ea40dd34a637c9310"
+
+[[refinements.layer_artifacts]]
+path = "../../refinements/swamp-wooden-plaque-with-foreground-objects/attached-shadow.toml"
+sha256 = "72087b13c64643b3eef66b672c2cdaffb98178460dd875a081b23e2d011d4ab4"
+semantic_sha256 = "45d8e6d1a174171639b1188b6d13d85b7213f7b95eb146f49156d4a3b1cb41f2"
+
+[[refinements.layer_artifacts]]
+path = "../../refinements/swamp-wooden-plaque-with-foreground-objects/lizard/artifact.toml"
+sha256 = "c3b82b29e53e2a28e872ea10b5679a68508f77dd3802d6b9d2d68d3ee9b93095"
+semantic_sha256 = "927d3823abffb31bd66fd0a50017632210fbf4f27d11f3f7668ee933534b33ac"
+
+[[refinements.layer_artifacts]]
+path = "../../refinements/swamp-wooden-plaque-with-foreground-objects/lizard-shadow.toml"
+sha256 = "bf25c057a47a0241ab922268487356e846eded5605ac535bc2fed484530405eb"
+semantic_sha256 = "34bd57f03a64240ee5949335184e38774a6cc99e8c98c54c10615cb15bb829e2"
+
+[confidence]
+plaque_detection = 0.92
+motion = 0.98
+extraction = 0.8093427210772641
+occlusion = 0.8
+overall = 0.8740959113692227

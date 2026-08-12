@@ -1,0 +1,51 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 207
+canonical_width = 548
+canonical_height = 391
+motion_model = "declared-screen-fixed"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "none"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../static-holographic-plaque-with-background-movement.mp4"
+sha256 = "16d67cd9ff07bd7a8ff172d3b9cd7f4d57dcec81034ee328c7753d588cfeb2ee"
+width = 720
+height = 1280
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 87.0
+y = 208.0
+width = 548.0
+height = 391.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/static-holographic-plaque-with-background-movement/refinement.toml"
+sha256 = "03c3d066d104899e32a3990a6fae43867b1983cc135a27605f9353fe1cdce8b8"
+semantic_sha256 = "6f6254ab75a0155fe4a63b6d298fb364e144c016f056999189321ff55bce8c6c"
+
+[confidence]
+plaque_detection = 0.92
+motion = 0.98
+extraction = 0.9181897203502156
+occlusion = 0.8
+overall = 0.9021091317882909

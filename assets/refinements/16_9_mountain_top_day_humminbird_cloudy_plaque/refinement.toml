@@ -7,10 +7,13 @@ default_plaque = "main"
 id = "main"
 reference_frame = 10
 bounds = [76.0, 28.0, 1128.0, 177.0]
+occlusion = "none"
 
 [plaques.surface]
 type = "source"
-motion = "screen"
+# The cloud itself tilts and translates late in the shot. This is intentionally
+# scene-tracked, never a screen-fixed fallback for its low-texture interior.
+motion = "scene"
 
 [plaques.writable_region]
 shape = "rounded-rect"

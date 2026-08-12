@@ -1,0 +1,51 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 10
+canonical_width = 494
+canonical_height = 423
+motion_model = "declared-screen-fixed"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "none"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../9_16_background_ogre_dear.mp4"
+sha256 = "3928bf5ea14c4ce1e9aaaa36c179251dae629fd3ab9b9a52ea43fd3c099c826f"
+width = 720
+height = 1280
+fps = 24.0
+frames = 192
+duration_seconds = 8.0
+
+[source_plaque_rect]
+x = 20.0
+y = 104.0
+width = 494.0
+height = 423.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/9_16_background_ogre_dear/refinement.toml"
+sha256 = "344b21440daa33319c0ebc9b84590eb716565e0566545f09eb0bbb24a25cb818"
+semantic_sha256 = "b047905f21782607e9dcefa394e22a6e0fe079ff543a7f7029f556abfce997f3"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.98
+extraction = 0.9610833548683493
+occlusion = 0.8
+overall = 0.9269915994664276

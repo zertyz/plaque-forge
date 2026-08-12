@@ -3,6 +3,7 @@ use crate::{
     geometry::{Point, Quad, homography},
 };
 use anyhow::{Result, bail};
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug)]
 pub struct Surface {
@@ -56,16 +57,17 @@ impl Surface {
         if mask.len() != self.width as usize * self.height as usize {
             bail!("restore mask dimensions do not match frame");
         }
-        for ((dst, src), &a) in self
+        for ((dst, src), &alpha) in self
             .pixels
             .chunks_exact_mut(4)
             .zip(original.pixels.chunks_exact(4))
             .zip(mask)
         {
-            let a = a as u16;
-            for c in 0..4 {
-                dst[c] = (((src[c] as u16 * a) + (dst[c] as u16 * (255 - a)) + 127) / 255) as u8;
-            }
+            blend_over(
+                dst,
+                Rgba::new(src[0], src[1], src[2], src[3]),
+                alpha as f32 / 255.0,
+            );
         }
         Ok(())
     }
@@ -284,16 +286,36 @@ impl Surface {
         let p10 = self.pixel(x1, y0);
         let p01 = self.pixel(x0, y1);
         let p11 = self.pixel(x1, y1);
-        let channel = |a: u8, b: u8, c: u8, d: u8| -> u8 {
-            let top = a as f32 + (b as f32 - a as f32) * fx;
-            let bottom = c as f32 + (d as f32 - c as f32) * fx;
-            (top + (bottom - top) * fy).round().clamp(0.0, 255.0) as u8
+        let weights = [
+            (1.0 - fx) * (1.0 - fy),
+            fx * (1.0 - fy),
+            (1.0 - fx) * fy,
+            fx * fy,
+        ];
+        let pixels = [p00, p10, p01, p11];
+        let alpha = pixels
+            .iter()
+            .zip(weights)
+            .map(|(pixel, weight)| pixel.a as f32 / 255.0 * weight)
+            .sum::<f32>();
+        if alpha <= f32::EPSILON {
+            return Some(Rgba::new(0, 0, 0, 0));
+        }
+        let channel = |select: fn(&Rgba) -> u8| -> u8 {
+            let premultiplied = pixels
+                .iter()
+                .zip(weights)
+                .map(|(pixel, weight)| {
+                    srgb_to_linear(select(pixel)) * (pixel.a as f32 / 255.0) * weight
+                })
+                .sum::<f32>();
+            linear_to_srgb(premultiplied / alpha)
         };
         Some(Rgba::new(
-            channel(p00.r, p10.r, p01.r, p11.r),
-            channel(p00.g, p10.g, p01.g, p11.g),
-            channel(p00.b, p10.b, p01.b, p11.b),
-            channel(p00.a, p10.a, p01.a, p11.a),
+            channel(|pixel| pixel.r),
+            channel(|pixel| pixel.g),
+            channel(|pixel| pixel.b),
+            (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
         ))
     }
 
@@ -315,13 +337,70 @@ fn blend_over(destination: &mut [u8], source: Rgba, opacity: f32) {
     }
     let source_channels = [source.r, source.g, source.b];
     for channel in 0..3 {
-        let s = source_channels[channel] as f32 / 255.0;
-        let d = destination[channel] as f32 / 255.0;
-        destination[channel] = (((s * sa + d * da * (1.0 - sa)) / out_a) * 255.0)
-            .round()
-            .clamp(0.0, 255.0) as u8;
+        let source_linear = srgb_to_linear(source_channels[channel]);
+        let destination_linear = srgb_to_linear(destination[channel]);
+        destination[channel] =
+            linear_to_srgb((source_linear * sa + destination_linear * da * (1.0 - sa)) / out_a);
     }
     destination[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+}
+
+fn srgb_to_linear(value: u8) -> f32 {
+    static TABLE: OnceLock<[f32; 256]> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        std::array::from_fn(|index| {
+            let encoded = index as f32 / 255.0;
+            if encoded <= 0.04045 {
+                encoded / 12.92
+            } else {
+                ((encoded + 0.055) / 1.055).powf(2.4)
+            }
+        })
+    })[value as usize]
+}
+
+fn linear_to_srgb(value: f32) -> u8 {
+    static TABLE: OnceLock<Box<[u8; 65_536]>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        Box::new(std::array::from_fn(|index| {
+            let linear = index as f32 / 65_535.0;
+            let encoded = if linear <= 0.003_130_8 {
+                linear * 12.92
+            } else {
+                1.055 * linear.powf(1.0 / 2.4) - 0.055
+            };
+            (encoded * 255.0).round().clamp(0.0, 255.0) as u8
+        }))
+    });
+    let index = (value.clamp(0.0, 1.0) * 65_535.0).round() as usize;
+    table[index]
+}
+
+/// Distance outside all possible linear-light mixtures containing `known` at
+/// exactly `known_weight`. A one-level encoded allowance covers LUT/FFmpeg rounding.
+pub(crate) fn constrained_linear_mixture_error(known: u8, observed: u8, known_weight: u8) -> u64 {
+    static BOUNDS: OnceLock<Box<[(u8, u8)]>> = OnceLock::new();
+    let bounds = BOUNDS.get_or_init(|| {
+        (0..=u16::MAX)
+            .map(|index| {
+                let known = (index >> 8) as u8;
+                let known_weight = (index & 0xff) as f32 / 255.0;
+                let known_contribution = srgb_to_linear(known) * known_weight;
+                (
+                    linear_to_srgb(known_contribution).saturating_sub(1),
+                    linear_to_srgb(known_contribution + 1.0 - known_weight).saturating_add(1),
+                )
+            })
+            .collect()
+    });
+    let (minimum, maximum) = bounds[usize::from(known) * 256 + usize::from(known_weight)];
+    if observed < minimum {
+        u64::from(minimum - observed)
+    } else if observed > maximum {
+        u64::from(observed - maximum)
+    } else {
+        0
+    }
 }
 
 fn blur_rgba_horizontal(
@@ -430,5 +509,38 @@ mod tests {
             .unwrap();
         let center = destination.pixel(16, 16);
         assert_eq!(center, Rgba::new(20, 120, 220, 255));
+    }
+
+    #[test]
+    fn source_over_compositing_uses_linear_light() {
+        let mut destination = [0, 0, 0, 255];
+        blend_over(&mut destination, Rgba::new(255, 255, 255, 128), 1.0);
+        assert!((187..=189).contains(&destination[0]));
+        assert_eq!(destination[0], destination[1]);
+        assert_eq!(destination[1], destination[2]);
+        assert_eq!(destination[3], 255);
+    }
+
+    #[test]
+    fn bilinear_sampling_interpolates_premultiplied_color() {
+        let mut source = Surface::new(2, 1);
+        source.set_pixel(0, 0, Rgba::new(255, 0, 0, 255));
+        source.set_pixel(1, 0, Rgba::new(0, 0, 255, 0));
+
+        let middle = source.sample_bilinear(0.5, 0.0).unwrap();
+        assert_eq!(middle.r, 255);
+        assert_eq!(middle.g, 0);
+        assert_eq!(middle.b, 0);
+        assert!((127..=128).contains(&middle.a));
+    }
+
+    #[test]
+    fn mixture_bound_uses_linear_light_not_encoded_alpha_distance() {
+        assert_eq!(constrained_linear_mixture_error(0, 188, 127), 0);
+        assert_eq!(constrained_linear_mixture_error(0, 190, 127), 1);
+        assert_eq!(constrained_linear_mixture_error(32, 33, 255), 0);
+        assert_eq!(constrained_linear_mixture_error(32, 35, 255), 2);
+        assert_eq!(constrained_linear_mixture_error(128, 0, 0), 0);
+        assert_eq!(constrained_linear_mixture_error(128, 255, 0), 0);
     }
 }

@@ -10,7 +10,7 @@ use opencv::{
     core::{self, DMatch, KeyPoint, Mat, Point, Point2f, Rect, Scalar, Vector},
     features2d, geometry, imgcodecs, imgproc,
     prelude::*,
-    videoio::{CAP_ANY, CAP_PROP_FRAME_COUNT, CAP_PROP_POS_FRAMES, VideoCapture},
+    videoio::{CAP_PROP_FRAME_COUNT, CAP_PROP_POS_FRAMES, VideoCapture},
 };
 
 use crate::{
@@ -352,10 +352,7 @@ pub fn load_dense_refinement(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let mut capture = VideoCapture::from_file(&args.input.to_string_lossy(), CAP_ANY)?;
-    if !capture.is_opened()? {
-        bail!("failed to open {}", args.input.display());
-    }
+    let mut capture = crate::video::open_capture(&args.input)?;
     progress.start(3, 7, "Load refined plaque track", Some(info.frames));
     write_tracking_diagnostics(&mut capture, &samples, plaque, diagnostics, info.frames)?;
     progress.update(
@@ -443,11 +440,7 @@ fn track_with_exclusions(
         bail!("tracking anchor interval must be at least 1");
     }
 
-    let mut capture = VideoCapture::from_file(&args.input.to_string_lossy(), CAP_ANY)
-        .with_context(|| format!("failed to open input video {}", args.input.display()))?;
-    if !capture.is_opened()? {
-        bail!("input video could not be opened: {}", args.input.display());
-    }
+    let mut capture = crate::video::open_capture(&args.input)?;
     let actual_frames = capture.get(CAP_PROP_FRAME_COUNT)?.round().max(1.0) as usize;
     let frame_count = info.frames.min(actual_frames).max(1);
     let reference_frame = reference_frame.min(frame_count.saturating_sub(1));
@@ -1775,6 +1768,15 @@ pub(crate) fn stabilize_occluded_intervals(
         if last + 1 < samples.len() {
             anchors.push((last + 1, samples[last + 1].transform));
         }
+        // A one-sided bridge freezes pose indefinitely and can leave typography on
+        // screen after its plaque exits. Without observations on both sides, retain
+        // the tracked trajectory and let visibility/off-screen geometry suppress it.
+        let has_left = anchors.iter().any(|anchor| anchor.0 < first_active);
+        let has_right = anchors.iter().any(|anchor| anchor.0 > last_active);
+        if !has_left || !has_right {
+            cursor += 1;
+            continue;
+        }
         anchors.sort_by_key(|anchor| anchor.0);
         anchors.dedup_by_key(|anchor| anchor.0);
         for (frame, sample) in samples.iter_mut().enumerate().take(last + 1).skip(first) {
@@ -1788,7 +1790,7 @@ pub(crate) fn stabilize_occluded_intervals(
                     let t = (frame - left_frame) as f64 / (right_frame - left_frame) as f64;
                     interpolate_plaque_transform(plaque, left, right, t)
                 }
-                (Some(&(_, transform)), None) | (None, Some(&(_, transform))) => Some(transform),
+                (Some(&(_, _)), None) | (None, Some(&(_, _))) => None,
                 (None, None) => None,
             };
             if let Some(transform) = transform {
@@ -1819,7 +1821,9 @@ fn should_close_loop(capture: &mut VideoCapture, frame_count: usize) -> Result<b
     let first = match read_gray(capture, 0) {
         Ok(frame) => frame,
         Err(error) => {
-            eprintln!("warning: loop detection disabled because frame 0 could not be decoded: {error:#}");
+            eprintln!(
+                "warning: loop detection disabled because frame 0 could not be decoded: {error:#}"
+            );
             return Ok(false);
         }
     };
@@ -2235,7 +2239,7 @@ mod tests {
     }
 
     #[test]
-    fn trailing_foreground_interval_holds_the_last_clean_transform() {
+    fn trailing_foreground_interval_preserves_tracked_offscreen_motion() {
         let plaque = RectF {
             x: 0.0,
             y: 0.0,
@@ -2256,8 +2260,8 @@ mod tests {
 
         let repaired = stabilize_occluded_intervals(&mut samples, plaque, 0);
 
-        assert!(repaired >= 10);
-        assert!(samples[39].transform.values[0][2].abs() < 1.0e-9);
+        assert_eq!(repaired, 0);
+        assert_eq!(samples[39].transform.values[0][2], 40.0);
     }
 
     #[test]

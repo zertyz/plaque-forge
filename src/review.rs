@@ -2,8 +2,8 @@
 //!
 //! Machine JSON remains canonical for automation. This module turns the same evidence
 //! into a short triage report that says what deserves human attention first. It also
-//! accepts partial analysis directories, because failed quality gates are exactly when
-//! a useful review page matters most.
+//! accepts compact retained failure directories, because failed quality gates are exactly
+//! when a useful review page matters most.
 
 use std::{
     fs,
@@ -23,6 +23,7 @@ struct FocusItem {
 }
 
 struct ReportInputs<'a> {
+    report_path: &'a Path,
     analysis_root: &'a Path,
     diagnostics: &'a Path,
     summary: &'a Value,
@@ -37,16 +38,17 @@ struct ReportInputs<'a> {
 pub fn run(args: ReviewArgs) -> Result<()> {
     let analysis_root = args.analysis;
     if !analysis_root.is_dir() {
-        bail!("analysis directory does not exist: {}", analysis_root.display());
+        bail!(
+            "analysis directory does not exist: {}",
+            analysis_root.display()
+        );
     }
     let diagnostics = analysis_root.join("diagnostics");
     fs::create_dir_all(&diagnostics)?;
     let output = args
         .output
         .unwrap_or_else(|| diagnostics.join("review.html"));
-    if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    let text_output = output.with_extension("txt");
 
     let summary = read_json_optional(&analysis_root.join("analysis-summary.json"))?
         .unwrap_or_else(|| Value::Object(Default::default()));
@@ -67,6 +69,7 @@ pub fn run(args: ReviewArgs) -> Result<()> {
 
     let focus = focus_items(&summary, verification.as_ref());
     let html = build_report(ReportInputs {
+        report_path: &output,
         analysis_root: &analysis_root,
         diagnostics: &diagnostics,
         summary: &summary,
@@ -77,15 +80,33 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         refinement: refinement.as_ref(),
         focus: &focus,
     });
-    fs::write(&output, html)
-        .with_context(|| format!("failed to write review report {}", output.display()))?;
-
-    let text_output = output.with_extension("txt");
-    fs::write(
+    let text = build_text_summary(
         &text_output,
-        build_text_summary(&analysis_root, &summary, refinement.as_ref(), &focus),
-    )
-    .with_context(|| format!("failed to write review summary {}", text_output.display()))?;
+        &analysis_root,
+        &summary,
+        refinement.as_ref(),
+        &focus,
+    );
+    let staged = crate::staged_output::create(&output)?;
+    let output_name = output
+        .file_name()
+        .context("review output has no file name")?;
+    let text_name = text_output
+        .file_name()
+        .context("review text output has no file name")?;
+    let staged_html = staged.path().join(output_name);
+    let staged_text = staged.path().join(text_name);
+    fs::write(&staged_html, html)
+        .with_context(|| format!("failed to stage review report {}", output.display()))?;
+    fs::write(&staged_text, text)
+        .with_context(|| format!("failed to stage review summary {}", text_output.display()))?;
+    staged.commit_files(
+        &[
+            (staged_text, text_output.clone()),
+            (staged_html, output.clone()),
+        ],
+        true,
+    )?;
 
     println!("review: {}", output.display());
     println!("summary: {}", text_output.display());
@@ -107,6 +128,21 @@ fn read_json_optional(path: &Path) -> Result<Option<Value>> {
 }
 
 fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> {
+    if verification
+        .and_then(|report| report.get("passed"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        let overall = verification.and_then(|report| number(report, "overall"));
+        return vec![FocusItem {
+            title: "Rendered result passes exhaustive verification",
+            evidence: overall
+                .map(|score| format!("lossless rendered-video verification passed at {score:.3}"))
+                .unwrap_or_else(|| "lossless rendered-video verification passed".to_string()),
+            action: "Proceed to visual typography/effect tuning. Low raw confidence can remain useful context for low-texture or explicitly refined surfaces, but is not an actionable blocker when the current rendered result passes.",
+        }];
+    }
+
     let mut items = Vec::new();
     let candidate = number(summary, "candidate_confidence");
     let motion = number(summary, "motion_confidence");
@@ -191,6 +227,7 @@ fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> 
 
 fn build_report(inputs: ReportInputs<'_>) -> String {
     let ReportInputs {
+        report_path,
         analysis_root,
         diagnostics,
         summary,
@@ -205,14 +242,10 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
     body.push_str("<h1>Plaque Forge review</h1>");
     body.push_str(&format!(
         "<p class=path>Analysis: <code>{}</code></p>",
-        escape_html(&analysis_root.display().to_string())
+        escape_html(&portable_display(report_path, analysis_root))
     ));
-    if analysis_root
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.contains(".partial-"))
-    {
-        body.push_str("<p class=partial><strong>Partial analysis.</strong> The quality gate stopped this run, but the evidence below is intentionally retained for human triage.</p>");
+    if !analysis_root.join("manifest.toml").is_file() {
+        body.push_str("<p class=partial><strong>Incomplete analysis.</strong> The work tree was cleaned after the quality gate stopped this run; only compact evidence is retained for human triage.</p>");
     }
 
     body.push_str("<h2>Focus first</h2><div class=focus>");
@@ -259,12 +292,13 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
     );
     body.push_str("</div>");
 
-    append_actionable_commands(&mut body, analysis_root, refinement);
+    append_actionable_commands(&mut body, report_path, analysis_root, refinement);
     append_ml_status(&mut body, summary);
-    append_refinement_owned(&mut body, refinement);
+    append_refinement_owned(&mut body, report_path, refinement);
     append_candidate_ranking(&mut body, candidates);
     append_coordinate_helper(
         &mut body,
+        report_path,
         diagnostics.join("candidate.png"),
         selected_candidate_frame(candidates).unwrap_or(0),
     );
@@ -326,24 +360,28 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
     body.push_str("<h2>Visual evidence</h2><div class=gallery>");
     diagnostic_image(
         &mut body,
+        report_path,
         diagnostics.join("candidate.png"),
         "Selected writing surface",
         "If this is the wrong object, stop here and correct selection/bounds. Do not tune tracking or typography yet.",
     );
     diagnostic_image(
         &mut body,
+        report_path,
         diagnostics.join("tracking-contact-sheet.jpg"),
         "Tracking across time",
         "Look for drift, scale jumps, or perspective errors. Correct only the frames that are actually wrong.",
     );
     diagnostic_image(
         &mut body,
+        report_path,
         diagnostics.join("canonical-reference.png"),
         "Canonical writing surface",
         "Look for damaged texture, residual old title content, or an incorrect writable silhouette.",
     );
     diagnostic_image(
         &mut body,
+        report_path,
         diagnostics.join("temporal-mad.png"),
         "Temporal change map",
         "Bright regions identify unstable areas. Use this to decide whether foreground/occlusion or reconstruction needs attention.",
@@ -359,14 +397,27 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
     )
 }
 
-
 fn analysis_asset_stem(analysis_root: &Path) -> Option<String> {
+    if analysis_root
+        .parent()?
+        .parent()?
+        .file_name()
+        .and_then(|name| name.to_str())
+        == Some("failures")
+    {
+        return analysis_root
+            .parent()?
+            .file_name()?
+            .to_str()
+            .map(str::to_owned);
+    }
     let name = analysis_root.file_name()?.to_str()?;
     Some(name.split(".partial-").next().unwrap_or(name).to_string())
 }
 
 fn append_actionable_commands(
     body: &mut String,
+    report_path: &Path,
     analysis_root: &Path,
     refinement: Option<&(PathBuf, Refinement)>,
 ) {
@@ -374,13 +425,17 @@ fn append_actionable_commands(
         return;
     };
     body.push_str("<h2>What to do next</h2><p>This report is the human front door. Make the smallest correction suggested above, then rerun the high-level workflow:</p><pre>");
-    body.push_str(&escape_html(&format!("./scripts/analyze_assets.sh {asset}\n")));
-    body.push_str(&escape_html(&format!("./scripts/review_assets.sh {asset}\n")));
+    body.push_str(&escape_html(&format!(
+        "./scripts/analyze_assets.sh {asset}\n"
+    )));
+    body.push_str(&escape_html(&format!(
+        "./scripts/review_assets.sh {asset}\n"
+    )));
     body.push_str("</pre>");
     if let Some((path, _)) = refinement {
         body.push_str(&format!(
             "<p>Human intent file: <code>{}</code>. Dense generated tracks/masks should not be hand-edited.</p>",
-            escape_html(&path.display().to_string())
+            escape_html(&portable_display(report_path, path))
         ));
     } else {
         body.push_str(&format!(
@@ -409,7 +464,11 @@ fn append_ml_status(body: &mut String, summary: &Value) {
     }
 }
 
-fn append_refinement_owned(body: &mut String, refinement: Option<&(PathBuf, Refinement)>) {
+fn append_refinement_owned(
+    body: &mut String,
+    report_path: &Path,
+    refinement: Option<&(PathBuf, Refinement)>,
+) {
     let Some((path, refinement)) = refinement else {
         return;
     };
@@ -417,7 +476,7 @@ fn append_refinement_owned(body: &mut String, refinement: Option<&(PathBuf, Refi
     body.push_str("<h2>Current human intent</h2>");
     body.push_str(&format!(
         "<p><code>{}</code> &middot; schema {}.</p>",
-        escape_html(&path.display().to_string()),
+        escape_html(&portable_display(report_path, path)),
         refinement.schema_version,
     ));
     if let Some(plaque) = selected {
@@ -455,25 +514,30 @@ fn append_candidate_ranking(body: &mut String, candidates: Option<&Value>) {
     }
     body.push_str("<h2>Automatic surface alternatives</h2><p>These are for comparison only. Prefer the largest plausible writing surface, not merely the highest local score.</p><table><thead><tr><th></th><th>Confidence</th><th>Frame</th><th>Bounds</th><th>Area</th></tr></thead><tbody>");
     for row in rows.iter().take(6) {
-        let selected = row.get("selected").and_then(Value::as_bool).unwrap_or(false);
+        let selected = row
+            .get("selected")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let confidence = row.get("confidence").and_then(Value::as_f64).unwrap_or(0.0);
         let frame = row.get("frame").and_then(Value::as_u64).unwrap_or(0);
         let rect = row
             .get("rect")
             .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_f64)
-                    .collect::<Vec<_>>()
-            })
+            .map(|values| values.iter().filter_map(Value::as_f64).collect::<Vec<_>>())
             .unwrap_or_default();
         let bounds = if rect.len() == 4 {
-            format!("{:.0}, {:.0}, {:.0}, {:.0}", rect[0], rect[1], rect[2], rect[3])
+            format!(
+                "{:.0}, {:.0}, {:.0}, {:.0}",
+                rect[0], rect[1], rect[2], rect[3]
+            )
         } else {
             "?".to_string()
         };
-        let area = if rect.len() == 4 { rect[2] * rect[3] } else { 0.0 };
+        let area = if rect.len() == 4 {
+            rect[2] * rect[3]
+        } else {
+            0.0
+        };
         body.push_str(&format!(
             "<tr{}><td>{}</td><td>{:.3}</td><td>{}</td><td><code>{}</code></td><td>{:.0}</td></tr>",
             if selected { " class=selected" } else { "" },
@@ -492,18 +556,22 @@ fn selected_candidate_frame(candidates: Option<&Value>) -> Option<u64> {
         .and_then(Value::as_array)
         .and_then(|rows| {
             rows.iter()
-                .find(|row| row.get("selected").and_then(Value::as_bool).unwrap_or(false))
+                .find(|row| {
+                    row.get("selected")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
                 .or_else(|| rows.first())
         })
         .and_then(|row| row.get("frame"))
         .and_then(Value::as_u64)
 }
 
-fn append_coordinate_helper(body: &mut String, path: PathBuf, frame: u64) {
+fn append_coordinate_helper(body: &mut String, report_path: &Path, path: PathBuf, frame: u64) {
     if !path.is_file() {
         return;
     }
-    let url = file_url(&path);
+    let url = relative_url(report_path, &path);
     body.push_str(&format!(
         r#"<h2>Visual coordinate helper</h2>
 <p>Click the selected-surface image instead of calculating coordinates. The helper reports both source pixels and normalized coordinates. Four clicks also produce a sparse motion-anchor snippet in TL/TR/BR/BL click order. Reset and click again if needed.</p>
@@ -551,6 +619,7 @@ fn append_coordinate_helper(body: &mut String, path: PathBuf, frame: u64) {
 }
 
 fn build_text_summary(
+    report_path: &Path,
     analysis_root: &Path,
     summary: &Value,
     refinement: Option<&(PathBuf, Refinement)>,
@@ -558,7 +627,7 @@ fn build_text_summary(
 ) -> String {
     let mut output = format!(
         "Plaque Forge review\nAnalysis: {}\nOverall: {}\n\nFocus first:\n",
-        analysis_root.display(),
+        portable_display(report_path, analysis_root),
         number(summary, "overall")
             .map(|value| format!("{value:.3}"))
             .unwrap_or_else(|| "n/a".to_string()),
@@ -575,7 +644,7 @@ fn build_text_summary(
     if let Some((path, refinement)) = refinement {
         output.push_str(&format!(
             "\nRefinement: {} (schema {})\n",
-            path.display(),
+            portable_display(report_path, path),
             refinement.schema_version
         ));
         if let Ok(plaque) = refinement.select_plaque(None) {
@@ -677,11 +746,17 @@ fn append_typography(body: &mut String, manifest: &Value) {
     }
 }
 
-fn diagnostic_image(body: &mut String, path: PathBuf, title: &str, guidance: &str) {
+fn diagnostic_image(
+    body: &mut String,
+    report_path: &Path,
+    path: PathBuf,
+    title: &str,
+    guidance: &str,
+) {
     if !path.is_file() {
         return;
     }
-    let url = file_url(&path);
+    let url = relative_url(report_path, &path);
     body.push_str(&format!(
         "<figure><figcaption><strong>{}</strong><br>{}</figcaption><a href=\"{}\"><img src=\"{}\" loading=lazy></a></figure>",
         escape_html(title),
@@ -691,19 +766,34 @@ fn diagnostic_image(body: &mut String, path: PathBuf, title: &str, guidance: &st
     ));
 }
 
-fn file_url(path: &Path) -> String {
-    let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let raw = absolute.to_string_lossy();
-    let mut encoded = String::with_capacity(raw.len() + 8);
-    for byte in raw.as_bytes() {
+fn relative_url(owner: &Path, path: &Path) -> String {
+    let relative = crate::portable_path::relative_reference(owner, path)
+        .map(|path| path.to_string())
+        .unwrap_or_else(|_| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "diagnostic".to_string())
+        });
+    let mut encoded = String::with_capacity(relative.len());
+    for byte in relative.as_bytes() {
         match *byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'_' | b'.' | b'~' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
                 encoded.push(*byte as char)
             }
             other => encoded.push_str(&format!("%{other:02X}")),
         }
     }
-    format!("file://{encoded}")
+    encoded
+}
+
+fn portable_display(owner: &Path, path: &Path) -> String {
+    crate::portable_path::relative_reference(owner, path)
+        .map(|path| path.to_string())
+        .unwrap_or_else(|_| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| ".".to_string())
+        })
 }
 
 fn number(value: &Value, key: &str) -> Option<f64> {
@@ -792,3 +882,46 @@ table { width:100%; border-collapse:collapse; background:#171d23; } th,td { text
 button { padding:8px 12px; background:#25313a; color:#e9eef3; border:1px solid #566774; border-radius:6px; cursor:pointer; }
 li { margin:.45em 0; }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::{analysis_asset_stem, focus_items};
+    use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn retained_failure_uses_the_asset_directory_not_the_run_id() {
+        assert_eq!(
+            analysis_asset_stem(Path::new(
+                "/tmp/plaque-forge/failures/16_9_scene/1720000000-42"
+            ))
+            .as_deref(),
+            Some("16_9_scene")
+        );
+        assert_eq!(
+            analysis_asset_stem(Path::new("assets/analysis/16_9_scene.partial-42")).as_deref(),
+            Some("16_9_scene")
+        );
+    }
+
+    #[test]
+    fn passing_render_verification_supersedes_low_raw_analysis_confidence() {
+        let summary = json!({
+            "overall": 0.72,
+            "candidate_confidence": 0.60,
+            "motion_confidence": 0.50,
+            "structural_confidence": 0.40,
+            "occlusion_confidence": 0.30
+        });
+        let verification = json!({"passed": true, "overall": 0.99});
+
+        let focus = focus_items(&summary, Some(&verification));
+
+        assert_eq!(focus.len(), 1);
+        assert_eq!(
+            focus[0].title,
+            "Rendered result passes exhaustive verification"
+        );
+        assert!(focus[0].evidence.contains("0.990"));
+    }
+}

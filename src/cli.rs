@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 use crate::writable_region::ResolvedWritableRegion;
 
@@ -29,6 +29,8 @@ pub enum Command {
     Verify(VerifyArgs),
     /// Build a human-oriented HTML report from analysis and verification diagnostics.
     Review(ReviewArgs),
+    /// Upgrade generated analysis manifests to the current portable schema without rerunning ML.
+    MigrateAnalysis(MigrateAnalysisArgs),
 }
 
 #[derive(Debug, Args)]
@@ -97,6 +99,11 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub input: PathBuf,
 
+    /// Assert that the selected writing surface contains no title/text to remove.
+    /// Plaque Forge composites new typography; it does not perform inpainting.
+    #[arg(long, required = true)]
+    pub source_is_text_free: bool,
+
     /// Defaults to assets/analysis/<source>/.
     #[arg(long)]
     pub output: Option<PathBuf>,
@@ -139,7 +146,7 @@ pub struct AnalyzeArgs {
     #[arg(long, default_value = "auto")]
     pub segmentation_device: String,
 
-    /// Regenerate prompted ML layer artifacts even when their cache files already exist.
+    /// Regenerate all ML layer artifacts even when their cache files already exist.
     #[arg(long)]
     pub force_ml: bool,
 
@@ -238,6 +245,12 @@ pub struct SegmentArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("title_source")
+        .required(true)
+        .multiple(false)
+        .args(["text", "text_file"])
+))]
 pub struct RenderArgs {
     #[arg(long)]
     pub input: PathBuf,
@@ -257,12 +270,15 @@ pub struct RenderArgs {
     #[arg(long)]
     pub plaque: Option<String>,
 
+    /// Title text. Exactly one of --text or --text-file is required.
     #[arg(long)]
     pub text: Option<String>,
 
-    #[arg(long, conflicts_with = "text")]
+    /// UTF-8 title text file. Exactly one of --text or --text-file is required.
+    #[arg(long)]
     pub text_file: Option<PathBuf>,
 
+    /// Font file. The manifest stores its basename and SHA-256, never this workstation path.
     #[arg(long)]
     pub font: PathBuf,
 
@@ -270,6 +286,7 @@ pub struct RenderArgs {
     #[arg(long)]
     pub style_file: Option<PathBuf>,
 
+    /// Directory for an optional, hash-verified render contact sheet.
     #[arg(long)]
     pub diagnostics: Option<PathBuf>,
 
@@ -329,6 +346,7 @@ pub struct RenderArgs {
     #[arg(long, value_enum, default_value_t = VerticalAlign::Center)]
     pub vertical_align: VerticalAlign,
 
+    /// Self-contained FFmpeg output argument. Absolute/file-backed paths are rejected.
     #[arg(long = "encoder-arg", allow_hyphen_values = true)]
     pub encoder_args: Vec<String>,
 
@@ -438,6 +456,17 @@ pub struct ReviewArgs {
     pub output: Option<PathBuf>,
 }
 
+#[derive(Debug, Args)]
+pub struct MigrateAnalysisArgs {
+    /// Directory containing one subdirectory per generated analysis.
+    #[arg(long, default_value = "assets/analysis")]
+    pub root: PathBuf,
+
+    /// Apply the migration. Without this flag, report what would change.
+    #[arg(long)]
+    pub apply: bool,
+}
+
 impl RenderArgs {
     pub fn as_compose_args(&self, analysis: PathBuf, output: PathBuf) -> ComposeArgs {
         ComposeArgs {
@@ -516,4 +545,40 @@ pub enum ProgressMode {
     Auto,
     Always,
     Never,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render_arguments(title: &[&str]) -> Vec<String> {
+        [
+            "plaque-forge",
+            "render",
+            "--input",
+            "source.mp4",
+            "--font",
+            "font.ttf",
+        ]
+        .into_iter()
+        .chain(title.iter().copied())
+        .map(str::to_string)
+        .collect()
+    }
+
+    #[test]
+    fn render_requires_exactly_one_title_source() {
+        assert!(Cli::try_parse_from(render_arguments(&[])).is_err());
+        assert!(Cli::try_parse_from(render_arguments(&["--text", "Title"])).is_ok());
+        assert!(Cli::try_parse_from(render_arguments(&["--text-file", "title.txt"])).is_ok());
+        assert!(
+            Cli::try_parse_from(render_arguments(&[
+                "--text",
+                "Title",
+                "--text-file",
+                "title.txt",
+            ]))
+            .is_err()
+        );
+    }
 }

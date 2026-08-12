@@ -1,0 +1,77 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 10
+canonical_width = 435
+canonical_height = 253
+motion_model = "refined-constrained-quad-track-8-keyframes+declared-screen-fixed"
+loop_closed = false
+has_occluder = true
+occlusion_mode = "automatic"
+automatic_ml_foreground = true
+analysis_gate_passed = true
+
+[source]
+path = "../../9_16_dungeon_spider_iron_temporary_plaque.mp4"
+sha256 = "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961"
+width = 720
+height = 1280
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 143.0
+y = 173.0
+width = 435.0
+height = 253.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[[layers]]
+id = "instrument-housing"
+role = "foreground"
+coordinates = "source-pixels"
+kind = "alpha-sequence"
+affects_layout = false
+path = "layers/instrument-housing/%06d.png"
+first_frame = 0
+last_frame = 239
+
+[layers.generator]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0@xpu+cutie-1.0.0@xpu+vitmatte-4.57.1@xpu"
+requested_device = "auto"
+source_sha256 = "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961"
+prompt_sha256 = "c22212b10bc9d808f2645d5ba7e2041b2289a8ba33a9365194f8694e9adbea30"
+worker_sha256 = "4e6e506631a7984b629cddee755dc7f8b39230fe55ca901be2e63578018cce7b"
+runtime_sha256 = "d9061d16e6890517575777af1e1589478040db364d30fc82366e819ba2246cae"
+request_sha256 = "c3d592d3e9cf77b76ade1470e0dd6c23cf458fe1bad928908c149b1dd2267104"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 8
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/9_16_dungeon_spider_iron_temporary_plaque/refinement.toml"
+sha256 = "c9ffe13f40847fceca3022c63ec01672de981780b8305cde030daa2a2b46b26a"
+semantic_sha256 = "8ef00512bb6dd49a2c7afe119194338630033fdc3d219082f3277797e72415c2"
+
+[[refinements.layer_artifacts]]
+path = "../../refinements/9_16_dungeon_spider_iron_temporary_plaque/instrument-housing/artifact.toml"
+sha256 = "260db32cfad7402408c8fa1d7707992fc8c659c28bab6557e2157d0ec0c8820a"
+semantic_sha256 = "47d038f3dab83269d1ede2003fe8796317d2cebb28cdbabb4c64b416551ebc9e"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.98
+extraction = 0.6337660715096998
+occlusion = 0.8928573122829825
+overall = 0.8585998320508678

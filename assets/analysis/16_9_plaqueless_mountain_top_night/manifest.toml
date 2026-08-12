@@ -1,0 +1,60 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 0
+canonical_width = 920
+canonical_height = 258
+motion_model = "declared-screen-fixed"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "none"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../16_9_plaqueless_mountain_top_night.mp4"
+sha256 = "7fbc9e79494b03d9538a82eaea281434444b26d303c15b7a1bf501b2f5a52f68"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 180.0
+y = 28.0
+width = 920.0
+height = 258.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[injected_surface]
+path = "injected-surface.png"
+source_sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"
+motion = "screen"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/16_9_plaqueless_mountain_top_night/refinement.toml"
+sha256 = "7dd65493ace95cb4cc6147fe4b4bd384ba291c923f4a1e15176d1a343254728c"
+semantic_sha256 = "07d12d8180530c0b5c155ca41f125378479501f989c4b7d3bd1dc1630169232f"
+
+[refinements.surface_asset]
+path = "../../plaques/aetherglass-aurora-16_9.png"
+sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"
+
+[confidence]
+plaque_detection = 0.92
+motion = 0.98
+extraction = 0.756727334007415
+occlusion = 0.8
+overall = 0.8595295814434439

@@ -6,6 +6,11 @@ default_plaque = "main"
 id = "main"
 reference_frame = 72
 bounds = [327.0, 30.0, 641.0, 285.0]
+occlusion = "authored-only"
+
+[plaques.surface]
+type = "source"
+motion = "screen"
 
 [[layers]]
 id = "writing-surface"

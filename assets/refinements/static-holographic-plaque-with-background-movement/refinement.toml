@@ -7,3 +7,8 @@ default_plaque = "main"
 id = "main"
 reference_frame = 207
 bounds = [87.0, 208.0, 548.0, 391.0]
+occlusion = "none"
+
+[plaques.surface]
+type = "source"
+motion = "screen"

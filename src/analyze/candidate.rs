@@ -5,12 +5,12 @@
 
 use std::{fs, path::Path};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use opencv::{
     core::{self, Mat, Point, Rect, Scalar, Vector},
     geometry, imgcodecs, imgproc,
     prelude::*,
-    videoio::{CAP_ANY, CAP_PROP_POS_FRAMES, VideoCapture},
+    videoio::{CAP_PROP_POS_FRAMES, VideoCapture},
 };
 
 use crate::{cli::AnalyzeArgs, model::RectF, video::VideoInfo};
@@ -57,7 +57,11 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
                 height,
             },
             frame_index: args.plaque_frame.unwrap_or(0),
-            confidence: if args.writable_region_hint.is_some() { 0.98 } else { 0.92 },
+            confidence: if args.writable_region_hint.is_some() {
+                0.98
+            } else {
+                0.92
+            },
             temporal_support: 1.0,
             screen_stationarity: 1.0,
             edge_completeness: 1.0,
@@ -77,10 +81,7 @@ pub fn detect_proposals(
     info: &VideoInfo,
     diagnostics: Option<&Path>,
 ) -> Result<Option<DetectionReport>> {
-    let mut capture = VideoCapture::from_file(&input.to_string_lossy(), CAP_ANY)?;
-    if !capture.is_opened()? {
-        bail!("failed to open {}", input.display());
-    }
+    let mut capture = crate::video::open_capture(input)?;
 
     let actual_frames = info.frames.max(1);
     let sample_count = candidate_samples.min(actual_frames).max(1);
@@ -112,7 +113,13 @@ pub fn detect_proposals(
     );
     let best = select_reference(&ranked, info.width as i32, info.height as i32);
     if let Some(diagnostics) = diagnostics {
-        write_ranking(diagnostics, &ranked, best, info.width as i32, info.height as i32)?;
+        write_ranking(
+            diagnostics,
+            &ranked,
+            best,
+            info.width as i32,
+            info.height as i32,
+        )?;
     }
     let Some(best) = best else {
         return Ok(None);
@@ -148,7 +155,8 @@ fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&S
     // A broad/architectural response may score first even when a clear compact plaque is
     // also present. Prefer that compact hypothesis when it retains substantial detector
     // support; this restores the older "real plaque beats room enclosure" behavior.
-    let seed = if candidate_is_compact_surface(initial, width, height) {
+    let initial_is_compact = candidate_is_compact_surface(initial, width, height);
+    let seed = if initial_is_compact {
         initial
     } else {
         ranked
@@ -162,26 +170,33 @@ fn select_reference(ranked: &[ScoredRect], width: i32, height: i32) -> Option<&S
             .unwrap_or(initial)
     };
 
-    let seed_area = candidate_area(seed).max(1) as f64;
-    let target = ranked
-        .iter()
-        .filter(|candidate| {
-            if same_hypothesis(seed.rect, candidate.rect, width, height)
-                || !(candidate_is_compact_surface(candidate, width, height)
-                    || candidate_is_broad_canvas(candidate, width, height))
-            {
-                return false;
-            }
-            let area_ratio = candidate_area(candidate) as f64 / seed_area;
-            let score_ratio = candidate.score / seed.score.max(0.001);
-            area_ratio >= 1.80
-                && (score_ratio >= 0.72 || (area_ratio >= 3.0 && score_ratio >= 0.55))
-        })
-        .max_by(|left, right| {
-            dominant_surface_quality(left, width, height)
-                .total_cmp(&dominant_surface_quality(right, width, height))
-        })
-        .unwrap_or(seed);
+    // Area dominance is only an escape from a compact high-contrast prop. If the
+    // broad top response has already been replaced by a credible compact plaque,
+    // applying the escape hatch again would simply select the rejected room/frame.
+    let target = if !initial_is_compact && !std::ptr::eq(seed, initial) {
+        seed
+    } else {
+        let seed_area = candidate_area(seed).max(1) as f64;
+        ranked
+            .iter()
+            .filter(|candidate| {
+                if same_hypothesis(seed.rect, candidate.rect, width, height)
+                    || !(candidate_is_compact_surface(candidate, width, height)
+                        || candidate_is_broad_canvas(candidate, width, height))
+                {
+                    return false;
+                }
+                let area_ratio = candidate_area(candidate) as f64 / seed_area;
+                let score_ratio = candidate.score / seed.score.max(0.001);
+                area_ratio >= 1.80
+                    && (score_ratio >= 0.72 || (area_ratio >= 3.0 && score_ratio >= 0.55))
+            })
+            .max_by(|left, right| {
+                dominant_surface_quality(left, width, height)
+                    .total_cmp(&dominant_surface_quality(right, width, height))
+            })
+            .unwrap_or(seed)
+    };
 
     // Once a surface hypothesis is chosen, select the clearest representative frame
     // exactly as the pre-regression detector did. Tiny frame-to-frame rectangle changes
@@ -208,7 +223,17 @@ fn same_hypothesis(a: Rect, b: Rect, width: i32, height: i32) -> bool {
     let diagonal = f64::from(width).hypot(f64::from(height)).max(1.0);
     let width_change = (f64::from(a.width) / f64::from(b.width)).ln().abs();
     let height_change = (f64::from(a.height) / f64::from(b.height)).ln().abs();
-    rect_center_distance(a, b) / diagonal <= 0.18 && width_change <= 0.45 && height_change <= 0.45
+    let a_area = f64::from(a.width.max(1) * a.height.max(1));
+    let b_area = f64::from(b.width.max(1) * b.height.max(1));
+    let area_ratio = (a_area / b_area).max(b_area / a_area);
+    let intersection_width = (a.x + a.width).min(b.x + b.width) - a.x.max(b.x);
+    let intersection_height = (a.y + a.height).min(b.y + b.height) - a.y.max(b.y);
+    let overlap = f64::from(intersection_width.max(0) * intersection_height.max(0));
+    let nested_enclosure = area_ratio > 1.20 && overlap / a_area.min(b_area) > 0.95;
+    rect_center_distance(a, b) / diagonal <= 0.18
+        && width_change <= 0.45
+        && height_change <= 0.45
+        && !nested_enclosure
 }
 
 fn candidate_area_ratio(candidate: &ScoredRect, width: i32, height: i32) -> f64 {
@@ -662,12 +687,23 @@ fn circle_arc_candidates(edges: &Mat, width: i32, height: i32) -> Result<Vec<Sco
     let mut candidates = Vec::new();
 
     for yi in 0..y_steps {
-        let center_y = lerp(-0.15 * f64::from(height), 0.85 * f64::from(height), yi, y_steps);
+        let center_y = lerp(
+            -0.15 * f64::from(height),
+            0.85 * f64::from(height),
+            yi,
+            y_steps,
+        );
         for xi in 0..x_steps {
-            let center_x = lerp(-0.05 * f64::from(width), 1.05 * f64::from(width), xi, x_steps);
+            let center_x = lerp(
+                -0.05 * f64::from(width),
+                1.05 * f64::from(width),
+                xi,
+                x_steps,
+            );
             // A title circle may extend beyond the frame, but its center should still be
             // on-screen. This rejects partial circles formed by off-screen data/props.
-            if center_x < 0.0 || center_x > f64::from(width)
+            if center_x < 0.0
+                || center_x > f64::from(width)
                 || center_y < -0.05 * f64::from(height)
                 || center_y > f64::from(height)
             {
@@ -683,10 +719,8 @@ fn circle_arc_candidates(edges: &Mat, width: i32, height: i32) -> Result<Vec<Sco
                 let clutter = sampled_circle_interior_clutter(edges, center_x, center_y, radius)?;
                 let quiet = 1.0 - clutter;
                 let radius_fit = (radius / (0.45 * min_dimension)).clamp(0.45, 1.0).sqrt();
-                let score = radius_fit
-                    * support
-                    * (0.65 + 0.35 * visible_fraction)
-                    * (0.45 + 0.55 * quiet);
+                let score =
+                    radius_fit * support * (0.65 + 0.35 * visible_fraction) * (0.45 + 0.55 * quiet);
 
                 let left = (center_x - radius).floor().max(0.0) as i32;
                 let top = (center_y - radius).floor().max(0.0) as i32;
@@ -696,8 +730,8 @@ fn circle_arc_candidates(edges: &Mat, width: i32, height: i32) -> Result<Vec<Sco
                     continue;
                 }
                 let rect = Rect::new(left, top, right - left, bottom - top);
-                let area_ratio = f64::from(rect.width * rect.height)
-                    / f64::from(width * height).max(1.0);
+                let area_ratio =
+                    f64::from(rect.width * rect.height) / f64::from(width * height).max(1.0);
                 if !(0.08..=0.82).contains(&area_ratio) {
                     continue;
                 }

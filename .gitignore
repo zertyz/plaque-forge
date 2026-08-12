@@ -2,7 +2,5 @@
 /.idea/
 /.agents/
 /.codex/
-__pycache__/
-*.py[cod]
-/assets/analysis/
+/tools/__pycache__/
 /output/

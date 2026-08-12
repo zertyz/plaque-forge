@@ -49,6 +49,7 @@ These modules coordinate operations. They should not contain asset-specific scen
 
 - `surface.rs`, `image_io.rs`, and `color.rs` provide image primitives.
 - `digest.rs` owns generic streaming content hashes used for cache/provenance identity.
+- `portable_path.rs` is the only serialized-path boundary. Generated project references are relative, slash-separated, and reject workstation roots; bundle-local references cannot escape their owner.
 - `analyze/candidate.rs` proposes plausible writing-surface enclosures. Selection preserves the strongest surface hypothesis by default, rescues clear compact plaques from broad architectural enclosures, and uses guarded area dominance only to escape small high-contrast props such as magnifying glasses.
 - `analyze/tracking.rs` estimates placement/scene motion and supports authoritative screen-fixed trajectories.
 - `analyze/extraction.rs` recovers canonical source-underlay and structural data used by source surfaces and foreground analysis.
@@ -62,14 +63,14 @@ OpenCV and `cosmic-text` are implementation libraries inside these layers. They 
 
 ## Surface sources
 
-A writing surface has two orthogonal properties: **placement/pose** and **writable mask**. Its visual source is either already present in the video or injected from a transparent image. Injected surfaces skip automatic plaque selection because their placement is explicit, but they still reuse motion/underlay/foreground analysis so scene objects can cross in front. The injected image hash is part of refinement/cache provenance.
+A writing surface has two orthogonal properties: **placement/pose** and **writable mask**. Its visual source is either already present in the video or injected from a transparent image. Injected surfaces skip automatic plaque selection because their placement is explicit, but they still reuse motion/underlay/foreground analysis so scene objects can cross in front. Their PNG alpha controls plaque compositing, not title writability: the declared writable region or inset remains authoritative even for glass and holographic interiors. The injected image hash is part of refinement/cache provenance.
 
 ## External processes
 
 External executables are kept behind two boundaries:
 
 1. `video.rs` owns FFmpeg/FFprobe process invocation for Rust workflows.
-2. `segmentation.rs` owns the versioned segmentation-worker protocol. Rust decides when authored or automatic foreground segmentation is useful; `tools/segmentation_worker.py` exists only because the supported ML ecosystems are Python-native. Worker/backend/model/device configuration participates in analysis cache provenance.
+2. `segmentation.rs` owns the versioned segmentation-worker protocol. Rust decides when authored or automatic foreground segmentation is useful; `tools/segmentation_worker.py` exists only because the supported ML ecosystems are Python-native. Worker implementation, prompt/seed-mask content, source, runtime, backend, model revision, and requested device participate in cache identity. Frames and masks cross this boundary as lossless PNG, including soft alpha; Rust validates every output image, frame range, coverage, and identity before accepting it. A replacement analysis may copy a prior automatic sequence into its private stage only after this complete validation succeeds.
 
 Shell scripts do not implement scene-analysis algorithms. They build the Rust binary, choose assets, translate convenient command-line/environment settings, and invoke high-level commands.
 
@@ -83,6 +84,32 @@ Analysis cache compatibility is explicit in `build_info::ANALYZER_CACHE_VERSION`
 
 No custom `build.rs` source hashing is used. Renderer-only text effects and styles therefore do not invalidate scene analysis.
 
+Schema-2 generated manifests never contain absolute paths. `migrate-analysis` is
+serialization-only: it can make equivalent paths portable when the semantic analyzer
+identity already matches, but it never refreshes refinement provenance, geometry,
+motion, depth state, or analyzer identity. Semantic changes require a real rebuild.
+
+## Artifact lifecycle
+
+Authored intent and generated state are deliberately separate:
+
+```text
+assets/*.mp4 + assets/refinements/ + assets/plaques/   authored/project inputs
+assets/analysis/                                      complete generated caches only
+output/                                               complete published render bundles
+/tmp/plaque-forge/work/                               in-progress transactional work
+/tmp/plaque-forge/failures/                           compact bounded failure evidence
+/tmp/plaque-forge-python/                             optional disposable ML runtime/cache
+```
+
+Analysis/segmentation stages are RAII-owned and committed by rename when possible. Render publishes video, text mask, optional contact sheet, and manifest as one recoverable file bundle with the manifest last. Stale work is reaped after 24 hours; successful analysis purges that asset's retained failures.
+
 ## Human diagnostics
 
-Machine-readable JSON remains canonical for automated validation. `review.rs` is a presentation layer that also accepts failed partial analyses and turns metrics, candidate alternatives, refinement intent, and diagnostic imagery into prioritized `review.html`/`review.txt` triage. Its browser-only coordinate helper emits human-copyable normalized points; it does not alter caches or analysis decisions.
+Machine-readable JSON remains canonical for automated validation. `review.rs` is a presentation layer that accepts complete analyses or compact retained failure evidence and turns metrics, candidate alternatives, refinement intent, and diagnostic imagery into prioritized `review.html`/`review.txt` triage. Its browser-only coordinate helper emits human-copyable normalized points; it does not alter caches or analysis decisions.
+
+## Color and alpha contract
+
+Decoded frames stay in encoded pixel coordinates (`-noautorotate` in FFmpeg and disabled OpenCV autorotation), while display rotation is carried as output metadata. Declared SDR color range/space/transfer/primaries are copied to rendered video. HDR PQ/HLG and BT.2020 input currently fail explicitly because the compositor is intentionally 8-bit SDR.
+
+Raster resampling and source-over compositing operate in linear light with premultiplied alpha. This prevents dark/color fringes around translucent plaque edges. Foreground restoration and verification both honor soft alpha rather than reducing mattes to binary cutouts.

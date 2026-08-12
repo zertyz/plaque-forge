@@ -23,6 +23,8 @@ Prepare the ML foreground/object worker once:
 
 Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its synthetic `$HOME`, virtualenv, cloned ML repositories, and model caches. Nothing is installed into your real home directory. If `/tmp` is cleared, rerun setup.
 
+Plaque Forge requires Rust 1.89 or newer, FFmpeg/FFprobe, OpenCV, Clang, and fontconfig. The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
+
 ## 2. Analyze once
 
 ```bash
@@ -30,6 +32,8 @@ Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, incl
 ```
 
 This is the high-level analysis command. It builds Plaque Forge, detects/selects the writing surface, tracks it, reconstructs the writable region, finds foreground crossings, and **automatically invokes the Python segmentation worker when ML can sharpen those foreground masks**. Existing human-declared ML prompts are also materialized automatically.
+
+The bundled source surfaces are intentionally text-free. The high-level script makes that assertion explicitly. Direct CLI analysis must also include `--source-is-text-free`: Plaque Forge composites new typography, but does not remove or inpaint an existing title.
 
 Analyze selected assets by appending their stems:
 
@@ -39,20 +43,21 @@ Analyze selected assets by appending their stems:
 
 Use `--force` to rebuild current Rust/scene caches, `--force-ml` to regenerate ML work too, or `--no-ml` only when you explicitly want the pure-Rust path. Run `./scripts/ml_status.sh` to see whether Python actually ran.
 
-When automatic quality is insufficient, the partial cache is retained and an actionable `diagnostics/review.html` + `review.txt` is generated. Fix only the smallest item it identifies, then rerun analysis.
+When automatic quality is insufficient, the incomplete cache is deleted. Only compact diagnostics are retained under `/tmp/plaque-forge/failures/<asset>/`, limited to the newest three failures and seven days. Fix only the smallest item identified by `review.html`, then rerun analysis; a successful run removes retained failures for that asset.
 
 ### Plaque-less videos
 
-The included plaque-less sample videos are already configured to use:
+The included plaque-less sample videos use the aspect-specific **Aetherglass Aurora** pair:
 
 ```text
-assets/plaques/holographic-default.png
+assets/plaques/aetherglass-aurora-16_9.png
+assets/plaques/aetherglass-aurora-9_16.png
 ```
 
-so the normal `./scripts/analyze_assets.sh` command handles them too. For another plaque-less asset:
+An additional **Prismwraith Reliquary** pair is available for both aspect ratios. See `assets/plaques/catalog.toml` for dimensions, writable insets, and hashes. For another plaque-less asset:
 
 ```bash
-./scripts/place_plaque.sh my-video assets/plaques/holographic-default.png
+./scripts/place_plaque.sh my-video assets/plaques/aetherglass-aurora-16_9.png
 ./scripts/analyze_assets.sh my-video
 ```
 
@@ -65,7 +70,7 @@ so the normal `./scripts/analyze_assets.sh` command handles them too. For anothe
   --style gold-shine
 ```
 
-Outputs go to `output/*.hevc.mkv`. Append asset stems to render only those videos.
+Outputs go to `output/*.hevc.mkv`. Append asset stems to render only those videos. Each video, canonical text mask, optional contact sheet, and render manifest is published as a transactional bundle; an interrupted render cannot replace a previously complete bundle with partial files.
 
 **Artistic line composition is the default**, using the largest safe title size. The default direct style also has a visible glow.
 
@@ -98,7 +103,7 @@ To delete **all generated scene-analysis caches** and rebuild them:
 ./scripts/analyze_assets.sh
 ```
 
-To also regenerate human-prompted Python layer artifacts while keeping the downloaded models/runtime:
+To also regenerate every Python ML layer while keeping the downloaded models/runtime:
 
 ```bash
 ./scripts/reset_analysis.sh --yes
@@ -106,6 +111,19 @@ To also regenerate human-prompted Python layer artifacts while keeping the downl
 ```
 
 This does not delete source videos, human/project refinement intent, plaque PNGs, rendered output, or `/tmp/plaque-forge-python`. Legacy refinement-owned non-ML assets such as hand-reviewed/deterministically derived moss/shadow masks are intentionally preserved.
+
+To remove obsolete pre-0.8 partial directories and completed worker request files without touching complete caches:
+
+```bash
+./scripts/cleanup_work.sh --yes
+```
+
+Generated manifests use only portable relative paths. To audit or migrate older analysis caches without rerunning ML:
+
+```bash
+cargo run -- migrate-analysis --root assets/analysis       # dry run
+cargo run -- migrate-analysis --root assets/analysis --apply
+```
 
 ## Repository map
 
@@ -117,9 +135,9 @@ styles/                      reusable typography/material/effect programs
 assets/*.mp4                 source videos
 assets/plaques/              reusable injected plaque images
 assets/refinements/<name>/   sparse human intent/corrections + generated layer artifacts
-assets/analysis/<name>/      generated reusable scene cache
+assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
 output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows
 ```
 
-More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Refinements](docs/REFINEMENTS.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Safety](docs/SAFETY.md).
+The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Refinements](docs/REFINEMENTS.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md).

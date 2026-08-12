@@ -21,6 +21,7 @@ use super::{
     extraction::{ExtractionResult, rectify, transformed_rect},
     tracking,
 };
+use crate::geometry::Quad;
 
 pub struct OcclusionResult {
     pub has_occluder: bool,
@@ -69,10 +70,17 @@ pub fn extract(
             width,
             height,
         );
-        structural_scores.push(structural_score.max(tracking_presence(
-            sample.inlier_ratio,
-            sample.reprojection_error,
-        )));
+        let in_frame = visible_quad_fraction(
+            transformed_rect(rect, sample.transform),
+            info.width,
+            info.height,
+        );
+        structural_scores.push(
+            structural_score.max(tracking_presence(
+                sample.inlier_ratio,
+                sample.reprojection_error,
+            )) * in_frame,
+        );
         let mut residual = vec![0u8; width * height];
         for (pixel, residual_value) in residual.iter_mut().enumerate() {
             let base = pixel * 4;
@@ -343,7 +351,10 @@ fn select_foreground_components(
     width: usize,
     height: usize,
 ) -> Vec<u8> {
-    let cleaned = morph_close(&morph_open(residual, width, height, 1), width, height, 2);
+    // Opening is used only to identify connected bodies. The returned alpha comes
+    // from the original residual, so connectivity cleanup cannot turn a sparse web
+    // or foliage silhouette into an opaque sheet.
+    let cleaned = morph_open(residual, width, height, 1);
     let mut seen = vec![false; cleaned.len()];
     let mut output = vec![0u8; cleaned.len()];
     let minimum = (width * height / 1200).max(12);
@@ -412,8 +423,12 @@ fn select_foreground_components(
             && !plaque_shaped
             && (crosses_cavity || (touches_crop && outside_count > 0))
         {
-            for i in component {
-                output[i] = 255;
+            let support = component_mask(&component, cleaned.len());
+            let support = dilate(&support, width, height, 1);
+            for (index, (&source, &supported)) in residual.iter().zip(&support).enumerate() {
+                if source > 0 && supported > 0 {
+                    output[index] = source;
+                }
             }
         }
     }
@@ -469,7 +484,9 @@ fn recover_temporal_details(
                     *value = 255;
                 }
             }
-            blur_mask(&morph_close(&recovered, width, height, 1), width, height, 2)
+            // Feather only the actual material. A close/fill operation here used to
+            // erase title through transparent holes between web strands.
+            blur_mask(&recovered, width, height, 1)
         })
         .collect()
 }
@@ -477,8 +494,25 @@ fn recover_temporal_details(
 fn morph_open(src: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
     dilate(&erode(src, w, h, r), w, h, r)
 }
-fn morph_close(src: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
-    erode(&dilate(src, w, h, r), w, h, r)
+fn component_mask(component: &[usize], len: usize) -> Vec<u8> {
+    let mut mask = vec![0_u8; len];
+    for &index in component {
+        mask[index] = 255;
+    }
+    mask
+}
+
+fn visible_quad_fraction(quad: Quad, width: u32, height: u32) -> f64 {
+    let (min_x, min_y, max_x, max_y) = quad.bounds();
+    let full_width = (max_x - min_x).max(0.0);
+    let full_height = (max_y - min_y).max(0.0);
+    let full_area = full_width * full_height;
+    if !full_area.is_finite() || full_area <= f64::EPSILON {
+        return 0.0;
+    }
+    let visible_width = (max_x.min(width as f64) - min_x.max(0.0)).max(0.0);
+    let visible_height = (max_y.min(height as f64) - min_y.max(0.0)).max(0.0);
+    (visible_width * visible_height / full_area).clamp(0.0, 1.0)
 }
 fn erode(src: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
     let mut out = vec![0; src.len()];

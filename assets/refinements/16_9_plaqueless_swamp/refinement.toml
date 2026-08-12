@@ -1,4 +1,4 @@
-# Sample-project intent: place the shared holographic plaque into this plaque-less source.
+# Sample-project intent: place the 16:9 Aetherglass Aurora plaque into this plaque-less source.
 schema_version = 2
 source = "../../16_9_plaqueless_swamp.mp4"
 default_plaque = "main"
@@ -7,9 +7,10 @@ default_plaque = "main"
 id = "main"
 reference_frame = 0
 bounds = [190.0, 25.0, 900.0, 252.0]
+occlusion = "none"
 
 [plaques.surface]
 type = "injected"
-image = "../../plaques/holographic-default.png"
+image = "../../plaques/aetherglass-aurora-16_9.png"
 motion = "screen"
 inset = [0.08, 0.12, 0.08, 0.12]

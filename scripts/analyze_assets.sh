@@ -21,12 +21,12 @@ Do the expensive scene work once and cache everything reusable. The script:
   - builds canonical/writable masks and foreground occlusion;
   - automatically runs ML segmentation when Rust detects a useful foreground crossing;
   - materializes any human-prompted ML refinement layers that are still missing;
-  - retains partial diagnostics when a scene still needs human refinement;
+  - retains only compact, bounded failure diagnostics under /tmp when review is needed;
   - builds review.html + review.txt automatically for failed quality gates.
 
 Options:
   --force          Rebuild selected scene-analysis caches. Valid human-prompted ML artifacts are reused.
-  --force-ml       Regenerate human-prompted ML layer artifacts instead of reusing them.
+  --force-ml       Regenerate all ML layer artifacts instead of reusing valid results.
   --no-ml          Do not invoke optional Python ML segmentation layers.
   --backend NAME   Segmentation backend (default: sam2-cutie-vitmatte).
   --model NAME     Segmentation model (default: facebook/sam2.1-hiera-large).
@@ -89,7 +89,7 @@ for name in "${cases[@]}"; do
   input="assets/$name.mp4"
   [[ -f "$input" ]] || { printf 'input video not found: %s\n' "$input" >&2; exit 1; }
 
-  args=(analyze --input "$input" --progress always)
+  args=(analyze --input "$input" --source-is-text-free --progress always)
   if [[ "$force" == true ]]; then
     args+=(--force)
   else
@@ -110,20 +110,20 @@ for name in "${cases[@]}"; do
     printf '## ANALYSIS NEEDS ATTENTION: %s\n' "$name" >&2
     failures=$((failures + 1))
 
-    # Turn retained machine diagnostics into a human triage report immediately.
-    partial="$(ls -1dt "assets/analysis/$name.partial-"* 2>/dev/null | head -n 1 || true)"
-    if [[ -n "$partial" && -d "$partial" ]]; then
-      review_args=(review --analysis "$partial")
+    # Turn compact retained diagnostics into a human triage report immediately.
+    retained="$(ls -1dt "/tmp/plaque-forge/failures/$name/"* 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$retained" && -d "$retained" ]]; then
+      review_args=(review --analysis "$retained")
       refinement="assets/refinements/$name/refinement.toml"
       [[ -f "$refinement" ]] && review_args+=(--refinement "$refinement")
-      printf '[review] building triage report from %s\n' "$partial" >&2
+      printf '[review] building triage report from %s\n' "$retained" >&2
       target/release/plaque-forge "${review_args[@]}" || \
-        printf '[review] could not build review report; raw diagnostics remain in %s\n' "$partial" >&2
+        printf '[review] could not build review report; compact diagnostics remain in %s\n' "$retained" >&2
     fi
   fi
 done
 
 if (( failures > 0 )); then
-  printf '\n%d asset(s) still require review. Open diagnostics/review.html (or review.txt) inside each newest assets/analysis/*.partial-* directory.\n' "$failures" >&2
+  printf '\n%d asset(s) still require review. Compact diagnostics are under /tmp/plaque-forge/failures/ (newest three per asset, seven-day limit).\n' "$failures" >&2
   exit 1
 fi

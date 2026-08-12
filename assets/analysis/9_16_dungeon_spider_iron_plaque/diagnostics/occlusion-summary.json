@@ -1,0 +1,14 @@
+{
+  "automatic_mean_plaque_visibility": 1.0,
+  "confidence": 0.8890536996995863,
+  "coverage_persistence": 0.16000656144529346,
+  "has_occluder": true,
+  "max_coverage": 0.30765920926157786,
+  "mean_content_occlusion": 0.05662071379287912,
+  "mean_coverage": 0.04922749217092306,
+  "mean_plaque_visibility": 1.0,
+  "minimum_plaque_visibility": 1.0,
+  "nonempty_adjacent_mask_iou": 0.5562147987983455,
+  "occupied_frames": 138,
+  "occupied_ratio": 0.6699029126213593
+}

@@ -7,6 +7,9 @@ default_plaque = "main"
 id = "main"
 reference_frame = 10
 bounds = [20.0, 104.0, 494.0, 423.0]
+# The detective, icons, and circular field are one flat authored background.
+# Keep the title above that artwork; there is no independent foreground layer.
+occlusion = "none"
 
 [plaques.surface]
 type = "source"
@@ -15,5 +18,5 @@ motion = "screen"
 [plaques.writable_region]
 shape = "ellipse"
 center = [267.0, 315.5]
-radii = [238.0, 198.0]
+radii = [218.0, 178.0]
 rotation_degrees = 0.0

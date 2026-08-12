@@ -8,6 +8,8 @@ export XDG_CACHE_HOME="$root/cache/xdg"
 export XDG_CONFIG_HOME="$root/config"
 export XDG_DATA_HOME="$root/data"
 export HF_HOME="$root/cache/huggingface"
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 export TORCH_HOME="$root/cache/torch"
 export MPLCONFIGDIR="$root/cache/matplotlib"
 export TRITON_CACHE_DIR="$root/cache/triton"
@@ -17,6 +19,7 @@ export PYTHONPYCACHEPREFIX="$root/cache/pycache"
 export TMPDIR="$root/tmp"
 export PYTHONUNBUFFERED=1
 export PLAQUE_FORGE_PYTHON_ROOT="$root"
+export PLAQUE_FORGE_RUNTIME_MANIFEST="$root/runtime-manifest.json"
 
 printf '[ml] Python exec: pid=%d, python=%s, runtime=%s\n' "$$" "$root/venv/bin/python" "$root" >&2
 exec "$root/venv/bin/python" "$repo/tools/segmentation_worker.py" "$@"

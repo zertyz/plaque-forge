@@ -5,7 +5,7 @@ PF_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 pf_die() {
   printf 'error: %s\n' "$*" >&2
-  return 2
+  exit 2
 }
 
 pf_font_match() {

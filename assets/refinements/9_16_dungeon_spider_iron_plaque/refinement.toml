@@ -8,6 +8,11 @@ id = "main"
 reference_frame = 10
 bounds = [142.0, 172.0, 437.0, 251.0]
 
+[plaques.surface]
+type = "source"
+# Foreground action moves, but the suspended iron plaque does not.
+motion = "screen"
+
 [plaques.writable_region]
 shape = "rounded-rect"
 bounds = [160.0, 190.0, 401.0, 215.0]

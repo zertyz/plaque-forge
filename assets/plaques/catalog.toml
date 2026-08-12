@@ -1,0 +1,41 @@
+schema_version = 1
+
+# Plaques are text-free RGBA PNGs. `video_aspect` names the composition they were
+# art-directed for; it does not require the bitmap itself to match the video canvas.
+# Artwork and code use the project license in ../../LICENSE.
+
+[[plaques]]
+id = "aetherglass-aurora-16_9"
+name = "Aetherglass Aurora"
+video_aspect = "16:9"
+path = "aetherglass-aurora-16_9.png"
+pixel_size = [1500, 420]
+writable_inset = [0.08, 0.12, 0.08, 0.12]
+sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"
+
+[[plaques]]
+id = "aetherglass-aurora-9_16"
+name = "Aetherglass Aurora"
+video_aspect = "9:16"
+path = "aetherglass-aurora-9_16.png"
+pixel_size = [1000, 280]
+writable_inset = [0.08, 0.12, 0.08, 0.12]
+sha256 = "6c290ec12718f807e1cbc6acc2d30bbd3f8ce730eb81d65b0de9bb03a185a096"
+
+[[plaques]]
+id = "prismwraith-reliquary-16_9"
+name = "Prismwraith Reliquary"
+video_aspect = "16:9"
+path = "prismwraith-reliquary-16_9.png"
+pixel_size = [1500, 680]
+writable_inset = [0.10, 0.16, 0.10, 0.16]
+sha256 = "195f5a8e85866ad340f07134942e60edeb2d743b24f9f67ea66bf7d568403337"
+
+[[plaques]]
+id = "prismwraith-reliquary-9_16"
+name = "Prismwraith Reliquary"
+video_aspect = "9:16"
+path = "prismwraith-reliquary-9_16.png"
+pixel_size = [1000, 420]
+writable_inset = [0.10, 0.16, 0.10, 0.16]
+sha256 = "1f6f1289378f69d1633968ca8fa944f6cf84227cb9ecbd42e162006746864302"

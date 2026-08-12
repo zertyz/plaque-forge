@@ -7,7 +7,7 @@ use crate::{
     analyze::{candidate, extraction::transformed_rect},
     cli::{ExportMotionArgs, PlacePlaqueArgs, PlacementMotion, RefineArgs},
     refinement::{
-        PlaqueProposal, Refinement, REFINEMENT_SCHEMA_VERSION, motion_track_document,
+        PlaqueProposal, REFINEMENT_SCHEMA_VERSION, Refinement, motion_track_document,
         refinement_document, relative_reference, write_refinement,
     },
     surface::Surface,
@@ -34,6 +34,7 @@ pub fn refine(args: RefineArgs) -> Result<()> {
     }
     let info = video::probe(&args.ffprobe, &args.input)
         .with_context(|| format!("failed to probe input video {}", args.input.display()))?;
+    info.ensure_supported_compositing_color()?;
     if !info.constant_frame_rate {
         bail!("variable-frame-rate input is unsupported; transcode it to a constant frame rate");
     }
@@ -119,6 +120,7 @@ pub fn place_plaque(args: PlacePlaqueArgs) -> Result<()> {
 
     let info = video::probe(&args.ffprobe, &args.input)
         .with_context(|| format!("failed to probe input video {}", args.input.display()))?;
+    info.ensure_supported_compositing_color()?;
     if !info.constant_frame_rate {
         bail!("variable-frame-rate input is unsupported; transcode it to a constant frame rate");
     }
@@ -153,19 +155,26 @@ pub fn place_plaque(args: PlacePlaqueArgs) -> Result<()> {
     validate_inset(inset)?;
 
     let parent = output.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create refinement directory {}", parent.display()))?;
     let normalized_image = parent.join("injected-plaque.png");
-    let temporary_image = parent.join(".injected-plaque.png.tmp");
+    let preview = (!args.no_preview).then(|| parent.join("placement-preview.png"));
+    if !args.force {
+        for target in [&normalized_image, &output]
+            .into_iter()
+            .chain(preview.as_ref())
+        {
+            if target.exists() {
+                bail!(
+                    "refusing to replace plaque-placement bundle member {}; use --force only when replacing the whole placement is intentional",
+                    target.display()
+                );
+            }
+        }
+    }
+    let staged = crate::staged_output::create(&output)?;
+    let staged_image = staged.path().join("injected-plaque.png");
     source_image
-        .save_with_format(&temporary_image, image::ImageFormat::Png)
-        .with_context(|| format!("failed to stage injected plaque {}", temporary_image.display()))?;
-    fs::rename(&temporary_image, &normalized_image).with_context(|| {
-        format!(
-            "failed to commit injected plaque {}",
-            normalized_image.display()
-        )
-    })?;
+        .save_with_format(&staged_image, image::ImageFormat::Png)
+        .with_context(|| format!("failed to stage injected plaque {}", staged_image.display()))?;
 
     let source = relative_reference(&output, &args.input)?;
     let motion = match args.motion {
@@ -198,23 +207,45 @@ pub fn place_plaque(args: PlacePlaqueArgs) -> Result<()> {
         inset[2],
         inset[3],
     );
-    let parsed: Refinement = toml::from_str(&text)
-        .context("generated injected-plaque refinement is not valid TOML")?;
+    let parsed: Refinement =
+        toml::from_str(&text).context("generated injected-plaque refinement is not valid TOML")?;
     parsed
         .validate()
         .context("generated injected-plaque refinement is invalid")?;
-    write_refinement(&output, &text, args.force)?;
+    let output_name = output
+        .file_name()
+        .context("refinement output has no file name")?;
+    let staged_manifest = staged.path().join(output_name);
+    fs::write(&staged_manifest, &text).with_context(|| {
+        format!(
+            "failed to stage plaque refinement {}",
+            staged_manifest.display()
+        )
+    })?;
 
-    if !args.no_preview {
-        let preview = parent.join("placement-preview.png");
+    let staged_preview = if let Some(preview) = &preview {
+        let staged_preview = staged.path().join("placement-preview.png");
         write_placement_preview(
             &args.ffmpeg,
             &args.input,
             &info,
-            &normalized_image,
+            &staged_image,
             bounds,
-            &preview,
+            &staged_preview,
         )?;
+        Some((staged_preview, preview.clone()))
+    } else {
+        None
+    };
+    let mut members = vec![(staged_image, normalized_image)];
+    if let Some(preview) = staged_preview {
+        members.push(preview);
+    }
+    // The refinement manifest is the bundle's commit marker.
+    members.push((staged_manifest, output.clone()));
+    staged.commit_files(&members, args.force)?;
+
+    if let Some(preview) = preview {
         println!("placement preview: {}", preview.display());
     }
     println!("refinement: {}", output.display());
@@ -263,11 +294,7 @@ fn validate_inset(inset: [f64; 4]) -> Result<()> {
     Ok(())
 }
 
-fn placement_samples(
-    ffmpeg: &Path,
-    input: &Path,
-    info: &video::VideoInfo,
-) -> Result<Vec<Surface>> {
+fn placement_samples(ffmpeg: &Path, input: &Path, info: &video::VideoInfo) -> Result<Vec<Surface>> {
     let wanted_count = 9usize;
     let last = info.frames.saturating_sub(1);
     let targets = (0..wanted_count)
@@ -408,7 +435,12 @@ fn write_placement_preview(
         image::imageops::FilterType::Lanczos3,
     );
     let surface = Surface::from_rgba(resized.width(), resized.height(), resized.into_raw())?;
-    frame.blend_surface(&surface, bounds[0].round() as i32, bounds[1].round() as i32, 1.0);
+    frame.blend_surface(
+        &surface,
+        bounds[0].round() as i32,
+        bounds[1].round() as i32,
+        1.0,
+    );
     image::save_buffer(
         output,
         frame.pixels(),

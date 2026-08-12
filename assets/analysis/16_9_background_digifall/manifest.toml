@@ -1,0 +1,51 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 10
+canonical_width = 990
+canonical_height = 680
+motion_model = "declared-screen-fixed"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "none"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../16_9_background_digifall.mp4"
+sha256 = "e70114ea8c899d5ebc076dcc9025446b30c5f01d0d18ce8ac4e158bfad29bb11"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 34.0
+y = 4.0
+width = 990.0
+height = 680.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/16_9_background_digifall/refinement.toml"
+sha256 = "0a89bde6666c7bca36e1373998a9c65c086623d5c6e5c511b03440f0503bfa63"
+semantic_sha256 = "33f25077cba72306633ef1c8ed6d21ead66abdc29aba7a2215aaf558ccf80607"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.98
+extraction = 0.9381867944147355
+occlusion = 0.8
+overall = 0.9214204855612598

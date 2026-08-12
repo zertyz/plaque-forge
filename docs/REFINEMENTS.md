@@ -21,9 +21,11 @@ Run analysis first:
 If a quality gate fails, the script now creates both:
 
 ```text
-assets/analysis/<name>.partial-.../diagnostics/review.html
-assets/analysis/<name>.partial-.../diagnostics/review.txt
+/tmp/plaque-forge/failures/<name>/<run>/diagnostics/review.html
+/tmp/plaque-forge/failures/<name>/<run>/diagnostics/review.txt
 ```
+
+The full failed work tree is removed. Only compact evidence is kept, with at most three runs per asset for seven days. A successful analysis purges it.
 
 Open the HTML first. It orders the likely problems and shows the relevant visual evidence. The coordinate helper lets you click an image and copy normalized points instead of calculating coordinates.
 
@@ -147,6 +149,8 @@ negative_points = [[0.59, 0.36]]
 
 The static review page has a click helper that reports normalized and source-pixel coordinates. Plaque Forge converts normalized prompts to source pixels before invoking the external segmentation worker.
 
+Automatic seed masks and human points/polygons are content-hashed into worker requests. Video frames and output alpha masks are lossless PNG. Gray alpha is intentional: it preserves hair, glass, smoke, shadows, and other soft boundaries instead of forcing a hard transition.
+
 Existing schema-1 prompts with no `coordinates` field continue to mean source pixels.
 
 ## Injected plaque for plaque-less video
@@ -183,7 +187,7 @@ motion = "auto"
 inset = [0.08, 0.12, 0.08, 0.12]
 ```
 
-`motion` is `auto`, `screen`, or `scene`. The PNG hash and placement semantics participate in cache identity. Plaque detection/source-plaque extraction are skipped, but scene motion and foreground crossings are still analyzed.
+`motion` is `auto`, `screen`, or `scene`. The PNG hash and placement semantics participate in cache identity. Plaque detection/source-plaque extraction are skipped, but scene motion and foreground crossings are still analyzed. The PNG's soft alpha controls how the plaque blends with the video; it does not shrink or attenuate the writable region. Use `inset` or an explicit `writable_region` to describe where opaque title lettering may go.
 
 ## Generated artifacts
 
@@ -228,7 +232,7 @@ The three refinements that predate schema 2 remain valid and supported. They are
 
 ## Explicit surface motion intent
 
-Normally source-video surfaces use automatic scene tracking. For a deliberately screen-fixed graphic field (for example a circular HUD/title canvas or a soft cloud with no stable features), schema 2 can state that directly:
+Normally source-video surfaces use automatic scene tracking. For a deliberately screen-fixed graphic field (for example a circular HUD/title canvas or another stationary low-texture field), schema 2 can state that directly:
 
 ```toml
 [plaques.surface]
@@ -237,3 +241,23 @@ motion = "screen"
 ```
 
 `motion = "auto"` is the default; `screen` skips feature tracking by human intent. Injected surfaces use the same `auto|screen|scene` vocabulary.
+Use `motion = "scene"` for a low-texture surface such as a moving cloud when it must
+remain attached to scene motion even though automatic screen-fixed fallback would be tempting.
+
+## Depth and occlusion intent
+
+Automatic occlusion is the default. A flat graphic field with no scene depth can say:
+
+```toml
+[[plaques]]
+id = "main"
+occlusion = "none"
+```
+
+`occlusion = "authored-only"` uses declared layers but disables automatic foreground
+inference. With the default `automatic` mode, declared layers supplement rather than
+disable automatic foreground recovery. Declared `foreground` layers restore their real soft alpha above the title;
+`background` layers are negative evidence and never erase it. `shadow`, `reflection`,
+and `modulation` preserve soft authored material above the title without becoming
+layout obstacles by default. `writing-surface` constrains the writable mask. An
+`in_front_of` value must name an existing plaque.

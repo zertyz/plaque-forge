@@ -6,6 +6,11 @@ default_plaque = "main"
 id = "main"
 reference_frame = 83
 bounds = [323.0, 53.0, 640.0, 125.0]
+occlusion = "authored-only"
+
+[plaques.surface]
+type = "source"
+motion = "screen"
 
 [[layers]]
 id = "moss"

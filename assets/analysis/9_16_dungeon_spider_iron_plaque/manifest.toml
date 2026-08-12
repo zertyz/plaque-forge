@@ -1,0 +1,51 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 10
+canonical_width = 437
+canonical_height = 251
+motion_model = "declared-screen-fixed"
+loop_closed = false
+has_occluder = true
+occlusion_mode = "automatic"
+automatic_ml_foreground = true
+analysis_gate_passed = true
+
+[source]
+path = "../../9_16_dungeon_spider_iron_plaque.mp4"
+sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
+width = 720
+height = 1280
+fps = 24.0
+frames = 206
+duration_seconds = 8.620036
+
+[source_plaque_rect]
+x = 142.0
+y = 172.0
+width = 437.0
+height = 251.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/9_16_dungeon_spider_iron_plaque/refinement.toml"
+sha256 = "4b221db85d908f83921779f49e072d9a64a169d599b59b7ae5112f03fa3a5c4d"
+semantic_sha256 = "e909dfc75d3ae0020fc77178a83529e51860513b0da76581beaa68a4d8f549f8"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.98
+extraction = 0.8063382625105984
+occlusion = 0.8890536996995863
+overall = 0.910907658338975

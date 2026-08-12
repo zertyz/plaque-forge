@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            clang \
+            ffmpeg \
+            fontconfig \
+            libclang-dev \
+            libopencv-dev \
+            pkg-config \
+            python3
+
+      - name: Install the minimum supported Rust toolchain
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal --component clippy,rustfmt
+          rustup override set 1.89.0
+
+      - name: Run deterministic code gate
+        run: ./scripts/check.sh
+
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install the dependency scanner
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Reject new RustSec findings
+        run: ./scripts/audit_dependencies.sh

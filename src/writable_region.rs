@@ -79,7 +79,10 @@ impl WritableRegion {
                 rotation_degrees,
             } => {
                 validate_point(*center, &format!("{description} center"))?;
-                if radii.iter().any(|value| !value.is_finite() || *value <= 0.0) {
+                if radii
+                    .iter()
+                    .any(|value| !value.is_finite() || *value <= 0.0)
+                {
                     bail!("{description} radii must be finite and positive");
                 }
                 if !rotation_degrees.is_finite() {
@@ -254,10 +257,19 @@ impl ResolvedWritableRegion {
             Self::Rect { bounds } => inside_rect(point, *bounds),
             Self::RoundedRect { bounds, radius } => inside_rounded_rect(
                 point,
-                RectF { x: bounds[0], y: bounds[1], width: bounds[2], height: bounds[3] },
+                RectF {
+                    x: bounds[0],
+                    y: bounds[1],
+                    width: bounds[2],
+                    height: bounds[3],
+                },
                 *radius,
             ),
-            Self::Ellipse { center, radii, rotation_degrees } => {
+            Self::Ellipse {
+                center,
+                radii,
+                rotation_degrees,
+            } => {
                 let angle = rotation_degrees.to_radians();
                 let dx = point[0] - center[0];
                 let dy = point[1] - center[1];
@@ -269,7 +281,6 @@ impl ResolvedWritableRegion {
             Self::Mask { .. } => false,
         }
     }
-
 }
 
 fn source_point(rect: RectF, width: u32, height: u32, x: u32, y: u32) -> [f64; 2] {

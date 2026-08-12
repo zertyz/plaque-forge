@@ -11,6 +11,7 @@ mod geometry;
 mod image_io;
 mod layers;
 pub mod model;
+mod portable_path;
 mod progress;
 pub mod refinement;
 mod refinement_commands;
@@ -21,8 +22,8 @@ mod staged_output;
 mod surface;
 mod verify;
 mod video;
-pub mod writable_region;
 pub mod workspace;
+pub mod writable_region;
 
 use cli::{Cli, Command};
 
@@ -40,6 +41,7 @@ pub fn run() -> Result<()> {
         Command::Segment(args) => segmentation::run(args),
         Command::Verify(args) => verify::run(args),
         Command::Review(args) => review::run(args),
+        Command::MigrateAnalysis(args) => analysis::migrate_tree(&args.root, args.apply),
         Command::Render(args) => {
             let analysis = args
                 .analysis

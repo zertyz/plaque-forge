@@ -10,7 +10,7 @@ Usage:
   ./scripts/review_assets.sh [asset-stem ...]
 
 Builds actionable review.html + review.txt reports from complete analysis diagnostics or,
-when analysis failed, the newest retained partial diagnostics. Includes verification/render
+when analysis failed, the newest compact diagnostics retained under /tmp. Includes verification/render
 provenance when available and writes a browsable index to output/review/index.html.
 USAGE
 }
@@ -49,11 +49,11 @@ for name in "${cases[@]}"; do
   analysis="assets/analysis/$name"
   status="complete"
   if [[ ! -d "$analysis" ]]; then
-    analysis="$(ls -1dt "assets/analysis/$name.partial-"* 2>/dev/null | head -n 1 || true)"
+    analysis="$(ls -1dt "/tmp/plaque-forge/failures/$name/"* 2>/dev/null | head -n 1 || true)"
     status="partial"
   fi
   if [[ -z "$analysis" || ! -d "$analysis" ]]; then
-    printf 'warning: no complete or partial analysis found for %s\n' "$name" >&2
+    printf 'warning: no complete or retained failure diagnostics found for %s\n' "$name" >&2
     printf '<li><code>%s</code>: no analysis available</li>\n' "$name" >> "$index_tmp"
     continue
   fi
@@ -69,7 +69,7 @@ for name in "${cases[@]}"; do
 
   report="$analysis/diagnostics/review.html"
   if [[ -f "$report" ]]; then
-    relative="../../$report"
+    relative="$(realpath --relative-to=output/review "$report")"
     css_class="ok"
     label="complete"
     if [[ "$status" == "partial" ]]; then css_class="partial"; label="needs attention"; fi

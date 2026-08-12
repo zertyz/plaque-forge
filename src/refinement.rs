@@ -18,7 +18,8 @@ use crate::writable_region::WritableRegion;
 pub const REFINEMENT_SCHEMA_VERSION: u32 = 2;
 pub const LEGACY_REFINEMENT_SCHEMA_VERSION: u32 = 1;
 pub const MOTION_TRACK_SCHEMA_VERSION: u32 = 1;
-pub const LAYER_ARTIFACT_SCHEMA_VERSION: u32 = 1;
+pub const LAYER_ARTIFACT_SCHEMA_VERSION: u32 = 2;
+pub const LEGACY_LAYER_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PlaqueProposal {
@@ -45,6 +46,21 @@ pub struct PlaqueRefinement {
     pub motion: Vec<MotionAnchor>,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
+    /// How material in the source video may occlude typography on this plaque.
+    #[serde(default)]
+    pub occlusion: OcclusionMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OcclusionMode {
+    /// Infer un-authored foreground crossings and combine them with authored layers.
+    #[default]
+    Automatic,
+    /// There is no depth ordering in this field; typography is always on top.
+    None,
+    /// Only declared foreground/shadow/reflection layers may cover typography.
+    AuthoredOnly,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,17 +93,12 @@ fn default_injected_inset() -> [f64; 4] {
     [0.08, 0.12, 0.08, 0.12]
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SpatialCoordinates {
+    #[default]
     SourcePixels,
     Normalized,
-}
-
-impl Default for SpatialCoordinates {
-    fn default() -> Self {
-        Self::SourcePixels
-    }
 }
 
 fn is_source_pixels(value: &SpatialCoordinates) -> bool {
@@ -159,6 +170,18 @@ pub struct LayerGenerator {
     pub backend: String,
     pub model: String,
     pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_device: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +201,19 @@ pub struct LayerArtifact {
 
 fn default_true() -> bool {
     true
+}
+
+fn validate_optional_sha256(value: Option<&str>, name: &str, required: bool) -> Result<()> {
+    let Some(value) = value else {
+        if required {
+            bail!("schema-2 layer artifact requires {name} provenance");
+        }
+        return Ok(());
+    };
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("{name} must contain 64 hexadecimal characters");
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,6 +305,43 @@ impl RefinementProvenance {
             && file_hash_list(&self.layer_artifacts) == file_hash_list(&other.layer_artifacts)
             && self.locked_keyframes == other.locked_keyframes
             && self.guide_keyframes == other.guide_keyframes
+    }
+
+    pub fn portable_for(&self, owner: &Path) -> Result<Self> {
+        fn portable(
+            file: &Option<InputFileProvenance>,
+            owner: &Path,
+        ) -> Result<Option<InputFileProvenance>> {
+            file.as_ref()
+                .map(|file| {
+                    let mut output = file.clone();
+                    output.path = PathBuf::from(
+                        crate::portable_path::relative_reference(owner, &file.path)?.to_string(),
+                    );
+                    Ok(output)
+                })
+                .transpose()
+        }
+
+        Ok(Self {
+            manifest: portable(&self.manifest, owner)?,
+            plaque_id: self.plaque_id.clone(),
+            motion_track: portable(&self.motion_track, owner)?,
+            surface_asset: portable(&self.surface_asset, owner)?,
+            layer_artifacts: self
+                .layer_artifacts
+                .iter()
+                .map(|file| {
+                    let mut output = file.clone();
+                    output.path = PathBuf::from(
+                        crate::portable_path::relative_reference(owner, &file.path)?.to_string(),
+                    );
+                    Ok(output)
+                })
+                .collect::<Result<Vec<_>>>()?,
+            locked_keyframes: self.locked_keyframes,
+            guide_keyframes: self.guide_keyframes,
+        })
     }
 }
 
@@ -387,6 +460,15 @@ impl Refinement {
                     layer.plaque
                 );
             }
+            if let Some(target) = &layer.in_front_of
+                && !plaque_ids.contains(target.as_str())
+            {
+                bail!(
+                    "layer {:?} in_front_of refers to unknown plaque {:?}",
+                    layer.id,
+                    target
+                );
+            }
             if let Some(path) = &layer.artifact {
                 require_relative(path, &format!("layer {:?} artifact", layer.id))?;
             }
@@ -441,7 +523,10 @@ impl PlaqueSurface {
                     );
                 }
                 if inset[0] + inset[2] >= 0.95 || inset[1] + inset[3] >= 0.95 {
-                    bail!("plaque {:?} injected inset leaves no writable area", plaque_id);
+                    bail!(
+                        "plaque {:?} injected inset leaves no writable area",
+                        plaque_id
+                    );
                 }
                 Ok(())
             }
@@ -450,7 +535,11 @@ impl PlaqueSurface {
 
     pub fn injected(&self) -> Option<(&Path, InjectedMotion, [f64; 4])> {
         match self {
-            Self::Injected { image, motion, inset } => Some((image.as_path(), *motion, *inset)),
+            Self::Injected {
+                image,
+                motion,
+                inset,
+            } => Some((image.as_path(), *motion, *inset)),
             Self::Source { .. } => None,
         }
     }
@@ -479,8 +568,14 @@ impl PlaqueRefinement {
             .map(|anchor| anchor.to_keyframe(width, height))
             .collect::<Result<Vec<_>>>()?;
         keyframes.sort_by_key(|frame| frame.frame);
-        if keyframes.windows(2).any(|pair| pair[0].frame == pair[1].frame) {
-            bail!("plaque {:?} has duplicate sparse motion-anchor frames", self.id);
+        if keyframes
+            .windows(2)
+            .any(|pair| pair[0].frame == pair[1].frame)
+        {
+            bail!(
+                "plaque {:?} has duplicate sparse motion-anchor frames",
+                self.id
+            );
         }
         Ok(Some(MotionRefinement {
             schema_version: MOTION_TRACK_SCHEMA_VERSION,
@@ -569,10 +664,7 @@ impl SegmentationPrompt {
                 }
                 SpatialCoordinates::Normalized => {
                     for (index, point) in quad.iter().enumerate() {
-                        validate_normalized_point(
-                            *point,
-                            &format!("{description} quad[{index}]"),
-                        )?;
+                        validate_normalized_point(*point, &format!("{description} quad[{index}]"))?;
                     }
                     validate_quad(quad, &format!("{description} quad"))?;
                 }
@@ -596,16 +688,15 @@ impl SegmentationPrompt {
         }
         let point_width = width.saturating_sub(1) as f64;
         let point_height = height.saturating_sub(1) as f64;
-        let scale_point = |point: [f64; 2]| [
-            point[0] * point_width,
-            point[1] * point_height,
-        ];
-        let scale_rect = |rect: [f64; 4]| [
-            rect[0] * width as f64,
-            rect[1] * height as f64,
-            rect[2] * width as f64,
-            rect[3] * height as f64,
-        ];
+        let scale_point = |point: [f64; 2]| [point[0] * point_width, point[1] * point_height];
+        let scale_rect = |rect: [f64; 4]| {
+            [
+                rect[0] * width as f64,
+                rect[1] * height as f64,
+                rect[2] * width as f64,
+                rect[3] * height as f64,
+            ]
+        };
         Ok(Self {
             frame: self.frame,
             coordinates: SpatialCoordinates::SourcePixels,
@@ -642,11 +733,14 @@ impl LayerArtifact {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != LAYER_ARTIFACT_SCHEMA_VERSION {
+        if self.schema_version != LEGACY_LAYER_ARTIFACT_SCHEMA_VERSION
+            && self.schema_version != LAYER_ARTIFACT_SCHEMA_VERSION
+        {
             bail!(
-                "unsupported layer-artifact schema {}; expected {}",
+                "unsupported layer-artifact schema {}; expected {} or legacy {}",
                 self.schema_version,
-                LAYER_ARTIFACT_SCHEMA_VERSION
+                LAYER_ARTIFACT_SCHEMA_VERSION,
+                LEGACY_LAYER_ARTIFACT_SCHEMA_VERSION,
             );
         }
         match self.kind {
@@ -655,7 +749,8 @@ impl LayerArtifact {
                     .path
                     .as_ref()
                     .context("alpha-image artifact requires path")?;
-                require_relative(path, "layer artifact path")?;
+                crate::portable_path::PortablePath::bundle(path)
+                    .context("invalid layer artifact path")?;
                 if self.pattern.is_some() || self.first_frame.is_some() || self.last_frame.is_some()
                 {
                     bail!("alpha-image artifact cannot declare pattern or frame range");
@@ -669,7 +764,8 @@ impl LayerArtifact {
                     .pattern
                     .as_ref()
                     .context("alpha-sequence artifact requires pattern")?;
-                require_relative(pattern, "layer artifact pattern")?;
+                crate::portable_path::PortablePath::bundle(pattern)
+                    .context("invalid layer artifact pattern")?;
                 let pattern = pattern.to_string_lossy();
                 if pattern.matches("%06d").count() != 1 {
                     bail!("alpha-sequence pattern must contain one %06d placeholder");
@@ -698,6 +794,28 @@ impl LayerArtifact {
             .any(|value| value.trim().is_empty())
         {
             bail!("layer artifact generator fields cannot be empty");
+        }
+        if self.schema_version == LAYER_ARTIFACT_SCHEMA_VERSION {
+            let generator = self
+                .generator
+                .as_ref()
+                .context("schema-2 layer artifact requires generator provenance")?;
+            if generator
+                .requested_device
+                .as_deref()
+                .is_none_or(str::is_empty)
+            {
+                bail!("schema-2 layer artifact requires requested_device provenance");
+            }
+            for (name, value) in [
+                ("source_sha256", generator.source_sha256.as_deref()),
+                ("prompt_sha256", generator.prompt_sha256.as_deref()),
+                ("worker_sha256", generator.worker_sha256.as_deref()),
+                ("request_sha256", generator.request_sha256.as_deref()),
+            ] {
+                validate_optional_sha256(value, name, true)?;
+            }
+            validate_optional_sha256(generator.runtime_sha256.as_deref(), "runtime_sha256", false)?;
         }
         Ok(())
     }
@@ -949,7 +1067,11 @@ pub fn current_refinement_provenance(
             identity.locked_keyframes = track.locked_keyframes();
             identity.guide_keyframes = track.guide_keyframes();
         } else if !selected.motion.is_empty() {
-            identity.locked_keyframes = selected.motion.iter().filter(|anchor| anchor.locked).count();
+            identity.locked_keyframes = selected
+                .motion
+                .iter()
+                .filter(|anchor| anchor.locked)
+                .count();
             identity.guide_keyframes = selected.motion.len() - identity.locked_keyframes;
         }
     } else if let Some(id) = requested_plaque {
@@ -1054,13 +1176,8 @@ pub fn write_refinement(path: &Path, contents: &str, force: bool) -> Result<()> 
             path.display()
         );
     }
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))
+    crate::staged_output::write_file(path, contents.as_bytes(), force)
+        .with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn validate_id(id: &str, kind: &str) -> Result<()> {
@@ -1075,9 +1192,8 @@ fn validate_id(id: &str, kind: &str) -> Result<()> {
 }
 
 fn require_relative(path: &Path, description: &str) -> Result<()> {
-    if path.is_absolute() {
-        bail!("{description} must be relative");
-    }
+    crate::portable_path::PortablePath::project(path)
+        .with_context(|| format!("{description} must be a portable relative path"))?;
     Ok(())
 }
 
@@ -1166,42 +1282,9 @@ fn toml_string(value: &str) -> Result<String> {
 }
 
 pub(crate) fn relative_reference(owner: &Path, target: &Path) -> Result<PathBuf> {
-    let owner_parent = owner.parent().unwrap_or_else(|| Path::new("."));
-    if owner_parent == target.parent().unwrap_or_else(|| Path::new(".")) {
-        return target
-            .file_name()
-            .map(PathBuf::from)
-            .context("input path has no file name");
-    }
-
-    let current = std::env::current_dir().context("failed to resolve current directory")?;
-    let absolute = |path: &Path| {
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            current.join(path)
-        }
-    };
-    let owner = absolute(owner_parent);
-    let target = target.canonicalize().unwrap_or_else(|_| absolute(target));
-    let owner_components = owner.components().collect::<Vec<_>>();
-    let target_components = target.components().collect::<Vec<_>>();
-    let common = owner_components
-        .iter()
-        .zip(&target_components)
-        .take_while(|(a, b)| a == b)
-        .count();
-    if common == 0 {
-        bail!("refinement and source do not share a filesystem root");
-    }
-    let mut relative = PathBuf::new();
-    for _ in common..owner_components.len() {
-        relative.push("..");
-    }
-    for component in &target_components[common..] {
-        relative.push(component.as_os_str());
-    }
-    Ok(relative)
+    Ok(PathBuf::from(
+        crate::portable_path::relative_reference(owner, target)?.to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -1413,7 +1496,6 @@ mod tests {
         assert_eq!(track.locked_keyframes(), 1);
     }
 
-
     #[test]
     fn source_surface_can_declare_screen_fixed_motion() {
         let refinement: Refinement = toml::from_str(
@@ -1435,7 +1517,9 @@ mod tests {
         refinement.validate().unwrap();
         assert!(matches!(
             refinement.plaques[0].surface,
-            Some(PlaqueSurface::Source { motion: InjectedMotion::Screen })
+            Some(PlaqueSurface::Source {
+                motion: InjectedMotion::Screen
+            })
         ));
     }
 

@@ -5,6 +5,10 @@
 
 use crate::surface::Surface;
 use anyhow::{Context, Result, bail};
+use opencv::{
+    prelude::{VideoCaptureTrait, VideoCaptureTraitConst},
+    videoio::{CAP_ANY, CAP_PROP_ORIENTATION_AUTO, VideoCapture},
+};
 use serde::Deserialize;
 use std::{
     io::{ErrorKind, Read, Write},
@@ -22,6 +26,32 @@ pub struct VideoInfo {
     pub duration_seconds: f64,
     pub start_time_seconds: f64,
     pub constant_frame_rate: bool,
+    pub color_range: Option<String>,
+    pub color_space: Option<String>,
+    pub color_transfer: Option<String>,
+    pub color_primaries: Option<String>,
+    pub rotation_degrees: i32,
+}
+
+impl VideoInfo {
+    pub fn ensure_supported_compositing_color(&self) -> Result<()> {
+        if self
+            .color_transfer
+            .as_deref()
+            .is_some_and(|value| matches!(value, "smpte2084" | "arib-std-b67"))
+            || self
+                .color_primaries
+                .as_deref()
+                .is_some_and(|value| value == "bt2020")
+        {
+            bail!(
+                "HDR/wide-gamut input is not supported by the current 8-bit SDR compositor (primaries={}, transfer={}); normalize it to SDR BT.709 before analysis/rendering",
+                self.color_primaries.as_deref().unwrap_or("unspecified"),
+                self.color_transfer.as_deref().unwrap_or("unspecified")
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,6 +70,24 @@ struct ProbeStream {
     duration: Option<String>,
     nb_read_packets: Option<String>,
     start_time: Option<String>,
+    color_range: Option<String>,
+    color_space: Option<String>,
+    color_transfer: Option<String>,
+    color_primaries: Option<String>,
+    #[serde(default)]
+    tags: ProbeTags,
+    #[serde(default)]
+    side_data_list: Vec<ProbeSideData>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ProbeTags {
+    rotate: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProbeSideData {
+    rotation: Option<i32>,
 }
 #[derive(Debug, Deserialize)]
 struct ProbeFormat {
@@ -122,6 +170,18 @@ pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
     let duration_frames = playable_frames_from_duration(duration_seconds, fps);
     let frames = select_playable_frame_count(metadata_frames, duration_frames);
     let start_time_seconds = stream.start_time.as_deref().unwrap_or("0").parse::<f64>()?;
+    let rotation_degrees = stream
+        .side_data_list
+        .iter()
+        .find_map(|side_data| side_data.rotation)
+        .or_else(|| {
+            stream
+                .tags
+                .rotate
+                .as_deref()
+                .and_then(|value| value.parse::<i32>().ok())
+        })
+        .unwrap_or(0);
     Ok(VideoInfo {
         width: stream.width.context("missing video width")?,
         height: stream.height.context("missing video height")?,
@@ -131,7 +191,24 @@ pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
         duration_seconds,
         start_time_seconds,
         constant_frame_rate,
+        color_range: stream.color_range.clone(),
+        color_space: stream.color_space.clone(),
+        color_transfer: stream.color_transfer.clone(),
+        color_primaries: stream.color_primaries.clone(),
+        rotation_degrees,
     })
+}
+
+/// OpenCV may otherwise autorotate frames while FFmpeg/raw geometry remains in
+/// encoded coordinates. Keep every analysis backend in the same coordinate space.
+pub fn open_capture(input: &Path) -> Result<VideoCapture> {
+    let mut capture = VideoCapture::from_file(&input.to_string_lossy(), CAP_ANY)
+        .with_context(|| format!("failed to open input video {}", input.display()))?;
+    capture.set(CAP_PROP_ORIENTATION_AUTO, 0.0)?;
+    if !capture.is_opened()? {
+        bail!("input video could not be opened: {}", input.display());
+    }
+    Ok(capture)
 }
 
 pub struct Decoder {
@@ -143,15 +220,35 @@ pub struct Decoder {
 }
 impl Decoder {
     pub fn spawn(ffmpeg: &Path, input: &Path, info: &VideoInfo) -> Result<Self> {
-        let mut child = Command::new(ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-i"])
+        // A raw pipe carries no timestamps. Normalize them before muxing into that
+        // pipe so broken/coarse container DTS cannot trigger FFmpeg diagnostics;
+        // `fps_mode=passthrough` still preserves every decoded frame exactly once.
+        let timestamp_filter = format!("setpts=N/({:.12}*TB)", info.fps);
+        let mut command = Command::new(ffmpeg);
+        command
+            .args(["-hide_banner", "-loglevel", "error", "-noautorotate", "-i"])
             .arg(input)
             .args([
-                "-map", "0:v:0", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1",
+                "-map",
+                "0:v:0",
+                "-vf",
+                &timestamp_filter,
+                // Preserve the decoder's actual frame sequence. FFmpeg's default
+                // output synchronization may duplicate frames to fill a nominal
+                // container duration (for example 234 decodable frames advertised
+                // as 240), which makes a verifier compare synthetic tail frames.
+                "-fps_mode",
+                "passthrough",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgba",
+                "pipe:1",
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::inherit());
+        let mut child = command
             .spawn()
             .with_context(|| format!("failed to launch decoder {}", ffmpeg.display()))?;
         let stdout = child
@@ -229,7 +326,32 @@ impl Encoder {
             .arg(format!("{}x{}", info.width, info.height))
             .args(["-framerate", &info.fps_expression, "-i", "pipe:0", "-i"])
             .arg(source_input)
-            .args(["-map", "0:v:0", "-map", "1:a:0?"])
+            .args([
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0?",
+                "-map_metadata",
+                "1",
+                "-map_metadata:s:v:0",
+                "1:s:v:0",
+            ]);
+        for (flag, value) in [
+            ("-color_range", info.color_range.as_deref()),
+            ("-colorspace", info.color_space.as_deref()),
+            ("-color_trc", info.color_transfer.as_deref()),
+            ("-color_primaries", info.color_primaries.as_deref()),
+        ] {
+            if let Some(value) = value {
+                command.arg(flag).arg(value);
+            }
+        }
+        if info.rotation_degrees != 0 {
+            command
+                .arg("-metadata:s:v:0")
+                .arg(format!("rotate={}", info.rotation_degrees));
+        }
+        command
             .args(args)
             .args(["-avoid_negative_ts", "disabled"])
             .arg(output)
@@ -278,7 +400,10 @@ fn playable_frames_from_duration(duration_seconds: f64, fps: f64) -> usize {
 }
 
 fn select_playable_frame_count(metadata_frames: Option<usize>, duration_frames: usize) -> usize {
-    match (metadata_frames.filter(|&frames| frames > 0), duration_frames) {
+    match (
+        metadata_frames.filter(|&frames| frames > 0),
+        duration_frames,
+    ) {
         // Tolerate a one-frame timestamp/rounding discrepancy. Larger disagreement
         // means packet/frame metadata is advertising a stale, non-decodable tail.
         (Some(metadata), duration) if duration > 0 && metadata > duration + 1 => duration,

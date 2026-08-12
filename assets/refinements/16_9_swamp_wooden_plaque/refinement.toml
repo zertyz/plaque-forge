@@ -8,6 +8,11 @@ id = "main"
 reference_frame = 10
 bounds = [314.0, 24.0, 622.0, 183.0]
 
+[plaques.surface]
+type = "source"
+# Camera framing and the sign are fixed; only scene foreground elements move.
+motion = "screen"
+
 [plaques.writable_region]
 shape = "rounded-rect"
 bounds = [346.0, 53.0, 558.0, 116.0]

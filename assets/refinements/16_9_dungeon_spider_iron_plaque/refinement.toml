@@ -8,6 +8,12 @@ id = "main"
 reference_frame = 10
 bounds = [62.0, 82.0, 1154.0, 158.0]
 
+[plaques.surface]
+type = "source"
+# The iron sign is bolted to the screen composition; the detective, spider, and
+# web move independently in front of it.
+motion = "screen"
+
 [plaques.writable_region]
 shape = "rounded-rect"
 bounds = [88.0, 102.0, 1102.0, 116.0]

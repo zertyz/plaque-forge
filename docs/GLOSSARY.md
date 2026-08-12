@@ -30,7 +30,9 @@ An object that passes between the camera and the plaque, such as a chain, plant,
 A grayscale image describing coverage. Black means absent, white means fully present, and gray values preserve soft or partially transparent edges.
 
 **Layer**  
-A declared scene component used during analysis or compositing. Examples include a writing surface, foreground object, or shadow.
+A declared scene component used during analysis or compositing. Foreground is above
+the title, background is negative depth evidence, writing-surface constrains placement,
+and shadow/reflection/modulation preserve soft material relationships.
 
 **Segmentation**  
 The process of separating a requested object from the rest of a frame. Plaque Forge can delegate this optional task to Python-based ML models through a narrow worker protocol.
@@ -40,6 +42,18 @@ Reviewed input that corrects or supplements automatic analysis. `refinement.toml
 
 **Analysis cache**  
 Reusable generated scene data under `assets/analysis/<name>/`. It contains motion, masks, templates, diagnostics, and provenance needed to render titles without repeating expensive analysis.
+
+**Portable artifact path**
+
+A slash-separated path stored relative to its manifest. Generated artifacts reject absolute, drive-letter, and backslash forms so a cache can move between workstations. Bundle-local paths also reject `..` escapes.
+
+**Transactional stage**
+
+Private in-progress work under `/tmp/plaque-forge/`. A complete validated result replaces its destination only at commit; an error or interrupted process leaves the previous complete output intact and removes the work tree.
+
+**Failure evidence**
+
+Compact diagnostics retained under `/tmp/plaque-forge/failures/` after failed analysis. It is bounded and disposable, unlike human refinements or a complete analysis cache.
 
 **Locked motion keyframe**  
 A human-approved plaque position that analysis must honor exactly.
@@ -68,3 +82,7 @@ The exact text after renderer-selected line breaks. It is recorded in render pro
 
 **Canonical title layer**  
 The title rendered in canonical plaque coordinates before the plaque motion transform is applied to each video frame.
+
+**Text-free source contract**
+
+The assertion that the selected source writing surface contains no existing title that needs removal. Plaque Forge composites; it does not inpaint.

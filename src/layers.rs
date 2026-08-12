@@ -47,10 +47,17 @@ pub fn build_tracking_exclusions(
                 && input.artifact.coordinates == LayerCoordinates::SourcePixels
         })
         .collect::<Vec<_>>();
-    if foregrounds.is_empty() {
+    let backgrounds = inputs
+        .iter()
+        .filter(|input| {
+            input.refinement.role == LayerRole::Background
+                && input.artifact.coordinates == LayerCoordinates::SourcePixels
+        })
+        .collect::<Vec<_>>();
+    if foregrounds.is_empty() && backgrounds.is_empty() && !automatic_root.is_dir() {
         return Ok(false);
     }
-    for input in &foregrounds {
+    for input in foregrounds.iter().chain(&backgrounds) {
         validate_frame_range(&input.artifact, frames, &input.refinement.id)?;
     }
     fs::create_dir_all(output_root)?;
@@ -64,6 +71,14 @@ pub fn build_tracking_exclusions(
         for input in &foregrounds {
             if let Some(path) = artifact_frame_path(input, frame) {
                 alpha_over(&mut combined, &load_mask(&path, width, height)?);
+            }
+        }
+        // A declared background layer is negative depth evidence: it may resemble
+        // or move through the title plane, but it cannot occlude typography or pull
+        // the plaque tracker. Subtract it from both automatic and authored masks.
+        for input in &backgrounds {
+            if let Some(path) = artifact_frame_path(input, frame) {
+                subtract_alpha(&mut combined, &load_mask(&path, width, height)?);
             }
         }
         save_mask(
@@ -118,7 +133,7 @@ pub fn package(
             coordinates: artifact.coordinates,
             kind: artifact.kind,
             affects_layout: artifact.affects_layout,
-            path: packed_path,
+            path: crate::portable_path::PortablePath::bundle(packed_path)?,
             first_frame: artifact.first_frame,
             last_frame: artifact.last_frame,
             generator: artifact.generator.clone(),
@@ -159,16 +174,19 @@ impl<'a> ForegroundReader<'a> {
         let mut canonical = Vec::new();
         let mut source_static = Vec::new();
         let mut sequences = Vec::new();
-        for layer in pack
-            .manifest
-            .layers
-            .iter()
-            .filter(|layer| matches!(layer.role, LayerRole::Foreground | LayerRole::Shadow))
-        {
+        for layer in pack.manifest.layers.iter().filter(|layer| {
+            matches!(
+                layer.role,
+                LayerRole::Foreground
+                    | LayerRole::Shadow
+                    | LayerRole::Reflection
+                    | LayerRole::Modulation
+            )
+        }) {
             match (layer.coordinates, layer.kind) {
                 (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => {
                     let mask = load_mask(
-                        &pack.require_asset_path(&layer.path)?,
+                        &pack.require_asset_path(layer.path.as_path())?,
                         pack.manifest.canonical_width,
                         pack.manifest.canonical_height,
                     )?;
@@ -185,7 +203,7 @@ impl<'a> ForegroundReader<'a> {
                 (LayerCoordinates::SourcePixels, LayerArtifactKind::AlphaImage) => {
                     source_static.push((
                         load_mask(
-                            &pack.require_asset_path(&layer.path)?,
+                            &pack.require_asset_path(layer.path.as_path())?,
                             pack.manifest.source.width,
                             pack.manifest.source.height,
                         )?,
@@ -242,7 +260,7 @@ impl<'a> ForegroundReader<'a> {
             if frame_in_layer(layer, frame) {
                 let path = self
                     .pack
-                    .require_asset_path(&sequence_path(&layer.path, frame))?;
+                    .require_asset_path(&sequence_path(layer.path.as_path(), frame))?;
                 alpha_over(
                     &mut combined,
                     &load_mask(
@@ -278,9 +296,11 @@ fn apply_layout_layer(
         return Ok(());
     }
     let aggregate = match (layer.coordinates, layer.kind) {
-        (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => {
-            load_mask(&root.join(&layer.path), canonical_width, canonical_height)?
-        }
+        (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => load_mask(
+            &root.join(layer.path.as_path()),
+            canonical_width,
+            canonical_height,
+        )?,
         (LayerCoordinates::SourcePixels, _) => aggregate_source_layer(
             layer,
             root,
@@ -328,8 +348,10 @@ fn aggregate_source_layer(
     };
     for frame in frames {
         let source = match layer.kind {
-            LayerArtifactKind::AlphaImage => root.join(&layer.path),
-            LayerArtifactKind::AlphaSequence => root.join(sequence_path(&layer.path, frame)),
+            LayerArtifactKind::AlphaImage => root.join(layer.path.as_path()),
+            LayerArtifactKind::AlphaSequence => {
+                root.join(sequence_path(layer.path.as_path(), frame))
+            }
         };
         let mask = load_mask(&source, source_width, source_height)?;
         let surface = Surface::from_alpha_mask(
@@ -454,6 +476,12 @@ fn alpha_over(output: &mut [u8], input: &[u8]) {
     for (output, &input) in output.iter_mut().zip(input) {
         let remaining = (255 - *output as u16) * (255 - input as u16);
         *output = (255 - (remaining + 127) / 255) as u8;
+    }
+}
+
+fn subtract_alpha(output: &mut [u8], input: &[u8]) {
+    for (output, &input) in output.iter_mut().zip(input) {
+        *output = ((*output as u16 * (255 - input as u16) + 127) / 255) as u8;
     }
 }
 

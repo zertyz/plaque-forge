@@ -65,17 +65,90 @@ verify_runtime() {
     "$python" "$repo/tools/segmentation_worker.py" --verify-runtime
 }
 
+write_runtime_manifest() {
+  local python="$root/venv/bin/python"
+  "$python" - "$repo" "$root" <<'PY'
+import hashlib
+import importlib.metadata
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+root = Path(sys.argv[2])
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+def commit(name):
+    return subprocess.check_output(
+        ["git", "-C", str(root / "src" / name), "rev-parse", "HEAD"], text=True
+    ).strip()
+
+packages = {}
+for name in (
+    "torch",
+    "torchvision",
+    "transformers",
+    "opencv-python-headless",
+    "pillow",
+    "numpy",
+    "cutie",
+    "matanyone2",
+):
+    try:
+        packages[name] = importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        packages[name] = "editable-source"
+
+document = {
+    "schema_version": 1,
+    "python": ".".join(map(str, sys.version_info[:3])),
+    "packages": packages,
+    "source_commits": {
+        "sam2": commit("sam2"),
+        "cutie": commit("Cutie"),
+        "matanyone2": commit("MatAnyone2"),
+    },
+    "model_revisions": {
+        "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
+        "hustvl/vitmatte-small-composition-1k": "6a58ad7646403c1df626fbd746900aec7361ea1d",
+        "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
+    },
+    "implementation_sha256": {
+        path.name: sha256(path)
+        for path in (
+            repo / "tools" / "segmentation-worker",
+            repo / "tools" / "segmentation_worker.py",
+            repo / "tools" / "segmentation-requirements.txt",
+            repo / "scripts" / "setup_segmentation.sh",
+        )
+    },
+}
+(root / "runtime-manifest.json").write_text(
+    json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+)
+PY
+}
+
 if [[ "$verify_only" == true ]]; then
   [[ -f "$root/.complete" ]] || {
     printf 'segmentation runtime is incomplete: %s\n' "$root" >&2
     printf 'run %s --reinstall\n' "$0" >&2
     exit 1
   }
+  write_runtime_manifest
   verify_runtime
   exit 0
 fi
 
 if [[ "$reinstall" == false && -f "$root/.complete" && -x "$root/venv/bin/python" ]]; then
+  write_runtime_manifest
   printf 'already installed: %s\n' "$root"
   printf 'verify with: %s --verify\n' "$0"
   exit 0
@@ -109,16 +182,19 @@ uv pip install --python "$python" -r "$repo/tools/segmentation-requirements.txt"
 
 git clone https://github.com/facebookresearch/sam2.git "$root/src/sam2"
 git -C "$root/src/sam2" checkout 2b90b9f5ceec907a1c18123530e92e794ad901a4
+[[ "$(git -C "$root/src/sam2" rev-parse HEAD)" == 2b90b9f5ceec907a1c18123530e92e794ad901a4 ]]
 # SAM2's optional _C module is a CUDA extension. Plaque Forge supports Intel XPU,
 # so deliberately omit it and provide backend-neutral small-mask cleanup in the worker.
 SAM2_BUILD_CUDA=0 uv pip install --python "$python" --no-deps --no-build-isolation -e "$root/src/sam2"
 
 git clone https://github.com/hkchengrex/Cutie.git "$root/src/Cutie"
 git -C "$root/src/Cutie" checkout ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a
+[[ "$(git -C "$root/src/Cutie" rev-parse HEAD)" == ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a ]]
 uv pip install --python "$python" --no-deps -e "$root/src/Cutie"
 
 git clone https://github.com/pq-yang/MatAnyone2.git "$root/src/MatAnyone2"
 git -C "$root/src/MatAnyone2" checkout 0079197acd6d16a741f71558809c06c586c579e0
+[[ "$(git -C "$root/src/MatAnyone2" rev-parse HEAD)" == 0079197acd6d16a741f71558809c06c586c579e0 ]]
 uv pip install --python "$python" --no-deps -e "$root/src/MatAnyone2"
 
 printf '[setup] downloading Cutie model and backbone weights\n' >&2
@@ -150,16 +226,17 @@ printf '[setup] downloading Hugging Face model snapshots\n' >&2
 "$python" - <<'PY'
 from huggingface_hub import snapshot_download
 
-for repo_id in (
-    "facebook/sam2.1-hiera-large",
-    "hustvl/vitmatte-small-composition-1k",
-    "PeiqingYang/MatAnyone2",
-):
-    snapshot_download(repo_id=repo_id)
+for repo_id, revision in {
+    "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
+    "hustvl/vitmatte-small-composition-1k": "6a58ad7646403c1df626fbd746900aec7361ea1d",
+    "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
+}.items():
+    snapshot_download(repo_id=repo_id, revision=revision)
 PY
 
 # Do not mark the environment complete until imports, caches, the selected
 # accelerator, Cutie, SAM2 and ViTMatte survive an offline smoke test.
+write_runtime_manifest
 verify_runtime
 touch "$root/.complete"
 printf 'installed and verified: %s\n' "$root"

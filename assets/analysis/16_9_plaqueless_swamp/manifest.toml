@@ -1,0 +1,60 @@
+# Generated analysis cache. Regenerate with analyze.
+schema_version = 2
+status = "complete"
+source_is_text_free = true
+analyzer_build = "analysis-v9"
+reference_frame = 0
+canonical_width = 900
+canonical_height = 252
+motion_model = "declared-screen-fixed"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "none"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../16_9_plaqueless_swamp.mp4"
+sha256 = "83a72c4e2d77cd72c7d2a68ac3711cb477c06dfd990588649c03c76fb0ffd97d"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 190.0
+y = 25.0
+width = 900.0
+height = 252.0
+
+[segmentation]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+device = "auto"
+
+[injected_surface]
+path = "injected-surface.png"
+source_sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"
+motion = "screen"
+
+[refinements]
+plaque_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[refinements.manifest]
+path = "../../refinements/16_9_plaqueless_swamp/refinement.toml"
+sha256 = "e3067de5e960edfadf04ea67a10add03f635225c4a7ff03648be342f4fd9d834"
+semantic_sha256 = "0e1a3fc649aecb8d9c7d479492ff4cae23ec39cac03036e48e397add457aa8ec"
+
+[refinements.surface_asset]
+path = "../../plaques/aetherglass-aurora-16_9.png"
+sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"
+
+[confidence]
+plaque_detection = 0.92
+motion = 0.98
+extraction = 0.5243251763668431
+occlusion = 0.8
+overall = 0.7841987584904645
