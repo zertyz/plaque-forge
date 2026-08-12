@@ -5,6 +5,17 @@ root="/tmp/plaque-forge-python"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 reinstall=false
 
+[[ "$root" == /tmp/plaque-forge-python ]] || {
+  printf 'refusing unexpected segmentation root: %s\n' "$root" >&2
+  exit 1
+}
+for command in uv git; do
+  command -v "$command" >/dev/null || {
+    printf 'required command not found: %s\n' "$command" >&2
+    exit 1
+  }
+done
+
 if (( $# > 1 )) || { (( $# == 1 )) && [[ "$1" != --reinstall ]]; }; then
   printf 'usage: %s [--reinstall]\n' "$0" >&2
   exit 2

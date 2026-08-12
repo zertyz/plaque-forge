@@ -23,6 +23,8 @@ pub enum Command {
     Render(Box<RenderArgs>),
     /// Verify an existing rendered video.
     Verify(VerifyArgs),
+    /// Build a human-oriented HTML report from analysis and verification diagnostics.
+    Review(ReviewArgs),
 }
 
 #[derive(Debug, Args)]
@@ -195,6 +197,10 @@ pub struct RenderArgs {
     #[arg(long)]
     pub font: PathBuf,
 
+    /// TOML text style. When set, it replaces the direct fill/stroke/glow/shadow paint flags.
+    #[arg(long)]
+    pub style_file: Option<PathBuf>,
+
     #[arg(long)]
     pub diagnostics: Option<PathBuf>,
 
@@ -234,6 +240,20 @@ pub struct RenderArgs {
     #[arg(long, default_value_t = 4)]
     pub glow_radius: u32,
 
+    /// Horizontal shadow offset as a fraction of the fitted font size.
+    #[arg(long, default_value_t = 0.0)]
+    pub shadow_offset_x: f32,
+
+    /// Vertical shadow offset as a fraction of the fitted font size.
+    #[arg(long, default_value_t = 0.0)]
+    pub shadow_offset_y: f32,
+
+    #[arg(long, default_value_t = 0)]
+    pub shadow_blur_radius: u32,
+
+    #[arg(long, default_value = "#00000000")]
+    pub shadow_color: String,
+
     #[arg(long, value_enum, default_value_t = TextAlign::Center)]
     pub text_align: TextAlign,
 
@@ -265,6 +285,7 @@ pub struct ComposeArgs {
     pub text: Option<String>,
     pub text_file: Option<PathBuf>,
     pub font: PathBuf,
+    pub style_file: Option<PathBuf>,
     pub output: PathBuf,
     pub diagnostics: Option<PathBuf>,
     pub fit: FitMode,
@@ -279,6 +300,10 @@ pub struct ComposeArgs {
     pub stroke_color: String,
     pub glow_color: String,
     pub glow_radius: u32,
+    pub shadow_offset_x: f32,
+    pub shadow_offset_y: f32,
+    pub shadow_blur_radius: u32,
+    pub shadow_color: String,
     pub text_align: TextAlign,
     pub vertical_align: VerticalAlign,
     pub encoder_args: Vec<String>,
@@ -322,6 +347,24 @@ pub struct VerifyArgs {
     pub ffprobe: PathBuf,
 }
 
+#[derive(Debug, Args)]
+pub struct ReviewArgs {
+    #[arg(long)]
+    pub analysis: PathBuf,
+
+    /// Optional verification JSON produced by `plaque-forge verify`.
+    #[arg(long)]
+    pub verification: Option<PathBuf>,
+
+    /// Optional render manifest produced beside a rendered video.
+    #[arg(long)]
+    pub render_manifest: Option<PathBuf>,
+
+    /// Defaults to <analysis>/diagnostics/review.html.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+}
+
 impl RenderArgs {
     pub fn as_compose_args(&self, analysis: PathBuf, output: PathBuf) -> ComposeArgs {
         ComposeArgs {
@@ -332,6 +375,7 @@ impl RenderArgs {
             text: self.text.clone(),
             text_file: self.text_file.clone(),
             font: self.font.clone(),
+            style_file: self.style_file.clone(),
             output,
             diagnostics: self.diagnostics.clone(),
             fit: self.fit,
@@ -346,6 +390,10 @@ impl RenderArgs {
             stroke_color: self.stroke_color.clone(),
             glow_color: self.glow_color.clone(),
             glow_radius: self.glow_radius,
+            shadow_offset_x: self.shadow_offset_x,
+            shadow_offset_y: self.shadow_offset_y,
+            shadow_blur_radius: self.shadow_blur_radius,
+            shadow_color: self.shadow_color.clone(),
             text_align: self.text_align,
             vertical_align: self.vertical_align,
             encoder_args: self.encoder_args.clone(),
@@ -361,6 +409,8 @@ impl RenderArgs {
 pub enum FitMode {
     Maximize,
     Balanced,
+    /// Search explicit word-boundary line breaks and score visual balance before fitting.
+    Artistic,
     Fixed,
 }
 

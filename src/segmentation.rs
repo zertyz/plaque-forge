@@ -1,3 +1,8 @@
+//! Boundary between the Rust application and optional ML segmentation workers.
+//!
+//! Rust owns validation, staging, provenance, and the versioned request/result protocol.
+//! A worker is replaceable and is not trusted to mutate project data outside its output.
+
 use std::{fs, path::Path, process::Command};
 
 use anyhow::{Context, Result, bail};
@@ -145,7 +150,7 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         device: args.device,
         source: WorkerSource {
             path: args.input.canonicalize().unwrap_or(args.input.clone()),
-            sha256: video::sha256(&args.input)?,
+            sha256: crate::digest::file_sha256(&args.input)?,
             width: info.width,
             height: info.height,
             fps: info.fps,

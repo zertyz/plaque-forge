@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Replaces only the selected output/*.verification.json reports.
 source "$(dirname "$0")/render_common.sh"
-pf_configure "$@"
+pf_configure_render "$@"
 
 stage="$(mktemp -d /tmp/plaque-forge-validate.XXXXXX)"
 cleanup() {

@@ -1,127 +1,121 @@
-# Plaque Forge 0.3.0
+# Plaque Forge
 
-Plaque Forge analyzes a moving, text-free plaque once and reuses that analysis for typography rendering.
+Plaque Forge places new typography onto a moving, text-free plaque in a video while preserving the plaque motion and objects that pass in front of it.
 
-## Layout
+It does this in two phases:
 
-```text
-assets/*.mp4                 source videos
-assets/refinements/<name>/   reviewed geometry and alpha masks
-assets/analysis/<name>/      generated analysis cache
-output/*.hevc.mkv            production videos
-```
+1. **Analyze once:** detect the plaque, track it through the shot, recover its writable surface, and record foreground occlusion.
+2. **Render many times:** reuse that analysis cache for different titles and typography settings.
 
-Refinements are source data. Production rendering never writes refinements or analysis.
+The included assets already have analysis caches, so you can render immediately after building.
 
-## Build
+## Quick start
+
+On CachyOS / Arch Linux:
 
 ```bash
-sudo pacman -S --needed rustup clang opencv ffmpeg pkgconf fontconfig uv git
+sudo pacman -S --needed rustup clang opencv ffmpeg pkgconf fontconfig
 rustup default stable
-./scripts/check.sh
+```
+
+Render all included videos:
+
+```bash
+./scripts/render_assets.sh \
+  --text 'Nós que aqui estamos, por vós - ansiosamente - esperamos!' \
+  --font-family 'Noto Serif' \
+  --max-lines 5 \
+  --padding 0 \
+  --stroke-width 0.05 \
+  --glow-radius 10
+```
+
+Rendered videos are written to `output/*.hevc.mkv`. Pass one or more asset stems at the end to render only those assets:
+
+```bash
+./scripts/render_assets.sh --text 'A new title' --font-family 'Noto Serif' swamp-rusty-plaque
+```
+
+For title-oriented line breaking, add `--fit artistic`. For reusable paint/effect stacks, use `--style-file styles/classic-glow.toml`. Run `./scripts/render_assets.sh --help` for common typography options. Existing environment variables such as `TITLE_TEXT`, `FONT`, `MAX_LINES`, and `GLOW_RADIUS` are still accepted.
+
+## Main workflows
+
+### Build or rebuild scene analysis
+
+An **analysis cache** is generated scene data that is expensive to compute but reusable across titles. Build missing caches with:
+
+```bash
+./scripts/analyze_assets.sh
+```
+
+Rebuild selected caches only when the input video, refinements, or analysis semantics changed:
+
+```bash
+./scripts/analyze_assets.sh --force swamp-rusty-plaque
+```
+
+### Refine a difficult scene
+
+A **refinement** is reviewed input that corrects or supplements automatic analysis, for example plaque bounds, motion constraints, or foreground masks.
+
+```bash
 cargo build --release
+./target/release/plaque-forge refine --input assets/my-video.mp4
 ```
 
-## Production render
+See [docs/REFINEMENTS.md](docs/REFINEMENTS.md).
 
-Render every asset with another title. Unset variables use the default shown beside them:
+### Detect a foreground object
 
-```bash
-(
-  export FONT="$(fc-match -f '%{file}\n' 'Noto Serif')" # Default: fontconfig's DejaVu Sans match.
-  export TITLE_TEXT='New text'                          # Default: Analises desta 3a. feira, 1 de Agosto.
-
-  export FIT=balanced       # Default: maximize. balanced targets TARGET_FILL; fixed requires FONT_SIZE.
-  unset FONT_SIZE           # Default: unset, giving automatic sizing with no user-provided limit.
-  export SUPERSAMPLING=4    # Default: 4. Renders at 1-4x before downsampling for smoother edges.
-  export TARGET_FILL=0.82   # Default: 0.82. Target text-block area used only by FIT=balanced.
-  export MAX_LINES=3        # Default: 3. Maximum number of automatically wrapped lines.
-  export PADDING=0.05       # Default: 0.05. Inset from the writing-area bounds.
-  export LINE_HEIGHT=1.16   # Default: 1.16. Line spacing relative to font size.
-
-  export TEXT_COLOR='#EBFFFFFF'   # Default: #EBFFFFFF. Text fill in #RRGGBBAA.
-  export STROKE_WIDTH=0.025        # Default: 0, which disables the outline. Fraction of font size.
-  export STROKE_COLOR='#03181ED2' # Default: #03181ED2. Outline color in #RRGGBBAA.
-  export GLOW_RADIUS=4             # Default: 4. Blur radius in pixels; 0 disables glow.
-  export GLOW_COLOR='#69F2FA48'   # Default: #69F2FA48. Glow color and opacity.
-
-  export TEXT_ALIGN=center     # Default: center. Allowed: left, center, right.
-  export VERTICAL_ALIGN=center # Default: center. Allowed: top, center, bottom.
-
-  ./scripts/render_assets.sh
-)
-```
-
-Colors use `#RRGGBBAA`. The available effects are fill color, stroke, and glow.
-
-Pass source stems to render only selected assets:
-
-```bash
-TITLE_TEXT='Custom title' ./scripts/render_assets.sh swamp-rusty-plaque swamp-wooden-plaque-with-foreground-objects
-```
-
-Production renders directly to HEVC, does not analyze or verify, and replaces only the selected `output/*.hevc.mkv` files.
-
-## Analysis and validation
-
-Create a missing analysis cache:
-
-```bash
-./target/release/plaque-forge analyze --input assets/swamp-rusty-plaque.mp4
-```
-
-Replace an existing cache only when its source or refinements changed:
-
-```bash
-./target/release/plaque-forge analyze --input assets/swamp-rusty-plaque.mp4 --force
-```
-
-`--force` explicitly replaces that analysis directory after the new analysis succeeds. Validate all cached assets before production:
-
-```bash
-./scripts/validate_assets.sh
-```
-
-Validation creates lossless temporary renders and replaces the corresponding `output/*.verification.json` reports. It never rebuilds analysis.
-
-## CLI
-
-```text
-refine         create an editable refinement proposal
-analyze        generate or explicitly replace an analysis cache
-export-motion  export analyzed motion for review
-segment        generate a refinement layer with the Python worker
-render         render from an existing analysis cache
-verify         verify an existing lossless render
-```
-
-Direct lossless render:
-
-```bash
-./target/release/plaque-forge render \
-  --input assets/swamp-rusty-plaque.mp4 \
-  --text 'Custom title' \
-  --font "$(fc-match -f '%{file}\n' 'DejaVu Sans' | head -n 1)"
-```
-
-## Refinements
-
-Automatic analysis is used when no refinement exists. A refinement can fix plaque bounds, motion, writing surface, foreground alpha, and shadow alpha. See [REFINEMENTS.md](REFINEMENTS.md).
-
-SAM 2, Cutie, ViTMatte, and MatAnyone2 are isolated under `/tmp/plaque-forge-python`:
+Some foreground layers use Python-only ML models. Install that optional environment once:
 
 ```bash
 ./scripts/setup_segmentation.sh
 ```
 
-The setup command preserves an existing or incomplete environment. To deliberately delete and reinstall it:
+Then generate a declared layer from the prompts in its refinement file:
 
 ```bash
-./scripts/setup_segmentation.sh --reinstall
+./scripts/detect_objects.sh my-video foreground --force
 ```
 
-The checked-in refinement masks are sufficient for rendering. Python is needed only to regenerate them.
+Python is not required for normal rendering or analysis of the checked-in assets.
 
-## Scope
+### Review visual diagnostics
 
-The validated target is one planar, text-free plaque in a constant-frame-rate shot. The six included videos are the acceptance set.
+Create an HTML triage page from existing analysis and verification data:
+
+```bash
+./scripts/review_assets.sh swamp-rusty-plaque
+```
+
+Open `assets/analysis/<name>/diagnostics/review.html`. It puts the important confidence metrics and diagnostic images in one place so you can decide whether tracking, occlusion, reconstruction, or typography needs attention first.
+
+## Repository layout
+
+```text
+src/                         Rust implementation
+scripts/                     high-level build/analyze/render operations
+tools/                       optional external-tool adapters
+assets/*.mp4                 source videos
+assets/refinements/<name>/   reviewed scene corrections and layer artifacts
+assets/analysis/<name>/      generated reusable scene analysis
+output/                      rendered videos and reports
+docs/                        concepts, architecture, refinement and validation docs
+```
+
+## Documentation
+
+Start with:
+
+- [Glossary](docs/GLOSSARY.md) for scene-analysis terminology such as tracker, canonical plaque, occluder, and alpha mask.
+- [Architecture](docs/ARCHITECTURE.md) for module boundaries and external-tool isolation.
+- [Workflows](docs/WORKFLOWS.md) for direct CLI commands and less common operations.
+- [Refinements](docs/REFINEMENTS.md) for the reviewed-input format.
+- [Validation](docs/VALIDATION.md) for automated and visual quality checks.
+- [Text effects](docs/TEXT_EFFECTS.md) for the text-rendering stages, style files, and effect-extension rules.
+- [Safety](docs/SAFETY.md) for filesystem replacement and deletion rules.
+
+## Supported source contract
+
+The validated target is one planar, text-free plaque in a constant-frame-rate shot. The six included videos are the current acceptance set.

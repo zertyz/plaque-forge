@@ -14,15 +14,18 @@ Validate the six existing analysis caches:
 
 This writes verification reports without changing analysis or refinements. Acceptance requires:
 
-- every verification score is at least `0.95`;
+- the overall score meets `--minimum-score` (default `0.95`);
+- each component meets its verifier-defined threshold recorded in the verification JSON;
 - every render has the source frame count and timing;
-- visual review finds no plaque drift, foreground inversion, hard matte edge, or temporal blinking.
+- visual review finds no plaque drift, foreground inversion, hard matte edge, temporal blinking, or obviously poor title composition.
+
+For human triage, run `./scripts/review_assets.sh <asset-stem>` and open the generated `diagnostics/review.html`. Coverage percentages describe scene complexity; they are not treated as quality failures by themselves.
 
 The holographic sources exercise automatic analysis. The rusty chain, swamp rusty, and swamp wooden sources exercise checked-in refinements.
 
 ## Reference scores
 
-Validated on 2026-08-10:
+Reference results from the included acceptance assets:
 
 | Video | Overall |
 | --- | ---: |

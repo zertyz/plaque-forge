@@ -1,3 +1,8 @@
+//! Render verification against the source video and analysis cache.
+//!
+//! Verification measures scene preservation, tracking, typography validity, temporal
+//! stability, occlusion restoration, and loop continuity.
+
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};

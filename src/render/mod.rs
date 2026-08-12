@@ -1,3 +1,4 @@
+mod effects;
 mod typography;
 
 use std::{fs, path::Path};
@@ -32,7 +33,19 @@ pub struct RenderManifest {
     pub source_sha256: String,
     pub canonical_text_mask: String,
     #[serde(default)]
+    pub text_style: String,
+    #[serde(default)]
+    pub style_file: Option<String>,
+    #[serde(default)]
+    pub style_sha256: Option<String>,
+    #[serde(default)]
     pub render_contact_sheet: Option<String>,
+    #[serde(default)]
+    pub title_text: String,
+    #[serde(default)]
+    pub font_file: String,
+    #[serde(default)]
+    pub font_sha256: String,
 }
 
 pub fn run(args: ComposeArgs) -> Result<()> {
@@ -59,7 +72,7 @@ pub fn run(args: ComposeArgs) -> Result<()> {
     if !args.input.is_file() {
         bail!("input video does not exist: {}", args.input.display());
     }
-    let current_sha = video::sha256(&args.input)?;
+    let current_sha = crate::digest::file_sha256(&args.input)?;
     if current_sha != pack.manifest.source.sha256 {
         bail!(
             "input video differs from the file used for analysis: {}\nhelp: rebuild the cache explicitly with `plaque-forge analyze --input {} --force`",
@@ -90,33 +103,52 @@ pub fn run(args: ComposeArgs) -> Result<()> {
         pack.manifest.canonical_width,
         pack.manifest.canonical_height,
     )?;
-    progress.finish("source fingerprint and analysis are valid");
+    progress.finish("source and analysis cache are valid");
 
     progress.start(2, 3, "Shape and fit typography", None);
-    let style = typography::Style::parse(
-        &args.text_color,
-        &args.stroke_color,
-        &args.glow_color,
-        args.glow_radius,
+    let style = effects::Style::load(
+        args.style_file.as_deref(),
+        effects::DirectStyleOptions {
+            text_color: &args.text_color,
+            stroke_color: &args.stroke_color,
+            glow_color: &args.glow_color,
+            glow_radius: args.glow_radius,
+            stroke_width_ratio: args.stroke_width,
+            shadow_offset_x_ratio: args.shadow_offset_x,
+            shadow_offset_y_ratio: args.shadow_offset_y,
+            shadow_blur_radius: args.shadow_blur_radius,
+            shadow_color: &args.shadow_color,
+        },
     )?;
-    let text_render = typography::render(
-        pack.manifest.canonical_width,
-        pack.manifest.canonical_height,
-        &mask,
-        &text,
-        &args.font,
-        args.fit,
-        args.font_size,
-        args.supersampling,
-        args.target_fill,
-        args.max_lines,
-        args.padding,
-        args.line_height,
-        args.stroke_width,
-        args.text_align,
-        args.vertical_align,
-        style,
-    )?;
+    let text_style = style.describe();
+    let style_file = args.style_file.as_ref().map(|path| {
+        path.canonicalize()
+            .unwrap_or_else(|_| path.clone())
+            .to_string_lossy()
+            .into_owned()
+    });
+    let style_sha256 = args
+        .style_file
+        .as_deref()
+        .map(crate::digest::file_sha256)
+        .transpose()?;
+    let text_render = typography::render(typography::RenderRequest {
+        width: pack.manifest.canonical_width,
+        height: pack.manifest.canonical_height,
+        mask: &mask,
+        text: &text,
+        font_path: &args.font,
+        fit_mode: args.fit,
+        requested_font_size: args.font_size,
+        supersampling: args.supersampling,
+        target_fill: args.target_fill,
+        max_lines: args.max_lines,
+        padding_ratio: args.padding,
+        line_height_ratio: args.line_height,
+        text_align: args.text_align,
+        vertical_align: args.vertical_align,
+        style: &style,
+    })?;
     if text_render.metrics.missing_glyphs > 0 || text_render.metrics.fallback_glyphs > 0 {
         bail!(
             "font cannot render the requested title deterministically: {} missing glyphs, {} fallback glyphs",
@@ -252,9 +284,17 @@ pub fn run(args: ComposeArgs) -> Result<()> {
         None
     };
 
+    let font_file = args
+        .font
+        .canonicalize()
+        .unwrap_or_else(|_| args.font.clone())
+        .to_string_lossy()
+        .into_owned();
+    let font_sha256 = crate::digest::file_sha256(&args.font)?;
+
     let manifest = RenderManifest {
         program_version: env!("CARGO_PKG_VERSION").to_string(),
-        renderer_build: crate::build_info::SOURCE_FINGERPRINT.to_string(),
+        renderer_build: crate::build_info::RENDERER_BUILD_VERSION.to_string(),
         analyzer_build: pack.manifest.analyzer_build.clone(),
         typography: text_render.metrics,
         frames: frame_index,
@@ -266,7 +306,13 @@ pub fn run(args: ComposeArgs) -> Result<()> {
             .unwrap_or(canonical_text_mask_path.clone())
             .to_string_lossy()
             .into_owned(),
+        text_style,
+        style_file,
+        style_sha256,
         render_contact_sheet,
+        title_text: text,
+        font_file,
+        font_sha256,
     };
     let report_path = args.output.with_extension("render-manifest.json");
     fs::write(&report_path, serde_json::to_vec_pretty(&manifest)?)

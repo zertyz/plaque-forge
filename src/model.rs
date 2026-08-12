@@ -124,4 +124,7 @@ pub struct TypographyMetrics {
     pub missing_glyphs: usize,
     pub fallback_glyphs: usize,
     pub explicit_newlines: usize,
+    /// Text after renderer-selected line breaks. Equal to the input outside artistic fitting.
+    #[serde(default)]
+    pub resolved_text: String,
 }

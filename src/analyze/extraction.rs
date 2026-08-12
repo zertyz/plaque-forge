@@ -1,3 +1,8 @@
+//! Canonical plaque extraction.
+//!
+//! Rectifies tracked frames into one stable plaque coordinate system and separates the
+//! writable content region from structural features used to validate tracking.
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};

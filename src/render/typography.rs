@@ -1,3 +1,9 @@
+//! Typography shaping, fitting, styling, and rasterization.
+//!
+//! Text is fitted against the analyzed writable mask rather than only its bounding box.
+//! Shaping/layout stays separate from paint effects so future animation and material
+//! stages can evolve without entangling line breaking with compositing.
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -14,52 +20,72 @@ use crate::{
     surface::Surface,
 };
 
+use super::effects::Style;
+
 pub struct TextRender {
     pub layer: Surface,
     pub metrics: TypographyMetrics,
 }
 
-#[derive(Clone, Copy)]
-pub struct Style {
-    text: Rgba,
-    stroke: Rgba,
-    glow: Rgba,
-    glow_radius: u32,
+/// Inputs required to shape and fit one title in canonical plaque coordinates.
+///
+/// Keeping this separate from CLI types makes typography reusable by future preview,
+/// animation, and batch-render front ends without coupling them to clap.
+pub struct RenderRequest<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub mask: &'a [u8],
+    pub text: &'a str,
+    pub font_path: &'a Path,
+    pub fit_mode: FitMode,
+    pub requested_font_size: Option<f32>,
+    pub supersampling: u32,
+    pub target_fill: f32,
+    pub max_lines: usize,
+    pub padding_ratio: f32,
+    pub line_height_ratio: f32,
+    pub text_align: TextAlign,
+    pub vertical_align: VerticalAlign,
+    pub style: &'a Style,
 }
 
-impl Style {
-    pub fn parse(text: &str, stroke: &str, glow: &str, glow_radius: u32) -> Result<Self> {
-        if glow_radius > 32 {
-            bail!("--glow-radius must be between 0 and 32");
-        }
-        Ok(Self {
-            text: Rgba::parse(text).context("invalid --text-color")?,
-            stroke: Rgba::parse(stroke).context("invalid --stroke-color")?,
-            glow: Rgba::parse(glow).context("invalid --glow-color")?,
-            glow_radius,
-        })
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn render(
+struct TypographyContext<'a> {
+    family: &'a str,
+    requested_face: fontdb::ID,
+    line_height_ratio: f32,
+    raster_width: u32,
+    raster_height: u32,
+    max_lines: usize,
+    align: &'a Align,
     width: u32,
     height: u32,
-    mask: &[u8],
-    text: &str,
-    font_path: &Path,
-    fit_mode: FitMode,
-    requested_font_size: Option<f32>,
+    mask: &'a [u8],
+    bounds: (u32, u32, u32, u32),
+    pad_x: u32,
+    pad_y: u32,
     supersampling: u32,
-    target_fill: f32,
-    max_lines: usize,
-    padding_ratio: f32,
-    line_height_ratio: f32,
-    stroke_width_ratio: f32,
-    text_align: TextAlign,
     vertical_align: VerticalAlign,
-    style: Style,
-) -> Result<TextRender> {
+    style: &'a Style,
+}
+
+pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
+    let RenderRequest {
+        width,
+        height,
+        mask,
+        text,
+        font_path,
+        fit_mode,
+        requested_font_size,
+        supersampling,
+        target_fill,
+        max_lines,
+        padding_ratio,
+        line_height_ratio,
+        text_align,
+        vertical_align,
+        style,
+    } = request;
     if text.trim().is_empty() {
         bail!("title text is empty; provide --text or a non-empty --text-file");
     }
@@ -77,9 +103,6 @@ pub fn render(
     }
     if !(0.75..=2.0).contains(&line_height_ratio) {
         bail!("--line-height must be between 0.75 and 2.0");
-    }
-    if !(0.0..=0.20).contains(&stroke_width_ratio) {
-        bail!("--stroke-width must be between 0 and 0.20");
     }
     if matches!(fit_mode, FitMode::Fixed) && requested_font_size.is_none() {
         bail!("--fit fixed requires --font-size");
@@ -102,17 +125,31 @@ pub fn render(
         TextAlign::Center => Align::Center,
         TextAlign::Right => Align::Right,
     };
-    let preflight = rasterize(
-        &mut font_system,
-        text,
-        &family,
+    let context = TypographyContext {
+        family: &family,
         requested_face,
-        24.0 * supersampling as f32,
-        24.0 * supersampling as f32 * line_height_ratio,
+        line_height_ratio,
         raster_width,
         raster_height,
+        max_lines,
+        align: &align,
+        width,
+        height,
+        mask,
+        bounds,
+        pad_x,
+        pad_y,
+        supersampling,
+        vertical_align,
+        style,
+    };
+    let preflight = rasterize_candidate(
+        &mut font_system,
+        text,
+        24.0 * supersampling as f32,
         max_lines.max(text.lines().count()),
-        &align,
+        &context,
+        Wrap::WordOrGlyph,
     )?;
     if preflight.missing_glyphs > 0 || preflight.fallback_glyphs > 0 {
         bail!(
@@ -129,20 +166,16 @@ pub fn render(
         .min(raster_height as f32 * 1.5)
         .max(6.0 * supersampling as f32);
 
-    let (maximum_size, selected_size, composed) = match fit_mode {
+    let (maximum_size, selected_size, composed, resolved_text) = match fit_mode {
         FitMode::Fixed => {
             let size = requested_font_size.expect("validated") * supersampling as f32;
-            let candidate = rasterize(
+            let candidate = rasterize_candidate(
                 &mut font_system,
                 text,
-                &family,
-                requested_face,
                 size,
-                size * line_height_ratio,
-                raster_width,
-                raster_height,
                 max_lines,
-                &align,
+                &context,
+                Wrap::WordOrGlyph,
             )?;
             if !candidate.fits(max_lines) {
                 bail!(
@@ -152,65 +185,29 @@ pub fn render(
                     max_lines
                 );
             }
-            let result = compose_layer(
-                width,
-                height,
-                mask,
-                bounds,
-                pad_x,
-                pad_y,
-                raster_height,
-                supersampling,
-                stroke_width_ratio,
-                vertical_align,
-                style,
-                size,
-                candidate,
-            )?;
+            let result = compose_layer(&context, size, candidate)?;
             if result.clipped_pixels > 0 {
                 bail!(
-                    "font size {:.2}px fits the bounding rectangle but its final glyph, stroke, or glow layer crosses the plaque mask by {} pixels in {}; increase --padding or reduce --font-size",
+                    "font size {:.2}px fits the bounding rectangle but its final glyph/effect layer crosses the plaque mask by {} pixels in {}; increase --padding or reduce --font-size",
                     requested_font_size.expect("validated"),
                     result.clipped_pixels,
                     format_bounds(result.clipped_bounds)
                 );
             }
-            (size, size, result)
+            (size, size, result, text.to_string())
+        }
+        FitMode::Artistic => {
+            find_artistic_layout(&mut font_system, text, upper, &context, target_fill)?
         }
         FitMode::Maximize | FitMode::Balanced => {
-            let (rectangle_maximum, _) = find_maximum_candidate(
-                &mut font_system,
-                text,
-                &family,
-                requested_face,
-                upper,
-                line_height_ratio,
-                raster_width,
-                raster_height,
-                max_lines,
-                &align,
-            )?;
+            let (rectangle_maximum, _) =
+                find_maximum_candidate(&mut font_system, text, upper, &context, Wrap::WordOrGlyph)?;
             let (maximum_size, maximum_composed) = find_maximum_masked_candidate(
                 &mut font_system,
                 text,
-                &family,
-                requested_face,
                 rectangle_maximum,
-                line_height_ratio,
-                raster_width,
-                raster_height,
-                max_lines,
-                &align,
-                width,
-                height,
-                mask,
-                bounds,
-                pad_x,
-                pad_y,
-                supersampling,
-                stroke_width_ratio,
-                vertical_align,
-                style,
+                &context,
+                Wrap::WordOrGlyph,
             )?;
             if matches!(fit_mode, FitMode::Balanced)
                 && maximum_composed.fill_ratio > target_fill as f64
@@ -222,31 +219,26 @@ pub fn render(
                 let balanced = evaluate_masked_candidate(
                     &mut font_system,
                     text,
-                    &family,
-                    requested_face,
                     size,
-                    line_height_ratio,
-                    raster_width,
-                    raster_height,
-                    max_lines,
-                    &align,
-                    width,
-                    height,
-                    mask,
-                    bounds,
-                    pad_x,
-                    pad_y,
-                    supersampling,
-                    stroke_width_ratio,
-                    vertical_align,
-                    style,
+                    &context,
+                    Wrap::WordOrGlyph,
                 )?;
                 match balanced.filter(|result| result.clipped_pixels == 0) {
-                    Some(result) => (maximum_size, size, result),
-                    None => (maximum_size, maximum_size, maximum_composed),
+                    Some(result) => (maximum_size, size, result, text.to_string()),
+                    None => (
+                        maximum_size,
+                        maximum_size,
+                        maximum_composed,
+                        text.to_string(),
+                    ),
                 }
             } else {
-                (maximum_size, maximum_size, maximum_composed)
+                (
+                    maximum_size,
+                    maximum_size,
+                    maximum_composed,
+                    text.to_string(),
+                )
             }
         }
     };
@@ -266,41 +258,280 @@ pub fn render(
             missing_glyphs: composed.missing_glyphs,
             fallback_glyphs: composed.fallback_glyphs,
             explicit_newlines,
+            resolved_text,
         },
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+fn find_artistic_layout(
+    font_system: &mut FontSystem,
+    text: &str,
+    upper: f32,
+    context: &TypographyContext<'_>,
+    target_fill: f32,
+) -> Result<(f32, f32, Composed, String)> {
+    let candidates = artistic_line_break_candidates(text, context.max_lines);
+    let mut best: Option<(f64, String, f32, Composed)> = None;
+
+    for candidate_text in candidates {
+        let Ok((rectangle_maximum, _)) =
+            find_maximum_candidate(font_system, &candidate_text, upper, context, Wrap::None)
+        else {
+            continue;
+        };
+        let Ok((maximum_size, composed)) = find_maximum_masked_candidate(
+            font_system,
+            &candidate_text,
+            rectangle_maximum,
+            context,
+            Wrap::None,
+        ) else {
+            continue;
+        };
+
+        let score = artistic_layout_score(maximum_size, &composed.line_widths, &candidate_text);
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, ..)| score > *best_score)
+        {
+            best = Some((score, candidate_text, maximum_size, composed));
+        }
+    }
+
+    let (_, selected_text, maximum_size, maximum_composed) = best.context(
+        "no artistic word-boundary layout fits the plaque; use --fit maximize, increase --max-lines, use a narrower font, or shorten the title",
+    )?;
+
+    if maximum_composed.fill_ratio <= target_fill as f64 {
+        return Ok((maximum_size, maximum_size, maximum_composed, selected_text));
+    }
+
+    let scale = (target_fill as f64 / maximum_composed.fill_ratio)
+        .sqrt()
+        .clamp(0.70, 1.0) as f32;
+    let selected_size = maximum_size * scale;
+    let balanced = evaluate_masked_candidate(
+        font_system,
+        &selected_text,
+        selected_size,
+        context,
+        Wrap::None,
+    )?;
+
+    Ok(match balanced.filter(|result| result.clipped_pixels == 0) {
+        Some(result) => (maximum_size, selected_size, result, selected_text),
+        None => (maximum_size, maximum_size, maximum_composed, selected_text),
+    })
+}
+
+fn artistic_layout_score(font_size: f32, line_widths: &[f32], text: &str) -> f64 {
+    if line_widths.is_empty() {
+        return f64::NEG_INFINITY;
+    }
+    let widths: Vec<f64> = line_widths.iter().map(|&width| width as f64).collect();
+    let mean = widths.iter().sum::<f64>() / widths.len() as f64;
+    if mean <= f64::EPSILON {
+        return f64::NEG_INFINITY;
+    }
+    let variance = widths
+        .iter()
+        .map(|width| (width - mean).powi(2))
+        .sum::<f64>()
+        / widths.len() as f64;
+    let imbalance = variance.sqrt() / mean;
+    let last_ratio = widths.last().copied().unwrap_or(mean) / mean;
+    let orphan_penalty = (0.58 - last_ratio).max(0.0);
+    let max_width = widths.iter().copied().fold(0.0_f64, f64::max).max(1.0);
+    let adjacent_raggedness = widths
+        .windows(2)
+        .map(|pair| (pair[0] - pair[1]).abs() / max_width)
+        .sum::<f64>()
+        / widths.len().saturating_sub(1).max(1) as f64;
+
+    let syntax_penalty = line_break_syntax_penalty(text);
+
+    font_size as f64
+        * (1.0
+            - 0.30 * imbalance
+            - 0.24 * orphan_penalty
+            - 0.08 * adjacent_raggedness
+            - syntax_penalty)
+}
+
+fn line_break_syntax_penalty(text: &str) -> f64 {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if lines.is_empty() {
+        return 1.0;
+    }
+
+    let mut penalty: f64 = 0.0;
+    for line in &lines {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens
+            .iter()
+            .all(|token| token.chars().all(is_break_punctuation))
+        {
+            penalty += 0.70;
+            continue;
+        }
+        if tokens.first().is_some_and(is_dangling_leading_punctuation) {
+            penalty += 0.10;
+        }
+        if tokens.last().is_some_and(is_dangling_trailing_punctuation) {
+            penalty += 0.14;
+        }
+    }
+
+    if let Some(last) = lines.last() {
+        let words = last
+            .split_whitespace()
+            .filter(|token| token.chars().any(char::is_alphanumeric))
+            .count();
+        if words == 1 && lines.len() > 1 {
+            penalty += 0.12;
+        }
+    }
+    penalty.min(0.90)
+}
+
+fn is_break_punctuation(character: char) -> bool {
+    character.is_ascii_punctuation()
+        || matches!(
+            character,
+            '–' | '—' | '…' | '·' | '•' | '“' | '”' | '‘' | '’' | '«' | '»'
+        )
+}
+
+fn is_dangling_leading_punctuation(token: &&str) -> bool {
+    matches!(*token, "-" | "–" | "—" | "," | "." | ";" | ":" | "!" | "?")
+}
+
+fn is_dangling_trailing_punctuation(token: &&str) -> bool {
+    matches!(*token, "-" | "–" | "—" | "(" | "[" | "{")
+}
+
+fn artistic_line_break_candidates(text: &str, max_lines: usize) -> Vec<String> {
+    if text.contains('\n') {
+        return vec![text.to_string()];
+    }
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.len() <= 1 {
+        return vec![text.trim().to_string()];
+    }
+
+    // Generate a bounded set of balanced partitions instead of enumerating every
+    // possible placement of line breaks (which grows combinatorially with word count).
+    // Font-aware scoring happens later, so these are only cheap proposals.
+    let line_limit = max_lines.min(words.len()).max(1);
+    let mut ranked = Vec::<(f64, String)>::new();
+    for lines in 1..=line_limit {
+        for bias in [-1_isize, 0, 1] {
+            if let Some(candidate) = balanced_partition(&words, lines, bias) {
+                let parts: Vec<String> = candidate.lines().map(str::to_owned).collect();
+                let score =
+                    cheap_line_balance_score(&parts) + line_break_syntax_penalty(&candidate);
+                ranked.push((score, candidate));
+            }
+        }
+    }
+
+    ranked.sort_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    ranked.dedup_by(|left, right| left.1 == right.1);
+    ranked.truncate(32);
+    ranked.into_iter().map(|(_, text)| text).collect()
+}
+
+fn balanced_partition(words: &[&str], lines: usize, bias: isize) -> Option<String> {
+    if lines == 0 || lines > words.len() {
+        return None;
+    }
+    if lines == 1 {
+        return Some(words.join(" "));
+    }
+
+    // Prefix lengths approximate visual width cheaply. The expensive font-aware
+    // measurement is deliberately deferred until after the proposal set is bounded.
+    let mut prefix = Vec::with_capacity(words.len() + 1);
+    prefix.push(0usize);
+    for (index, word) in words.iter().enumerate() {
+        let separator = usize::from(index > 0);
+        prefix.push(prefix[index] + separator + word.chars().count());
+    }
+    let total = *prefix.last()? as f64;
+
+    let mut previous = 0usize;
+    let mut breaks = Vec::with_capacity(lines - 1);
+    for split in 1..lines {
+        let min_end = previous + 1;
+        let max_end = words.len() - (lines - split);
+        let target = total * split as f64 / lines as f64;
+
+        let nearest = (min_end..=max_end)
+            .min_by(|&left, &right| {
+                let left_distance = (prefix[left] as f64 - target).abs();
+                let right_distance = (prefix[right] as f64 - target).abs();
+                left_distance
+                    .total_cmp(&right_distance)
+                    .then_with(|| left.cmp(&right))
+            })
+            .expect("non-empty line-break search range");
+
+        let shifted = (nearest as isize + bias).clamp(min_end as isize, max_end as isize) as usize;
+        let end = shifted.max(previous + 1);
+        breaks.push(end);
+        previous = end;
+    }
+
+    let mut begin = 0usize;
+    let mut parts = Vec::with_capacity(lines);
+    for end in breaks.into_iter().chain(std::iter::once(words.len())) {
+        if end <= begin {
+            return None;
+        }
+        parts.push(words[begin..end].join(" "));
+        begin = end;
+    }
+    Some(parts.join("\n"))
+}
+
+fn cheap_line_balance_score(lines: &[String]) -> f64 {
+    let lengths: Vec<f64> = lines
+        .iter()
+        .map(|line| line.chars().count().max(1) as f64)
+        .collect();
+    let mean = lengths.iter().sum::<f64>() / lengths.len() as f64;
+    let variance = lengths
+        .iter()
+        .map(|length| (length - mean).powi(2))
+        .sum::<f64>()
+        / lengths.len() as f64;
+    let last_ratio = lengths.last().copied().unwrap_or(mean) / mean.max(1.0);
+    variance.sqrt() / mean.max(1.0) + (0.55 - last_ratio).max(0.0) * 2.0
+}
+
 fn find_maximum_candidate(
     font_system: &mut FontSystem,
     text: &str,
-    family: &str,
-    requested_face: fontdb::ID,
     upper: f32,
-    line_height_ratio: f32,
-    width: u32,
-    height: u32,
-    max_lines: usize,
-    align: &Align,
+    context: &TypographyContext<'_>,
+    wrap: Wrap,
 ) -> Result<(f32, Candidate)> {
     let mut low = 5.0_f32;
     let mut high = upper;
     let mut best: Option<(f32, Candidate)> = None;
     for _ in 0..32 {
         let size = (low + high) * 0.5;
-        let candidate = rasterize(
-            font_system,
-            text,
-            family,
-            requested_face,
-            size,
-            size * line_height_ratio,
-            width,
-            height,
-            max_lines,
-            align,
-        )?;
-        if candidate.fits(max_lines) {
+        let candidate =
+            rasterize_candidate(font_system, text, size, context.max_lines, context, wrap)?;
+        if candidate.fits(context.max_lines) {
             best = Some((size, candidate));
             low = size + 0.05;
         } else {
@@ -312,28 +543,12 @@ fn find_maximum_candidate(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn find_maximum_masked_candidate(
     font_system: &mut FontSystem,
     text: &str,
-    family: &str,
-    requested_face: fontdb::ID,
     rectangle_maximum: f32,
-    line_height_ratio: f32,
-    raster_width: u32,
-    raster_height: u32,
-    max_lines: usize,
-    align: &Align,
-    width: u32,
-    height: u32,
-    mask: &[u8],
-    bounds: (u32, u32, u32, u32),
-    pad_x: u32,
-    pad_y: u32,
-    supersampling: u32,
-    stroke_width_ratio: f32,
-    vertical_align: VerticalAlign,
-    style: Style,
+    context: &TypographyContext<'_>,
+    wrap: Wrap,
 ) -> Result<(f32, Composed)> {
     let minimum_size = 5.0_f32;
     let mut previous_failure = rectangle_maximum;
@@ -345,28 +560,7 @@ fn find_maximum_masked_candidate(
         } else {
             (rectangle_maximum * 0.96_f32.powi(attempt)).max(minimum_size)
         };
-        if let Some(result) = evaluate_masked_candidate(
-            font_system,
-            text,
-            family,
-            requested_face,
-            size,
-            line_height_ratio,
-            raster_width,
-            raster_height,
-            max_lines,
-            align,
-            width,
-            height,
-            mask,
-            bounds,
-            pad_x,
-            pad_y,
-            supersampling,
-            stroke_width_ratio,
-            vertical_align,
-            style,
-        )? {
+        if let Some(result) = evaluate_masked_candidate(font_system, text, size, context, wrap)? {
             if result.clipped_pixels == 0 {
                 let mut low = size;
                 let mut high = previous_failure.max(size);
@@ -379,24 +573,9 @@ fn find_maximum_masked_candidate(
                     match evaluate_masked_candidate(
                         font_system,
                         text,
-                        family,
-                        requested_face,
                         candidate_size,
-                        line_height_ratio,
-                        raster_width,
-                        raster_height,
-                        max_lines,
-                        align,
-                        width,
-                        height,
-                        mask,
-                        bounds,
-                        pad_x,
-                        pad_y,
-                        supersampling,
-                        stroke_width_ratio,
-                        vertical_align,
-                        style,
+                        context,
+                        wrap,
                     )? {
                         Some(result) if result.clipped_pixels == 0 => {
                             low = candidate_size;
@@ -428,60 +607,18 @@ fn find_maximum_masked_candidate(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn evaluate_masked_candidate(
     font_system: &mut FontSystem,
     text: &str,
-    family: &str,
-    requested_face: fontdb::ID,
     size: f32,
-    line_height_ratio: f32,
-    raster_width: u32,
-    raster_height: u32,
-    max_lines: usize,
-    align: &Align,
-    width: u32,
-    height: u32,
-    mask: &[u8],
-    bounds: (u32, u32, u32, u32),
-    pad_x: u32,
-    pad_y: u32,
-    supersampling: u32,
-    stroke_width_ratio: f32,
-    vertical_align: VerticalAlign,
-    style: Style,
+    context: &TypographyContext<'_>,
+    wrap: Wrap,
 ) -> Result<Option<Composed>> {
-    let candidate = rasterize(
-        font_system,
-        text,
-        family,
-        requested_face,
-        size,
-        size * line_height_ratio,
-        raster_width,
-        raster_height,
-        max_lines,
-        align,
-    )?;
-    if !candidate.fits(max_lines) {
+    let candidate = rasterize_candidate(font_system, text, size, context.max_lines, context, wrap)?;
+    if !candidate.fits(context.max_lines) {
         return Ok(None);
     }
-    compose_layer(
-        width,
-        height,
-        mask,
-        bounds,
-        pad_x,
-        pad_y,
-        raster_height,
-        supersampling,
-        stroke_width_ratio,
-        vertical_align,
-        style,
-        size,
-        candidate,
-    )
-    .map(Some)
+    compose_layer(context, size, candidate).map(Some)
 }
 
 fn format_bounds(bounds: Option<(u32, u32, u32, u32)>) -> String {
@@ -494,6 +631,7 @@ fn format_bounds(bounds: Option<(u32, u32, u32, u32)>) -> String {
 struct Composed {
     layer: Surface,
     lines: usize,
+    line_widths: Vec<f32>,
     fill_ratio: f64,
     minimum_padding_ratio: f64,
     clipped_pixels: u64,
@@ -502,85 +640,60 @@ struct Composed {
     fallback_glyphs: usize,
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compose_layer(
-    width: u32,
-    height: u32,
-    mask: &[u8],
-    bounds: (u32, u32, u32, u32),
-    pad_x: u32,
-    pad_y: u32,
-    raster_height: u32,
-    supersampling: u32,
-    stroke_width_ratio: f32,
-    vertical_align: VerticalAlign,
-    style: Style,
+    context: &TypographyContext<'_>,
     font_size: f32,
     candidate: Candidate,
 ) -> Result<Composed> {
-    let mut high_resolution = Surface::new(width * supersampling, height * supersampling);
-    let x = (bounds.0 + pad_x) * supersampling;
-    let y = (bounds.1 + pad_y) * supersampling;
+    let mut high_resolution = Surface::new(
+        context.width * context.supersampling,
+        context.height * context.supersampling,
+    );
+    let x = (context.bounds.0 + context.pad_x) * context.supersampling;
+    let y = (context.bounds.1 + context.pad_y) * context.supersampling;
     let block = candidate.surface;
     let block_bounds = block
         .alpha_bounds()
         .context("font produced no visible glyphs")?;
     let block_height = block_bounds.3 - block_bounds.1 + 1;
-    let vertical_offset = match vertical_align {
+    let vertical_offset = match context.vertical_align {
         VerticalAlign::Top => -(block_bounds.1 as i32),
         VerticalAlign::Center => {
-            ((raster_height - block_height) / 2) as i32 - block_bounds.1 as i32
+            ((context.raster_height - block_height) / 2) as i32 - block_bounds.1 as i32
         }
-        VerticalAlign::Bottom => (raster_height - block_height) as i32 - block_bounds.1 as i32,
+        VerticalAlign::Bottom => {
+            (context.raster_height - block_height) as i32 - block_bounds.1 as i32
+        }
     };
     high_resolution.blend_surface(&block, x as i32, y as i32 + vertical_offset, 1.0);
 
-    let alpha = high_resolution.alpha_mask();
-    let stroke_radius = (font_size * stroke_width_ratio).round().max(0.0) as u32;
-    let mut combined = if stroke_radius > 0 {
-        Surface::from_alpha_mask(
-            width * supersampling,
-            height * supersampling,
-            &dilate_alpha(
-                &alpha,
-                (width * supersampling) as usize,
-                (height * supersampling) as usize,
-                stroke_radius as usize,
-            ),
-            style.stroke,
-        )?
-    } else {
-        Surface::new(width * supersampling, height * supersampling)
-    };
-    if style.glow_radius > 0 && style.glow.a > 0 {
-        let glow = Surface::from_alpha_mask(
-            width * supersampling,
-            height * supersampling,
-            &alpha,
-            style.glow,
-        )?
-        .box_blur((style.glow_radius * supersampling).max(2), 2);
-        combined.blend_surface(&glow, 0, 0, 1.0);
-    }
-    high_resolution.recolor(style.text);
-    combined.blend_surface(&high_resolution, 0, 0, 1.0);
+    // Typography owns shaping and placement; mask-derived paint effects live in
+    // render::effects so new visual effects do not accumulate in this function.
+    let combined = context
+        .style
+        .compose(&high_resolution, font_size, context.supersampling)?;
 
-    let mut layer = downsample(&combined, width, height)?;
+    let mut layer = downsample(&combined, context.width, context.height)?;
     let alpha_before = layer.alpha_mask();
-    layer.apply_alpha_mask(mask)?;
+    layer.apply_alpha_mask(context.mask)?;
     let alpha_after = layer.alpha_mask();
-    let (clipped_pixels, clipped_bounds) = clipping_summary(&alpha_before, &alpha_after, width);
+    let (clipped_pixels, clipped_bounds) =
+        clipping_summary(&alpha_before, &alpha_after, context.width);
     let final_bounds = layer.alpha_bounds().context("final text layer is empty")?;
     let block_area =
         (final_bounds.2 - final_bounds.0 + 1) as f64 * (final_bounds.3 - final_bounds.1 + 1) as f64;
-    let safe_width = (bounds.2 - bounds.0 + 1).saturating_sub(2 * pad_x).max(1);
-    let safe_height = (bounds.3 - bounds.1 + 1).saturating_sub(2 * pad_y).max(1);
+    let safe_width = (context.bounds.2 - context.bounds.0 + 1)
+        .saturating_sub(2 * context.pad_x)
+        .max(1);
+    let safe_height = (context.bounds.3 - context.bounds.1 + 1)
+        .saturating_sub(2 * context.pad_y)
+        .max(1);
     let safe_area = (safe_width as f64 * safe_height as f64).max(1.0);
     let minimum_padding_ratio = [
-        final_bounds.0.saturating_sub(bounds.0),
-        final_bounds.1.saturating_sub(bounds.1),
-        bounds.2.saturating_sub(final_bounds.2),
-        bounds.3.saturating_sub(final_bounds.3),
+        final_bounds.0.saturating_sub(context.bounds.0),
+        final_bounds.1.saturating_sub(context.bounds.1),
+        context.bounds.2.saturating_sub(final_bounds.2),
+        context.bounds.3.saturating_sub(final_bounds.3),
     ]
     .into_iter()
     .min()
@@ -590,6 +703,7 @@ fn compose_layer(
     Ok(Composed {
         layer,
         lines: candidate.lines,
+        line_widths: candidate.line_widths,
         fill_ratio: (block_area / safe_area).clamp(0.0, 1.0),
         minimum_padding_ratio,
         clipped_pixels,
@@ -603,6 +717,7 @@ struct Candidate {
     surface: Surface,
     bounds: Option<(u32, u32, u32, u32)>,
     lines: usize,
+    line_widths: Vec<f32>,
     missing_glyphs: usize,
     fallback_glyphs: usize,
 }
@@ -617,46 +732,47 @@ impl Candidate {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn rasterize(
+fn rasterize_candidate(
     font_system: &mut FontSystem,
     text: &str,
-    family: &str,
-    requested_face: fontdb::ID,
     size: f32,
-    line_height: f32,
-    width: u32,
-    height: u32,
     max_lines: usize,
-    align: &Align,
+    context: &TypographyContext<'_>,
+    wrap: Wrap,
 ) -> Result<Candidate> {
+    let line_height = size * context.line_height_ratio;
     let mut buffer = Buffer::new(font_system, Metrics::new(size, line_height));
-    buffer.set_size(Some(width as f32), Some(height as f32));
-    buffer.set_wrap(Wrap::WordOrGlyph);
+    buffer.set_size(
+        Some(context.raster_width as f32),
+        Some(context.raster_height as f32),
+    );
+    buffer.set_wrap(wrap);
     buffer.set_text(
         text,
         &Attrs::new()
-            .family(Family::Name(family))
+            .family(Family::Name(context.family))
             .weight(Weight(600)),
         Shaping::Advanced,
-        Some(*align),
+        Some(*context.align),
     );
     buffer.shape_until_scroll(font_system, true);
 
     let mut lines = 0usize;
     let mut max_width = 0.0_f32;
     let mut measured_height = 0.0_f32;
+    let mut line_widths = Vec::new();
     let mut missing_glyphs = 0usize;
     let mut fallback_glyphs = 0usize;
     for run in buffer.layout_runs() {
         lines += 1;
         max_width = max_width.max(run.line_w);
+        line_widths.push(run.line_w);
         measured_height = measured_height.max(run.line_top + run.line_height);
         for glyph in run.glyphs {
             if glyph.glyph_id == 0 {
                 missing_glyphs += 1;
             }
-            if glyph.font_id != requested_face {
+            if glyph.font_id != context.requested_face {
                 fallback_glyphs += 1;
             }
         }
@@ -664,19 +780,20 @@ fn rasterize(
 
     if lines == 0
         || lines > max_lines
-        || max_width > width as f32 + 0.5
-        || measured_height > height as f32 + 0.5
+        || max_width > context.raster_width as f32 + 0.5
+        || measured_height > context.raster_height as f32 + 0.5
     {
         return Ok(Candidate {
-            surface: Surface::new(width, height),
+            surface: Surface::new(context.raster_width, context.raster_height),
             bounds: None,
             lines,
+            line_widths: Vec::new(),
             missing_glyphs,
             fallback_glyphs,
         });
     }
 
-    let mut surface = Surface::new(width, height);
+    let mut surface = Surface::new(context.raster_width, context.raster_height);
     let mut cache = SwashCache::new();
     buffer.draw(
         font_system,
@@ -697,6 +814,7 @@ fn rasterize(
         surface,
         bounds,
         lines,
+        line_widths,
         missing_glyphs,
         fallback_glyphs,
     })
@@ -757,25 +875,6 @@ fn mask_bounds(width: u32, height: u32, mask: &[u8]) -> Option<(u32, u32, u32, u
     any.then_some((x0, y0, x1, y1))
 }
 
-fn dilate_alpha(src: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
-    if radius == 0 {
-        return src.to_vec();
-    }
-    let mut output = vec![0u8; src.len()];
-    for y in 0..height {
-        for x in 0..width {
-            let mut value = 0u8;
-            for yy in y.saturating_sub(radius)..=(y + radius).min(height - 1) {
-                for xx in x.saturating_sub(radius)..=(x + radius).min(width - 1) {
-                    value = value.max(src[yy * width + xx]);
-                }
-            }
-            output[y * width + x] = value;
-        }
-    }
-    output
-}
-
 fn downsample(surface: &Surface, width: u32, height: u32) -> Result<Surface> {
     let image = RgbaImage::from_raw(surface.width(), surface.height(), surface.pixels().to_vec())
         .context("invalid supersampled text surface")?;
@@ -785,7 +884,68 @@ fn downsample(surface: &Surface, width: u32, height: u32) -> Result<Surface> {
 
 #[cfg(test)]
 mod tests {
-    use super::clipping_summary;
+    use super::{
+        artistic_layout_score, artistic_line_break_candidates, balanced_partition, clipping_summary,
+    };
+
+    #[test]
+    fn artistic_candidates_preserve_explicit_line_breaks() {
+        let text = "first line\nsecond line";
+        assert_eq!(
+            artistic_line_break_candidates(text, 5),
+            vec![text.to_string()]
+        );
+    }
+
+    #[test]
+    fn artistic_candidates_are_bounded_and_include_multiple_layouts() {
+        let text = "Nós que aqui estamos, por vós ansiosamente esperamos";
+        let candidates = artistic_line_break_candidates(text, 5);
+        assert!(!candidates.is_empty());
+        assert!(candidates.len() <= 32);
+        assert!(candidates.iter().any(|candidate| candidate.contains('\n')));
+        assert!(
+            candidates
+                .iter()
+                .all(|candidate| candidate.lines().count() <= 5)
+        );
+    }
+
+    #[test]
+    fn balanced_partition_never_emits_empty_lines() {
+        let words = ["one", "two", "three", "four", "five"];
+        for bias in [-1, 0, 1] {
+            let candidate = balanced_partition(&words, 4, bias).expect("partition");
+            assert_eq!(candidate.lines().count(), 4);
+            assert!(candidate.lines().all(|line| !line.trim().is_empty()));
+        }
+    }
+
+    #[test]
+    fn artistic_score_prefers_balanced_lines_at_equal_font_size() {
+        let balanced = artistic_layout_score(
+            100.0,
+            &[300.0, 290.0, 305.0],
+            "alpha beta\ngamma delta\nepsilon zeta",
+        );
+        let ragged = artistic_layout_score(
+            100.0,
+            &[420.0, 250.0, 80.0],
+            "alpha beta gamma\ndelta epsilon\nzeta",
+        );
+        assert!(balanced > ragged);
+    }
+
+    #[test]
+    fn artistic_score_penalizes_stranded_punctuation() {
+        let clean = artistic_layout_score(
+            100.0,
+            &[300.0, 300.0],
+            "por vós - ansiosamente -\nesperamos juntos",
+        );
+        let stranded = artistic_layout_score(100.0, &[300.0, 300.0], "por vós\n-");
+        assert!(clean > stranded);
+    }
 
     #[test]
     fn clipping_summary_reports_only_visible_alpha_loss() {

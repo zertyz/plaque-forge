@@ -1,0 +1,84 @@
+# Architecture
+
+## Pipeline
+
+```text
+source video
+    |
+    v
+analyze ----------------------------------------------------+
+  detect plaque                                              |
+  track plaque                                               |
+  recover canonical surface                                  |
+  detect/import foreground layers                            |
+    |                                                        |
+    v                                                        |
+assets/analysis/<name>/                                      |
+    |                                                        |
+    +-------------------------> render <----- title + font ---+
+                                  |
+                                  v
+                              output video
+                                  |
+                                  v
+                                verify
+```
+
+Analysis is intentionally reusable. Rendering must not rebuild or delete analysis data.
+
+## Rust layers
+
+### CLI and workflow orchestration
+
+- `main.rs` is a thin executable entry point.
+- `lib.rs` owns command dispatch and the single module graph used by the executable and library tests.
+- `cli.rs` defines user-facing arguments.
+- `analyze/`, `render/`, `verify/`, `review.rs`, `refinement_commands.rs`, and `segmentation.rs` implement application workflows.
+
+These modules coordinate operations. They should not contain asset-specific scene data.
+
+### Scene and domain model
+
+- `model.rs` contains geometry-independent data exchanged across workflows.
+- `geometry.rs` contains projective geometry helpers.
+- `refinement.rs` defines reviewed-input schemas and provenance.
+- `analysis.rs` defines the generated cache schema.
+- `layers.rs` resolves and packages authored scene layers.
+
+### Image and video implementation
+
+- `surface.rs`, `image_io.rs`, and `color.rs` provide image primitives.
+- `digest.rs` owns generic streaming content hashes used for cache/provenance identity.
+- `analyze/candidate.rs` detects plausible plaques.
+- `analyze/tracking.rs` estimates plaque motion.
+- `analyze/extraction.rs` recovers the canonical writing surface and structural data.
+- `analyze/occlusion.rs` estimates automatic foreground occlusion.
+- `render/typography.rs` shapes and fits text and owns line-layout decisions.
+- `render/effects.rs` paints mask-derived text effects such as stroke, glow, and shadow.
+
+Text effects are intentionally split by the data they operate on. Layout/glyph transforms, mask effects, material/fill effects, and plaque-surface effects are separate extension points; see [TEXT_EFFECTS.md](TEXT_EFFECTS.md).
+
+OpenCV and `cosmic-text` are implementation libraries inside these layers. They are not part of the refinement or analysis-cache interfaces.
+
+## External processes
+
+External executables are kept behind two boundaries:
+
+1. `video.rs` owns FFmpeg/FFprobe process invocation for Rust workflows.
+2. `segmentation.rs` owns the versioned segmentation-worker protocol. `tools/segmentation_worker.py` exists only because the supported ML ecosystems are Python-native.
+
+Shell scripts do not implement scene-analysis algorithms. They build the Rust binary, choose assets, translate convenient command-line/environment settings, and invoke high-level commands.
+
+## Cache compatibility
+
+Analysis cache compatibility is explicit in `build_info::ANALYZER_CACHE_VERSION` and `analysis::ANALYSIS_SCHEMA_VERSION`.
+
+- Change `ANALYSIS_SCHEMA_VERSION` when the serialized schema itself becomes incompatible.
+- Change `ANALYZER_CACHE_VERSION` when analysis semantics change such that an old cache must not be reused, even if its schema still parses.
+- Do not invalidate analysis caches for renderer-only, CLI-only, documentation, or unrelated refactoring changes.
+
+No custom `build.rs` source hashing is used. Renderer-only text effects and styles therefore do not invalidate scene analysis.
+
+## Human diagnostics
+
+Machine-readable JSON remains canonical for automated validation. `review.rs` is a presentation layer that assembles analysis/verification metrics and diagnostic imagery into a human-oriented HTML triage report. It does not change cache semantics or make quality decisions on behalf of analysis/verification.

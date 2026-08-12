@@ -1,7 +1,11 @@
+//! FFmpeg and FFprobe adapter used by Rust workflows.
+//!
+//! Process invocation, video probing, raw-frame decoding, and encoding live here so
+//! analysis and rendering do not depend on shell command construction.
+
 use crate::surface::Surface;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::{
     io::{ErrorKind, Read, Write},
     path::Path,
@@ -71,9 +75,14 @@ pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
     let fps_expression = stream
         .avg_frame_rate
         .as_deref()
-        .filter(|v| *v != "0/0")
-        .or(stream.r_frame_rate.as_deref())
-        .unwrap_or("24/1")
+        .filter(|value| *value != "0/0")
+        .or_else(|| {
+            stream
+                .r_frame_rate
+                .as_deref()
+                .filter(|value| *value != "0/0")
+        })
+        .context("video stream does not report a usable frame rate")?
         .to_owned();
     let fps = parse_fraction(&fps_expression)?;
     let average_fps = stream
@@ -122,12 +131,6 @@ pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
         start_time_seconds,
         constant_frame_rate,
     })
-}
-
-pub fn sha256(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("failed to read file for SHA-256: {}", path.display()))?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
 pub struct Decoder {

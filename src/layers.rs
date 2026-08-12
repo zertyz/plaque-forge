@@ -1,3 +1,8 @@
+//! Import and compose declared scene layers into analysis data.
+//!
+//! Layers describe material that constrains text placement or must appear in front of
+//! rendered typography, such as vines, chains, shadows, and writing-surface masks.
+
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};

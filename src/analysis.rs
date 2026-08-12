@@ -1,3 +1,8 @@
+//! Persistent scene-analysis cache format.
+//!
+//! Analysis turns a source video into reusable plaque motion, masks, templates, and
+//! provenance. Rendering consumes this data without repeating computer vision.
+
 use std::{
     fs,
     path::{Path, PathBuf},

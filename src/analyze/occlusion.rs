@@ -1,3 +1,8 @@
+//! Automatic foreground-occlusion analysis.
+//!
+//! Detects source content that passes in front of the plaque so those pixels can be
+//! restored over newly rendered text during compositing.
+
 use std::{collections::VecDeque, fs, path::Path};
 
 use anyhow::{Context, Result};
@@ -42,8 +47,8 @@ pub fn extract(
     fs::create_dir_all(&masks_dir)?;
     let width = extraction.median.width() as usize;
     let height = extraction.median.height() as usize;
-    // Milestone 3 accepts only text-free production sources. The robust median
-    // is therefore the canonical plaque appearance; no synthetic blanking is done.
+    // The robust median is the canonical plaque appearance for the supported
+    // text-free source contract; no synthetic blanking is needed.
     let model = extraction.median.pixels();
     let mut decoder = Decoder::spawn(ffmpeg, input, info)?;
     let mut structural_scores = Vec::with_capacity(info.frames);

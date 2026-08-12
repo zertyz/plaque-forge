@@ -1,3 +1,8 @@
+//! Plaque motion tracking across the source video.
+//!
+//! A tracker estimates a projective transform for each frame, then stabilizes that
+//! trajectory and applies any locked or guiding motion refinements.
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};

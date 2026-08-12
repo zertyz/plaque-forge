@@ -1,3 +1,8 @@
+//! Plaque candidate detection.
+//!
+//! Samples source frames, scores plausible planar title surfaces, and chooses a reference
+//! plaque rectangle for tracking or proposes alternatives for human refinement.
+
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};

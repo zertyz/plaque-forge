@@ -1,3 +1,8 @@
+//! Human-reviewed scene corrections and generated refinement-artifact schemas.
+//!
+//! `refinement.toml` selects plaques and layers. Motion tracks and alpha sequences may
+//! be generated artifacts that a person reviews rather than data they type frame by frame.
+
 use std::{
     collections::HashSet,
     fs,
@@ -565,14 +570,14 @@ pub fn resolve_relative(owner: &Path, referenced: &Path) -> PathBuf {
 pub fn provenance(path: &Path) -> Result<InputFileProvenance> {
     Ok(InputFileProvenance {
         path: path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
-        sha256: sha256(path)?,
+        sha256: crate::digest::file_sha256(path)?,
         semantic_sha256: None,
     })
 }
 
 pub fn semantic_provenance<T: Serialize>(path: &Path, value: &T) -> Result<InputFileProvenance> {
     let mut output = provenance(path)?;
-    output.semantic_sha256 = Some(sha256_bytes(&serde_json::to_vec(value)?));
+    output.semantic_sha256 = Some(crate::digest::bytes_sha256(&serde_json::to_vec(value)?));
     Ok(output)
 }
 
@@ -650,17 +655,6 @@ pub fn current_refinement_provenance(
     } else {
         Ok(Some(identity))
     }
-}
-
-pub fn sha256(path: &Path) -> Result<String> {
-    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    Ok(sha256_bytes(&bytes))
-}
-
-fn sha256_bytes(bytes: &[u8]) -> String {
-    let mut digest = Sha256::new();
-    digest.update(bytes);
-    format!("{:x}", digest.finalize())
 }
 
 pub fn refinement_document(

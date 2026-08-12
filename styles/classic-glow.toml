@@ -1,0 +1,21 @@
+version = 1
+# Paint/effect style for plaque-forge render --style-file.
+# Effects are evaluated back-to-front. The fill is painted last.
+fill = "#EBFFFFFF"
+
+[[effects]]
+type = "shadow"
+offset_x = 0.025
+offset_y = 0.035
+blur_radius = 5
+color = "#00000078"
+
+[[effects]]
+type = "stroke"
+width = 0.035
+color = "#03181ED2"
+
+[[effects]]
+type = "glow"
+radius = 8
+color = "#69F2FA48"

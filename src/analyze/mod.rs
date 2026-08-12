@@ -53,10 +53,10 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         .with_context(|| format!("failed to probe input video {}", args.input.display()))?;
     if !info.constant_frame_rate {
         bail!(
-            "variable-frame-rate input is outside the 0.3 source contract; transcode it to a constant frame rate before analysis"
+            "variable-frame-rate input is unsupported; transcode it to a constant frame rate before analysis"
         );
     }
-    let source_sha256 = video::sha256(&args.input)
+    let source_sha256 = crate::digest::file_sha256(&args.input)
         .with_context(|| format!("failed to hash source {}", args.input.display()))?;
     let refinements = resolve_refinements(&mut args, &info, &source_sha256)?;
     progress.finish(format!(
