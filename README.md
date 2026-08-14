@@ -74,7 +74,7 @@ Outputs go to `output/*.hevc.mkv`. Append asset stems to render only those video
 
 **Artistic line composition is the default**, using the largest safe title size. The default direct style also has a visible glow.
 
-Try the bundled styles with `--style NAME`, including `classic-glow`, `bronze-relief`, `gold-shine`, `chrome-shine`, `holographic-foil`, `neon-flicker`, `liquid-wave`, `chromatic-glitch`, `velocity-trails`, `letterpress-wood`, `frosted-ice`, `living-fire`, `cosmic-nebula`, `halftone-pop`, `typewriter`, and `particle-dissolve`.
+Try the bundled styles with `--style NAME`. In addition to the existing glow, metal, holographic, liquid, glitch, trail, ice, fire, nebula, halftone, typewriter, and dissolve presets, the renderer now includes `art-deco-arc`, `orbital-text`, `texture-mapped`, `scramble-reveal`, `split-flap`, `confetti-converge`, `laser-burn-wood`, `scene-emboss`, `blueprint`, and `paper-collage`.
 
 See [Text effects](docs/TEXT_EFFECTS.md) for the exact capability matrix and style format.
 
@@ -129,7 +129,7 @@ tools/                       optional external-tool adapters
 styles/                      reusable typography/material/effect programs
 assets/*.mp4                 source videos
 assets/plaques/              reusable injected plaque images
-assets/scenes/<name>/       sparse human intent + small reviewed source masks
+assets/scenes/<name>/        sparse human intent + small reviewed source masks
 assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
 output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows

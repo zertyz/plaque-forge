@@ -1,7 +1,7 @@
 mod effects;
 mod typography;
 
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use image::{GrayImage, ImageBuffer, Luma, RgbaImage, imageops::FilterType};
@@ -290,6 +290,8 @@ fn render_to(
     let diagnostic_indices = evenly_spaced(info.frames, 12);
     let mut diagnostic_frames = Vec::with_capacity(diagnostic_indices.len());
     let static_presented = (!style.has_frame_variation()).then(|| text_render.layer.clone());
+    let dynamic_target = text_render.metrics.resolved_text.clone();
+    let mut dynamic_text_cache = HashMap::<String, typography::TextRender>::new();
     let needs_original_frame = use_masks || !foregrounds.is_empty();
     progress.start(3, 3, "Composite and encode", Some(info.frames));
     while let Some(mut frame) = decoder.next_frame()? {
@@ -305,26 +307,60 @@ fn render_to(
             .get(frame_index)
             .with_context(|| format!("motion sample missing for frame {frame_index}"))?;
 
+        let plaque_quad = transformed_rect(pack.manifest.source_plaque_rect, sample.transform);
         if let Some(plaque_layer) = &injected_surface {
             frame.warp_blend(
                 plaque_layer,
-                transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+                plaque_quad,
                 sample.plaque_visibility.clamp(0.0, 1.0) as f32,
             )?;
         }
 
-        // Static typography is prepared once. Frame-varying presentation is evaluated
-        // here without repeating font discovery, shaping, or line breaking. For injected
-        // surfaces the title is painted after the plaque image and before foreground restore.
+        // Static shaping/fitting is reused. Scramble and split-flap intentionally render
+        // discrete character states, cached by state string, without recomputing scene analysis.
         let time_seconds = frame_index as f64 / info.fps.max(f64::EPSILON);
+        let dynamic_key = style.dynamic_text(&dynamic_target, time_seconds);
+        if let Some(ref key) = dynamic_key {
+            if key != &dynamic_target && !dynamic_text_cache.contains_key(key) {
+                let rendered = typography::render(typography::RenderRequest {
+                    width: pack.manifest.canonical_width,
+                    height: pack.manifest.canonical_height,
+                    mask: &mask,
+                    text: key,
+                    font_path: &args.font,
+                    fit_mode: crate::cli::FitMode::Fixed,
+                    requested_font_size: Some(text_render.metrics.font_size * 0.97),
+                    supersampling: args.supersampling,
+                    target_fill: args.target_fill,
+                    max_lines: args.max_lines,
+                    padding_ratio: args.padding,
+                    line_height_ratio: args.line_height,
+                    text_align: args.text_align,
+                    vertical_align: args.vertical_align,
+                    style: &style,
+                });
+                if let Ok(rendered) = rendered {
+                    dynamic_text_cache.insert(key.clone(), rendered);
+                }
+            }
+        }
+        let using_dynamic = dynamic_key
+            .as_ref()
+            .is_some_and(|key| key != &dynamic_target && dynamic_text_cache.contains_key(key));
+        let frame_text = dynamic_key
+            .as_ref()
+            .and_then(|key| dynamic_text_cache.get(key))
+            .filter(|_| using_dynamic)
+            .unwrap_or(&text_render);
+
         let opacity =
             sample.plaque_visibility.clamp(0.0, 1.0) as f32 * style.frame_opacity(time_seconds);
-        let animated_presented = if static_presented.is_none() {
-            let mut layer = text_render.layer.clone();
+        let animated_presented = if static_presented.is_none() || using_dynamic {
+            let mut layer = frame_text.layer.clone();
             if let Some(overlay) = style.frame_overlay(
-                &text_render.glyph_mask,
-                text_render.layer.width(),
-                text_render.layer.height(),
+                &frame_text.glyph_mask,
+                frame_text.layer.width(),
+                frame_text.layer.height(),
                 time_seconds,
             )? {
                 layer.blend_surface(&overlay, 0, 0, 1.0);
@@ -333,15 +369,32 @@ fn render_to(
         } else {
             None
         };
-        let presented = static_presented
-            .as_ref()
-            .or(animated_presented.as_ref())
-            .context("title presentation was not created")?;
-        frame.warp_blend(
-            presented,
-            transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
-            opacity,
-        )?;
+        let presented = if using_dynamic {
+            animated_presented.as_ref()
+        } else {
+            static_presented.as_ref().or(animated_presented.as_ref())
+        }
+        .context("title presentation was not created")?;
+
+        if style.has_surface_effects() {
+            let canonical_plaque = Surface::extract_quad(
+                &frame,
+                plaque_quad,
+                pack.manifest.canonical_width,
+                pack.manifest.canonical_height,
+            )?;
+            let transformed_mask = style.frame_transform_mask(
+                &frame_text.glyph_mask,
+                frame_text.layer.width(),
+                frame_text.layer.height(),
+                time_seconds,
+            )?;
+            if let Some(surface_layer) = style.surface_overlay(&canonical_plaque, &transformed_mask)? {
+                frame.warp_blend(&surface_layer, plaque_quad, opacity)?;
+            }
+        }
+
+        frame.warp_blend(presented, plaque_quad, opacity)?;
         let mut restore = foregrounds
             .frame_mask(frame_index, sample.transform)?
             .unwrap_or_default();

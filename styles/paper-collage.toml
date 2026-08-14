@@ -1,0 +1,21 @@
+version = 4
+
+[material]
+type = "paper"
+light = "#FFF4D8FF"
+mid = "#D3B37EFF"
+dark = "#715333FF"
+seed = 1346457669
+
+[[effects]]
+type = "chromatic-split"
+offset = 0.045
+red = "#E34B4BC0"
+cyan = "#3E9DB8C0"
+
+[[effects]]
+type = "shadow"
+offset_x = 0.035
+offset_y = 0.045
+blur_radius = 2
+color = "#23170FA8"

@@ -1,0 +1,13 @@
+version = 4
+
+[material]
+type = "blueprint"
+dark = "#062A59FF"
+light = "#48BCEFFF"
+grid = "#D7F6FFB8"
+cell = 8
+
+[[effects]]
+type = "stroke"
+width = 0.022
+color = "#DFF9FFFF"
