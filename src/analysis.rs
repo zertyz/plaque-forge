@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use crate::model::{AnalysisConfidence, MotionSample, RectF};
 use crate::portable_path::PortablePath;
 use crate::scene::{
-    DepthMode, LayerArtifactKind, LayerCoordinates, LayerGenerator, LayerRole, SceneProvenance,
-    SurfaceSpace,
+    DepthMode, LayerArtifactKind, LayerCoordinates, LayerGenerator, LayerMatte, LayerRole,
+    SceneProvenance, SurfaceSpace,
 };
 
 pub const MANIFEST_FILE: &str = "manifest.toml";
@@ -56,6 +56,10 @@ pub struct LayerAsset {
     pub coordinates: LayerCoordinates,
     pub kind: LayerArtifactKind,
     pub affects_layout: bool,
+    #[serde(default = "crate::scene::default_true")]
+    pub affects_tracking: bool,
+    #[serde(default)]
+    pub matte: LayerMatte,
     pub path: PortablePath,
     pub first_frame: Option<usize>,
     pub last_frame: Option<usize>,
@@ -197,6 +201,7 @@ impl Analysis {
         if let Some(surface) = &pack.manifest.injected_surface {
             pack.require_asset_path(surface.path.as_path())?;
         }
+        validate_layer_semantics(&pack.manifest.layers)?;
         for layer in &pack.manifest.layers {
             match layer.kind {
                 LayerArtifactKind::AlphaImage => {
@@ -220,6 +225,7 @@ impl Analysis {
 
     pub fn save_manifest(&self) -> Result<()> {
         validate_portable_paths(&self.manifest)?;
+        validate_layer_semantics(&self.manifest.layers)?;
         for (frame, sample) in self.motion.iter().enumerate() {
             if sample.frame != frame {
                 bail!(
@@ -285,6 +291,23 @@ impl Analysis {
             .path
             .resolve_from(&self.root.join(MANIFEST_FILE))
     }
+}
+
+fn validate_layer_semantics(layers: &[LayerAsset]) -> Result<()> {
+    for layer in layers {
+        layer
+            .matte
+            .validate(&format!("analysis layer {:?} matte", layer.id))?;
+        if layer.matte.mode == crate::scene::LayerMatteMode::Opaque
+            && layer.role != LayerRole::Foreground
+        {
+            bail!(
+                "analysis layer {:?} uses opaque matte semantics but is not foreground",
+                layer.id
+            );
+        }
+    }
+    Ok(())
 }
 
 fn validate_portable_paths(manifest: &AnalysisManifest) -> Result<()> {

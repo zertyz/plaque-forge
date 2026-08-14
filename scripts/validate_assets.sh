@@ -1,28 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Replaces only the selected output/*.verification.json reports.
+# Retain the exact lossless artifact that each verification report certifies.
 source "$(dirname "$0")/render_common.sh"
 pf_configure_render "$@"
 
-stage="$(mktemp -d /tmp/plaque-forge-validate.XXXXXX)"
-cleanup() {
-  # This path is created by mktemp above and contains only this run's lossless renders.
-  if [[ "$stage" == /tmp/plaque-forge-validate.* ]]; then
-    rm -rf -- "$stage"
-  fi
-}
-trap cleanup EXIT
-
 cd "$PF_ROOT"
 cargo build --release --quiet
-mkdir -p output
+mkdir -p output/validation
 
 for name in "${PF_CASES[@]}"; do
   input="assets/$name.mp4"
   analysis="assets/analysis/$name"
-  lossless="$stage/$name.mkv"
-  report="output/$name.verification.json"
+  lossless="output/validation/$name.lossless.mkv"
+  report="output/validation/$name.lossless.verification.json"
 
   if [[ ! -f "$input" ]]; then
     printf 'input video not found: %s\n' "$input" >&2
@@ -31,6 +22,9 @@ for name in "${PF_CASES[@]}"; do
   target/release/plaque-forge render \
     --input "$input" --output "$lossless" \
     "${PF_RENDER_OPTIONS[@]}" --progress always
+  # The render was replaced successfully. If verification aborts before publishing
+  # a new report, no report is safer than a stale report for older bytes.
+  rm -f -- "$report"
   target/release/plaque-forge verify \
     --analysis "$analysis" --rendered "$lossless" --original "$input" \
     --report "$report" --progress always

@@ -159,6 +159,53 @@ pub enum LayerCoordinates {
     SourcePixels,
 }
 
+/// How a layer mask should be interpreted by compositing and geometric consumers.
+///
+/// `Optical` preserves measured alpha. `Opaque` treats the mask as semantic
+/// confidence for an opaque foreground and calibrates it into solid occlusion
+/// with a narrow soft edge.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayerMatteMode {
+    #[default]
+    Optical,
+    Opaque,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct LayerMatte {
+    pub mode: LayerMatteMode,
+    pub support_threshold: f64,
+    pub solid_threshold: f64,
+}
+
+impl Default for LayerMatte {
+    fn default() -> Self {
+        Self {
+            mode: LayerMatteMode::Optical,
+            support_threshold: 0.03,
+            solid_threshold: 0.20,
+        }
+    }
+}
+
+impl LayerMatte {
+    pub(crate) fn validate(&self, description: &str) -> Result<()> {
+        if !self.support_threshold.is_finite()
+            || !self.solid_threshold.is_finite()
+            || !(0.0..1.0).contains(&self.support_threshold)
+            || !(0.0..=1.0).contains(&self.solid_threshold)
+            || self.support_threshold >= self.solid_threshold
+        {
+            bail!(
+                "{description} thresholds must satisfy 0 <= support_threshold < solid_threshold <= 1"
+            );
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct LayerGenerator {
@@ -194,7 +241,7 @@ pub struct LayerArtifact {
     pub generator: Option<LayerGenerator>,
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
@@ -222,6 +269,13 @@ pub struct SceneLayer {
     pub active_frames: Option<[usize; 2]>,
     #[serde(default = "default_true")]
     pub affects_layout: bool,
+    /// Whether this layer may influence plaque tracking. Render-only foreground
+    /// evidence can disable this so compositing improvements cannot perturb an
+    /// already homologated motion solution.
+    #[serde(default = "default_true")]
+    pub affects_tracking: bool,
+    #[serde(default)]
+    pub matte: LayerMatte,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
 }
@@ -294,10 +348,10 @@ pub struct SceneProvenance {
 impl SceneProvenance {
     pub fn content_matches(&self, other: &Self) -> bool {
         self.surface_id == other.surface_id
-            && file_hash(&self.manifest) == file_hash(&other.manifest)
-            && file_hash(&self.trajectory) == file_hash(&other.trajectory)
-            && file_hash(&self.surface_asset) == file_hash(&other.surface_asset)
-            && file_hash_list(&self.layer_artifacts) == file_hash_list(&other.layer_artifacts)
+            && optional_file_matches(&self.manifest, &other.manifest)
+            && optional_file_matches(&self.trajectory, &other.trajectory)
+            && optional_file_matches(&self.surface_asset, &other.surface_asset)
+            && file_list_matches(&self.layer_artifacts, &other.layer_artifacts)
             && self.locked_keyframes == other.locked_keyframes
             && self.guide_keyframes == other.guide_keyframes
     }
@@ -340,23 +394,27 @@ impl SceneProvenance {
     }
 }
 
-fn file_hash_list(files: &[InputFileProvenance]) -> Vec<&str> {
-    files
-        .iter()
-        .map(|file| {
-            file.semantic_sha256
-                .as_deref()
-                .unwrap_or(file.sha256.as_str())
-        })
-        .collect()
+fn file_matches(a: &InputFileProvenance, b: &InputFileProvenance) -> bool {
+    a.sha256 == b.sha256
+        || a.semantic_sha256
+            .as_ref()
+            .zip(b.semantic_sha256.as_ref())
+            .is_some_and(|(a, b)| a == b)
 }
 
-fn file_hash(file: &Option<InputFileProvenance>) -> Option<&str> {
-    file.as_ref().map(|file| {
-        file.semantic_sha256
-            .as_deref()
-            .unwrap_or(file.sha256.as_str())
-    })
+fn optional_file_matches(
+    a: &Option<InputFileProvenance>,
+    b: &Option<InputFileProvenance>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => file_matches(a, b),
+        _ => false,
+    }
+}
+
+fn file_list_matches(a: &[InputFileProvenance], b: &[InputFileProvenance]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| file_matches(a, b))
 }
 
 #[derive(Debug, Clone)]
@@ -400,6 +458,17 @@ impl Scene {
             }
             if let Some(region) = &surface.writable_region {
                 region.validate(&format!("surface {:?} writable_region", surface.id))?;
+                if let Some(bounds) = surface.bounds {
+                    let writable_bounds = region.bounds();
+                    if !rect_contains(bounds, writable_bounds) {
+                        bail!(
+                            "surface {:?} writable_region {:?} must be fully contained inside surface bounds {:?}",
+                            surface.id,
+                            writable_bounds,
+                            bounds
+                        );
+                    }
+                }
             }
             surface.appearance.validate(&surface.id)?;
             if matches!(surface.appearance, SurfaceAppearance::Image { .. })
@@ -472,6 +541,15 @@ impl Scene {
             }
             if let Some(path) = &layer.artifact {
                 require_relative(path, &format!("layer {:?} artifact", layer.id))?;
+            }
+            layer
+                .matte
+                .validate(&format!("layer {:?} matte", layer.id))?;
+            if layer.matte.mode == LayerMatteMode::Opaque && layer.role != LayerRole::Foreground {
+                bail!(
+                    "layer {:?} uses matte mode opaque, which is only valid for foreground layers",
+                    layer.id
+                );
             }
             if layer.artifact.is_some() && !layer.prompts.is_empty() {
                 bail!(
@@ -1179,6 +1257,18 @@ fn require_relative(path: &Path, description: &str) -> Result<()> {
     Ok(())
 }
 
+fn rect_contains(outer: [f64; 4], inner: [f64; 4]) -> bool {
+    const EPSILON: f64 = 1.0e-6;
+    let outer_right = outer[0] + outer[2];
+    let outer_bottom = outer[1] + outer[3];
+    let inner_right = inner[0] + inner[2];
+    let inner_bottom = inner[1] + inner[3];
+    inner[0] + EPSILON >= outer[0]
+        && inner[1] + EPSILON >= outer[1]
+        && inner_right <= outer_right + EPSILON
+        && inner_bottom <= outer_bottom + EPSILON
+}
+
 fn validate_rect(rect: [f64; 4], description: &str) -> Result<()> {
     if rect.iter().any(|value| !value.is_finite()) {
         bail!("{description} contains a non-finite coordinate");
@@ -1346,6 +1436,58 @@ mod tests {
             scene.surfaces[0].tracking_bounds(),
             Some([100.0, 40.0, 500.0, 180.0])
         );
+    }
+
+    #[test]
+    fn writable_region_must_be_contained_by_the_tracking_surface() {
+        let scene: Scene = toml::from_str(
+            r#"
+                format = "plaque-forge.scene/1"
+                source = "clip.mp4"
+                default_surface = "main"
+
+                [[surfaces]]
+                id = "main"
+                space = "scene-plane"
+                reference_frame = 0
+                bounds = [100.0, 40.0, 500.0, 180.0]
+
+                [surfaces.writable_region]
+                shape = "rect"
+                bounds = [120.0, 60.0, 490.0, 150.0]
+            "#,
+        )
+        .unwrap();
+
+        let error = scene.validate().unwrap_err().to_string();
+        assert!(
+            error.contains("must be fully contained inside surface bounds"),
+            "unexpected validation error: {error}"
+        );
+    }
+
+    #[test]
+    fn writable_region_may_touch_the_tracking_surface_boundary() {
+        let scene: Scene = toml::from_str(
+            r#"
+                format = "plaque-forge.scene/1"
+                source = "clip.mp4"
+                default_surface = "main"
+
+                [[surfaces]]
+                id = "main"
+                space = "scene-plane"
+                reference_frame = 0
+                bounds = [100.0, 40.0, 500.0, 180.0]
+
+                [surfaces.writable_region]
+                shape = "rect"
+                bounds = [100.0, 40.0, 500.0, 180.0]
+            "#,
+        )
+        .unwrap();
+
+        scene.validate().unwrap();
     }
 
     #[test]
@@ -1555,6 +1697,53 @@ mod tests {
         .unwrap();
         assert_eq!(prompt.coordinates, SpatialCoordinates::SourcePixels);
         prompt.validate("prompt").unwrap();
+    }
+
+    #[test]
+    fn opaque_matte_is_only_valid_for_foreground_layers() {
+        let scene: Scene = toml::from_str(
+            r#"
+                format = "plaque-forge.scene/1"
+                source = "clip.mp4"
+                default_surface = "main"
+
+                [[surfaces]]
+                id = "main"
+                space = "scene-plane"
+                bounds = [10.0, 20.0, 100.0, 50.0]
+
+                [[layers]]
+                id = "shadow"
+                role = "shadow"
+                surface = "main"
+                matte = { mode = "opaque" }
+            "#,
+        )
+        .unwrap();
+        assert!(scene.validate().is_err());
+    }
+
+    #[test]
+    fn cache_identity_accepts_exact_bytes_even_when_cached_semantic_hash_is_stale() {
+        let a = SceneProvenance {
+            manifest: Some(InputFileProvenance {
+                path: "a.toml".into(),
+                sha256: "same-raw".into(),
+                semantic_sha256: Some("old-semantics".into()),
+            }),
+            surface_id: Some("main".into()),
+            ..SceneProvenance::default()
+        };
+        let b = SceneProvenance {
+            manifest: Some(InputFileProvenance {
+                path: "b.toml".into(),
+                sha256: "same-raw".into(),
+                semantic_sha256: Some("new-semantics".into()),
+            }),
+            surface_id: Some("main".into()),
+            ..SceneProvenance::default()
+        };
+        assert!(a.content_matches(&b));
     }
 
     #[test]

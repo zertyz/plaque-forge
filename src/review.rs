@@ -62,6 +62,12 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         Some(path) => Some(read_json(path)?),
         None => None,
     };
+    validate_verification_provenance(
+        args.verification.as_deref(),
+        verification.as_ref(),
+        args.render_manifest.as_deref(),
+        render_manifest.as_ref(),
+    )?;
     let scene = match args.scene.as_deref() {
         Some(path) if path.is_file() => Some((path.to_path_buf(), Scene::load(path)?)),
         _ => None,
@@ -125,6 +131,76 @@ fn read_json_optional(path: &Path) -> Result<Option<Value>> {
     } else {
         Ok(None)
     }
+}
+
+fn validate_verification_provenance(
+    verification_path: Option<&Path>,
+    verification: Option<&Value>,
+    render_manifest_path: Option<&Path>,
+    render_manifest: Option<&Value>,
+) -> Result<()> {
+    let Some(verification) = verification else {
+        return Ok(());
+    };
+    let verification_path = verification_path.context("verification path is unavailable")?;
+    let render_manifest_path = render_manifest_path.with_context(|| {
+        format!(
+            "verification {} cannot be reviewed without its render manifest",
+            verification_path.display()
+        )
+    })?;
+    let render_manifest = render_manifest.context("render manifest is unavailable")?;
+    let manifest_bytes = fs::read(render_manifest_path).with_context(|| {
+        format!(
+            "failed to read render manifest {}",
+            render_manifest_path.display()
+        )
+    })?;
+    let manifest_sha256 = crate::digest::bytes_sha256(&manifest_bytes);
+
+    require_matching_identity(
+        verification,
+        "render_manifest_sha256",
+        &manifest_sha256,
+        verification_path,
+    )?;
+    for field in ["source_sha256", "analysis_manifest_sha256", "rendered_sha256"] {
+        let expected = render_manifest
+            .get(field)
+            .and_then(Value::as_str)
+            .with_context(|| {
+                format!(
+                    "render manifest {} is missing {field}",
+                    render_manifest_path.display()
+                )
+            })?;
+        require_matching_identity(verification, field, expected, verification_path)?;
+    }
+    Ok(())
+}
+
+fn require_matching_identity(
+    verification: &Value,
+    field: &str,
+    expected: &str,
+    verification_path: &Path,
+) -> Result<()> {
+    let actual = verification
+        .get(field)
+        .and_then(Value::as_str)
+        .with_context(|| {
+            format!(
+                "verification {} is missing {field}",
+                verification_path.display()
+            )
+        })?;
+    if actual != expected {
+        bail!(
+            "verification {} is stale: {field} does not match the supplied render manifest",
+            verification_path.display()
+        );
+    }
+    Ok(())
 }
 
 fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> {
@@ -1035,9 +1111,9 @@ li { margin:.45em 0; }
 
 #[cfg(test)]
 mod tests {
-    use super::{analysis_asset_stem, focus_items};
+    use super::{analysis_asset_stem, focus_items, validate_verification_provenance};
     use serde_json::json;
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     #[test]
     fn retained_failure_uses_the_asset_directory_not_the_run_id() {
@@ -1080,5 +1156,44 @@ mod tests {
                 .any(|item| item.title == "Writable surface / canonical reconstruction")
         );
         assert!(focus.iter().any(|item| item.title == "Foreground crossing"));
+    }
+
+    #[test]
+    fn review_rejects_verification_for_another_render_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "plaque-forge-review-provenance-test-{}",
+            std::process::id()
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("render-manifest.json");
+        let manifest = json!({
+            "source_sha256": "source",
+            "analysis_manifest_sha256": "analysis",
+            "rendered_sha256": "render"
+        });
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        fs::write(&manifest_path, &manifest_bytes).unwrap();
+        let verification_path = root.join("verification.json");
+        let verification = json!({
+            "source_sha256": "source",
+            "analysis_manifest_sha256": "analysis",
+            "rendered_sha256": "different-render",
+            "render_manifest_sha256": crate::digest::bytes_sha256(&manifest_bytes)
+        });
+
+        let error = validate_verification_provenance(
+            Some(&verification_path),
+            Some(&verification),
+            Some(&manifest_path),
+            Some(&manifest),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("is stale"), "unexpected error: {error}");
+        fs::remove_dir_all(root).unwrap();
     }
 }

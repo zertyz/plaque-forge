@@ -4,14 +4,14 @@ status = "complete"
 source_is_text_free = true
 analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
 reference_frame = 10
-canonical_width = 1154
-canonical_height = 158
+canonical_width = 935
+canonical_height = 151
 surface_space = "scene-plane"
-trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-retrack-rejected-foreground-aware-source-flow"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-occluders-foreground-aware-source-flow"
 loop_closed = false
 has_occluder = true
 occlusion_mode = "automatic"
-automatic_ml_foreground = true
+automatic_ml_foreground = false
 analysis_gate_passed = true
 
 [source]
@@ -24,10 +24,10 @@ frames = 234
 duration_seconds = 9.790039
 
 [source_plaque_rect]
-x = 62.0
-y = 82.0
-width = 1154.0
-height = 158.0
+x = 190.0
+y = 100.0
+width = 935.0
+height = 151.0
 
 [segmentation]
 backend = "sam2-cutie-vitmatte"
@@ -42,6 +42,8 @@ role = "foreground"
 coordinates = "source-pixels"
 kind = "alpha-sequence"
 affects_layout = false
+affects_tracking = false
+matte = { mode = "opaque", support_threshold = 0.03, solid_threshold = 0.20 }
 path = "layers/spider/%06d.png"
 first_frame = 0
 last_frame = 233
@@ -64,17 +66,16 @@ guide_keyframes = 0
 
 [scenes.manifest]
 path = "../../scenes/16_9_dungeon_spider_iron_plaque/scene.toml"
-sha256 = "25da736446daa9c266da6d64a6edf2fda820672e735db490d38108bb7c256478"
-semantic_sha256 = "2af3b20610f2408cfb2423a8c8c5e77c0103eafea1150a7ebc563b119aa962c7"
+sha256 = "1e70f913a05f8c0c917636d7f6f14c667659e476728aaca4bbc3e1f03f684baa"
 
 [[scenes.layer_artifacts]]
 path = "layers/spider/artifact.toml"
-sha256 = "eaac912d99edde72d572f8da8b17d79c4076732764e13868deea79a43641a9b6"
+sha256 = "61d6e9fc10f3ac2e324017e9399369be0b2f2a90078117597290729d73515efe"
 semantic_sha256 = "7738b238d95cc248132ba13286d6ac644ab0771b4acdee6f6b86a1b2cfae5b8a"
 
 [confidence]
 plaque_detection = 0.98
-motion = 0.7831408285895066
-extraction = 0.9352935853278634
-occlusion = 0.752653609806682
-overall = 0.8573383714392957
+motion = 0.89017231739291
+extraction = 0.9680776994723235
+occlusion = 0.7730998341511526
+overall = 0.8989002247896996

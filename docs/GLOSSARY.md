@@ -35,6 +35,9 @@ An object that passes between the camera and the plaque, such as a chain, plant,
 **Alpha mask**  
 A grayscale image describing coverage. Black means absent, white means fully present, and gray values preserve soft or partially transparent edges.
 
+**Matte semantics**
+The contract that says what alpha values mean. `optical` means literal physical transparency. `opaque` means an ML mask is semantic confidence for a physically opaque foreground object; Plaque Forge calibrates that confidence into solid occlusion with a narrow feather before compositing.
+
 **Layer**  
 A declared scene component used during analysis or compositing. Foreground is above
 the title, background is negative depth evidence, writing-surface constrains placement,
@@ -48,6 +51,9 @@ Reviewed input that corrects or supplements automatic analysis. `scene.toml` is 
 
 **Analysis cache**  
 Reusable generated scene data under `assets/analysis/<name>/`. It contains motion, masks, templates, diagnostics, and provenance needed to render titles without repeating expensive analysis.
+
+**Homologation contract**
+Executable acceptance evidence for behavior a human has already approved. It pins stable scene/typography invariants, exact provenance, and sparse reviewed visual witnesses without requiring byte-identical video encodes.
 
 **Portable artifact path**
 

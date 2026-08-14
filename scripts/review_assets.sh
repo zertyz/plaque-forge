@@ -58,13 +58,17 @@ for name in "${cases[@]}"; do
     continue
   fi
 
-  verification="output/$name.verification.json"
-  render_manifest="output/$name.hevc.render-manifest.json"
+  verification="output/validation/$name.lossless.verification.json"
+  render_manifest="output/validation/$name.lossless.render-manifest.json"
+  if [[ ! -f "$verification" || ! -f "$render_manifest" ]]; then
+    verification=""
+    render_manifest=""
+  fi
   scene="assets/scenes/$name/scene.toml"
   args=(--analysis "$analysis")
   [[ -f "$scene" ]] && args+=(--scene "$scene")
-  [[ -f "$verification" ]] && args+=(--verification "$verification")
-  [[ -f "$render_manifest" ]] && args+=(--render-manifest "$render_manifest")
+  [[ -n "$verification" ]] && args+=(--verification "$verification")
+  [[ -n "$render_manifest" ]] && args+=(--render-manifest "$render_manifest")
   target/release/plaque-forge review "${args[@]}"
 
   report="$analysis/diagnostics/review.html"

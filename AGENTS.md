@@ -18,8 +18,10 @@ Do not introduce unrelated architectural migrations merely to bring old code
 into compliance while performing a narrowly scoped task. New and substantially
 modified code should follow the policy.
 
-When refactoring, don't try to keep old behavior or old contracts -- do produce
-the best version possible without regard for the past.
+When refactoring, internal implementation details and internal contracts may change freely,
+but intended and homologated observable behavior must be preserved unless the task explicitly
+changes that behavior. A deliberate behavior change must update the corresponding requirement
+and homologation evidence in the same change.
 
 ## Application of this policy
 

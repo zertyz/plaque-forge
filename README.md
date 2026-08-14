@@ -78,7 +78,19 @@ Try the bundled styles with `--style NAME`. In addition to the existing glow, me
 
 See [Text effects](docs/TEXT_EFFECTS.md) for the exact capability matrix and style format.
 
-## 4. Review quality
+## 4. Protect homologated outputs
+
+Human-accepted outputs can carry executable regression contracts. Run the representative
+visual integration gate with:
+
+```bash
+./scripts/check_homologated_assets.sh
+```
+
+The gate checks scene geometry, typography limits, exact render provenance, and sparse
+reviewed foreground/source-preservation witnesses. See [Homologation](docs/HOMOLOGATION.md).
+
+## 5. Review quality
 
 Generate/rebuild the human quality reports after analysis/rendering:
 
@@ -131,8 +143,9 @@ assets/*.mp4                 source videos
 assets/plaques/              reusable injected plaque images
 assets/scenes/<name>/        sparse human intent + small reviewed source masks
 assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
+assets/homologation/<name>/   reviewed regression contracts + sparse visual evidence
 output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows
 ```
 
-The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md).
+The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md).

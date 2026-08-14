@@ -18,6 +18,8 @@
 //!   shaders (`effects`), projective warping, and linear-light layer compositing.
 //! - **Verification (`verify`)**: Automated quality scorecards measuring tracking lock,
 //!   temporal stability, occlusion restoration, and trajectory curvature.
+//! - **Homologation (`homologation`)**: Executable acceptance contracts protecting
+//!   previously accepted geometry, typography, provenance, and foreground ordering.
 //! - **Safety & Staging (`staged_output`)**: Lease-held atomic file staging preventing
 //!   partial or corrupted destination artifacts.
 
@@ -31,6 +33,7 @@ mod cli;
 mod color;
 mod digest;
 mod geometry;
+pub mod homologation;
 mod image_io;
 mod layers;
 pub mod model;
@@ -63,6 +66,7 @@ pub fn run() -> Result<()> {
         Command::ExportTrajectory(args) => scene_commands::export_trajectory(args),
         Command::Segment(args) => segmentation::run(args),
         Command::Verify(args) => verify::run(args),
+        Command::Homologate(args) => homologation::run(args),
         Command::Review(args) => review::run(args),
         Command::Render(args) => {
             let analysis = args

@@ -27,6 +27,8 @@ pub enum Command {
     Render(Box<RenderArgs>),
     /// Verify an existing rendered video.
     Verify(VerifyArgs),
+    /// Enforce a human-homologated visual acceptance contract against a render.
+    Homologate(HomologateArgs),
     /// Build a human-oriented HTML report from analysis and verification diagnostics.
     Review(ReviewArgs),
 }
@@ -421,6 +423,27 @@ pub struct VerifyArgs {
 
     #[arg(long, default_value_t = 500)]
     pub progress_interval_ms: u64,
+
+    #[arg(long, default_value = "ffmpeg")]
+    pub ffmpeg: PathBuf,
+
+    #[arg(long, default_value = "ffprobe")]
+    pub ffprobe: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct HomologateArgs {
+    /// Human-reviewed acceptance contract.
+    #[arg(long)]
+    pub contract: PathBuf,
+
+    /// Rendered video whose adjacent render manifest will also be checked.
+    #[arg(long)]
+    pub rendered: PathBuf,
+
+    /// Optional JSON report. Replaces an existing file.
+    #[arg(long)]
+    pub report: Option<PathBuf>,
 
     #[arg(long, default_value = "ffmpeg")]
     pub ffmpeg: PathBuf,

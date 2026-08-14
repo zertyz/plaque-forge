@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added executable homologation contracts for human-accepted visual behavior, with exact provenance binding, scene/typography invariants, and sparse reviewed foreground source-preservation witnesses.
+- Restored the accepted dungeon-spider plaque geometry/analysis after a cross-asset regression, made writable regions invalid when they escape their tracked surface, and separated foreground compositing from tracking/layout influence.
+- Added explicit optical-vs-opaque foreground matte semantics so semantic ML confidence cannot make an opaque object translucent to newly rendered text.
+- Hardened render/review validation so replacement renders invalidate stale reports and review refuses verification evidence that belongs to another render manifest.
+- Added a real delivery-render homologation gate to CI and retained lossless verification artifacts beside the reports that certify them.
+
 ## 0.8.0
 
 - Fixed the severe artistic-fit performance regression by measuring shaped candidates

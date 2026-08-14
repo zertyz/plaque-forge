@@ -41,9 +41,9 @@ These modules coordinate operations. They should not contain asset-specific scen
 
 - `model.rs` contains geometry-independent data exchanged across workflows.
 - `geometry.rs` contains projective geometry helpers.
-- `scene.rs` defines the strict scene/trajectory/layer contracts, normalized human coordinates, and provenance.
+- `scene.rs` defines the strict scene/trajectory/layer contracts, normalized human coordinates, and provenance. Writable regions are domain-invariant subsets of their tracked surface.
 - `analysis.rs` defines the generated cache schema.
-- `layers.rs` resolves and packages authored scene layers.
+- `layers.rs` resolves and packages authored scene layers. Layout influence, tracking influence, and foreground matte semantics are independent contracts rather than accidental consequences of declaring a layer.
 
 ### Image and video implementation
 

@@ -53,3 +53,32 @@ jobs:
 
       - name: Reject new RustSec findings
         run: ./scripts/audit_dependencies.sh
+
+  homologation-gate:
+    needs: code-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install render dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            clang \
+            ffmpeg \
+            fontconfig \
+            fonts-noto-core \
+            libclang-dev \
+            libopencv-dev \
+            pkg-config
+
+      - name: Install the minimum supported Rust toolchain
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup override set 1.89.0
+
+      - name: Render and enforce homologated behavior
+        run: ./scripts/check_homologated_assets.sh
