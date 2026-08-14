@@ -1,3 +1,26 @@
+//! # Plaque Forge
+//!
+//! Plaque Forge analyzes video scenes, discovers planar writing surfaces,
+//! tracks their motion across frames, detects foreground occlusions, and renders
+//! styled typography overlays with subpixel spatial stability.
+//!
+//! ## Core Architecture
+//!
+//! The system is organized into modular pipelines:
+//!
+//! - **Analysis (`analyze`)**: Feature extraction, homography tracking, writable region
+//!   discovery, and photometric/edge structural lock.
+//! - **Scene & Refinement (`scene`)**: Manifest declarations (`scene.toml`), human intent
+//!   overrides, sparse motion anchors, and layer assignments.
+//! - **Segmentation (`segmentation`)**: ML-assisted and structural foreground occluder
+//!   segmentation with prompt support.
+//! - **Rendering (`render`)**: Line-breaking typography fitting (`typography`), effect
+//!   shaders (`effects`), projective warping, and linear-light layer compositing.
+//! - **Verification (`verify`)**: Automated quality scorecards measuring tracking lock,
+//!   temporal stability, occlusion restoration, and trajectory curvature.
+//! - **Safety & Staging (`staged_output`)**: Lease-held atomic file staging preventing
+//!   partial or corrupted destination artifacts.
+
 use anyhow::Result;
 use clap::Parser;
 

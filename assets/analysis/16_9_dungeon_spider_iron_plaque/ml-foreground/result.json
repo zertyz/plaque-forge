@@ -1,0 +1,18 @@
+{
+  "format": "plaque-forge.segmentation-result/1",
+  "backend": "sam2-cutie-vitmatte",
+  "model": "facebook/sam2.1-hiera-large",
+  "version": "sam2-1.0@xpu+cutie-1.0.0@cpu+selected-sam2+vitmatte-4.57.1@xpu",
+  "frames": 234,
+  "mean_confidence": 0.5536978028268895,
+  "minimum_confidence": 0.0,
+  "request_sha256": "187dfae3b1c3c7030adaf95678de14b78614d374069adb5d3ce64f099abad834",
+  "source_sha256": "fef84a24bf58c04414b06e8a1e690dc0a902f05c8d0d148b21f4c3797665d126",
+  "prompt_sha256": "11eaa8c73bd96158817e3f17345b881c1e23f9f24ecf528f55c209d3a1b74184",
+  "worker_sha256": "0370459d65b4ce16eb95d0e22042da35e8ec751608bc015c01eb92fafda59883",
+  "runtime_sha256": "41062f851c368a04e1bb98c4ed8b67a69aea3fa6de9964eb57a45a858fbb0efb",
+  "nonempty_frames": 146,
+  "mean_coverage": 0.006835993144586895,
+  "maximum_coverage": 0.07463216145833333,
+  "soft_edge_pixels": 2277947
+}
