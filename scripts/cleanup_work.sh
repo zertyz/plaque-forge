@@ -10,7 +10,7 @@ usage() {
   cat <<'USAGE'
 Usage: ./scripts/cleanup_work.sh [--yes]
 
-Without --yes, reports obsolete generated work. With --yes, removes legacy
+Without --yes, reports obsolete generated work. With --yes, removes stale
 assets/analysis/*.partial-* directories, pre-0.8 publication siblings, and
 obsolete ML request files. Current transactional work and bounded failure
 diagnostics already live under /tmp.
@@ -36,15 +36,15 @@ shopt -s nullglob
 partials=("$analysis_root"/*.partial-*)
 requests=("$analysis_root"/*/ml-foreground/request.json)
 shopt -u nullglob
-mapfile -d '' legacy_siblings < <(
+mapfile -d '' stale_siblings < <(
   find "$analysis_root" -xdev -mindepth 1 \
     \( -name '.*.incoming-[0-9]*' -o -name '.*.replaced-[0-9]*' \) \
     -print0
 )
 
-printf 'legacy analysis work directories: %d\n' "${#partials[@]}"
+printf 'stale analysis work directories: %d\n' "${#partials[@]}"
 printf 'obsolete persisted ML requests: %d\n' "${#requests[@]}"
-printf 'legacy publication siblings: %d\n' "${#legacy_siblings[@]}"
+printf 'stale publication siblings: %d\n' "${#stale_siblings[@]}"
 if [[ "$apply" != true ]]; then
   printf 'dry run; add --yes to remove these generated files\n'
   exit 0
@@ -64,7 +64,7 @@ for path in "${requests[@]}"; do
   }
   [[ -f "$path" ]] && rm -f -- "$path"
 done
-for path in "${legacy_siblings[@]}"; do
+for path in "${stale_siblings[@]}"; do
   [[ "$path" == "$analysis_root"/* ]] || {
     printf 'refusing unexpected publication sibling: %s\n' "$path" >&2
     exit 1
@@ -72,5 +72,5 @@ for path in "${legacy_siblings[@]}"; do
   rm -rf -- "$path"
 done
 
-printf 'removed %d legacy work directories, %d obsolete request files, and %d publication siblings\n' \
-  "${#partials[@]}" "${#requests[@]}" "${#legacy_siblings[@]}"
+printf 'removed %d stale work directories, %d obsolete request files, and %d publication siblings\n' \
+  "${#partials[@]}" "${#requests[@]}" "${#stale_siblings[@]}"

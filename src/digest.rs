@@ -1,6 +1,6 @@
 //! Content digests used for cache/provenance identities.
 //!
-//! Hashing is deliberately independent of video, refinement, or CLI layers. File hashing
+//! Hashing is deliberately independent of video, scene, or CLI layers. File hashing
 //! streams data so large media files are not loaded into memory merely to identify them.
 
 use std::{

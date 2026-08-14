@@ -36,7 +36,7 @@ Targets:
 - chrome / holographic / iridescent fills;
 - configurable procedural roughness and scratches.
 
-A GPU backend may be added later behind the same renderer boundary if profiling justifies it; backend-specific types must not leak into scene analysis or refinements.
+A GPU backend may be added later behind the same renderer boundary if profiling justifies it; backend-specific types must not leak into scene analysis or scenes.
 
 ## Later: plaque-surface interaction
 

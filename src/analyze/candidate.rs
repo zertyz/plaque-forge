@@ -1,7 +1,7 @@
 //! Plaque candidate detection.
 //!
 //! Samples source frames, scores plausible planar title surfaces, and chooses a reference
-//! enclosing planar region for tracking or proposes alternatives for human refinement.
+//! enclosing planar region for tracking or proposes alternatives for human scene.
 
 use std::{fs, path::Path};
 
@@ -48,15 +48,15 @@ struct ScoredRect {
 }
 
 pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Result<Candidate> {
-    if let Some([x, y, width, height]) = args.plaque_hint {
-        return Ok(Candidate {
+    if let Some([x, y, width, height]) = args.surface_hint {
+        let candidate = Candidate {
             rect: RectF {
                 x,
                 y,
                 width,
                 height,
             },
-            frame_index: args.plaque_frame.unwrap_or(0),
+            frame_index: args.surface_frame.unwrap_or(0),
             confidence: if args.writable_region_hint.is_some() {
                 0.98
             } else {
@@ -67,12 +67,33 @@ pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Resul
             edge_completeness: 1.0,
             canonical_width: width.round().max(1.0) as u32,
             canonical_height: height.round().max(1.0) as u32,
-        });
+        };
+        // Authored intent bypasses automatic proposal ranking, but failures still
+        // need the exact visual evidence named by tracker errors. Always render the
+        // selected authored rectangle into the transaction-owned diagnostics.
+        let selected = ScoredRect {
+            rect: Rect::new(
+                x.round() as i32,
+                y.round() as i32,
+                width.round().max(1.0) as i32,
+                height.round().max(1.0) as i32,
+            ),
+            score: candidate.confidence,
+            edge_completeness: 1.0,
+            interior_clutter: 0.0,
+            temporal_support: 1.0,
+            screen_stationarity: 1.0,
+            oversize_penalty: 0.0,
+            frame_index: candidate.frame_index,
+        };
+        let mut capture = crate::video::open_capture(&args.input)?;
+        write_candidate_image(&mut capture, diagnostics, &selected, &[])?;
+        return Ok(candidate);
     }
 
     detect_proposals(&args.input, args.candidate_samples, info, Some(diagnostics))?
         .map(|report| report.selected)
-        .context("no plausible writing-surface candidate found; add the smallest refinement that identifies the intended region")
+        .context("no plausible writing-surface candidate found; add the smallest scene that identifies the intended region")
 }
 
 pub fn detect_proposals(

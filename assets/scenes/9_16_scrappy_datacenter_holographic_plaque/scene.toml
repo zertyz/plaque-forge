@@ -1,0 +1,11 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../9_16_scrappy_datacenter_holographic_plaque.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "declared-only"
+reference_frame = 0
+bounds = [144.0, 176.0, 433.0, 250.0]

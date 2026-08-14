@@ -31,10 +31,9 @@ if [[ "$reinstall" == true && "$verify_only" == true ]]; then
 fi
 
 # Keep every Python/model/cache side effect in /tmp. This function is also used
-# by --verify so verification never falls back to the real HOME/XDG caches.
+# by --verify so verification never falls back to user XDG/model caches.
 configure_runtime_env() {
   export PLAQUE_FORGE_PYTHON_ROOT="$root"
-  export HOME="$root/home"
   export XDG_CACHE_HOME="$root/cache/xdg"
   export XDG_CONFIG_HOME="$root/config"
   export XDG_DATA_HOME="$root/data"
@@ -117,7 +116,7 @@ document = {
     },
     "model_revisions": {
         "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
-        "hustvl/vitmatte-small-composition-1k": "6a58ad7646403c1df626fbd746900aec7361ea1d",
+        "hustvl/vitmatte-base-composition-1k": "bf486d01a7d9e3dbcc8400f7942835caf0eaf76e",
         "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
     },
     "implementation_sha256": {
@@ -136,6 +135,21 @@ document = {
 PY
 }
 
+download_model_snapshots() {
+  local python="$root/venv/bin/python"
+  printf '[setup] ensuring pinned Hugging Face model snapshots\n' >&2
+  "$python" - <<'PY'
+from huggingface_hub import snapshot_download
+
+for repo_id, revision in {
+    "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
+    "hustvl/vitmatte-base-composition-1k": "bf486d01a7d9e3dbcc8400f7942835caf0eaf76e",
+    "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
+}.items():
+    snapshot_download(repo_id=repo_id, revision=revision)
+PY
+}
+
 if [[ "$verify_only" == true ]]; then
   [[ -f "$root/.complete" ]] || {
     printf 'segmentation runtime is incomplete: %s\n' "$root" >&2
@@ -148,9 +162,12 @@ if [[ "$verify_only" == true ]]; then
 fi
 
 if [[ "$reinstall" == false && -f "$root/.complete" && -x "$root/venv/bin/python" ]]; then
+  configure_runtime_env
+  mkdir -p "$TMPDIR"
+  download_model_snapshots
   write_runtime_manifest
-  printf 'already installed: %s\n' "$root"
-  printf 'verify with: %s --verify\n' "$0"
+  verify_runtime
+  printf 'installed snapshots are current and verified: %s\n' "$root"
   exit 0
 fi
 
@@ -170,7 +187,7 @@ if [[ -e "$root" ]]; then
   rm -rf -- "$root"
 fi
 
-mkdir -p "$root"/{bin,cache,config,data,home,python,src,tmp}
+mkdir -p "$root"/{bin,cache,config,data,python,src,tmp}
 configure_runtime_env
 
 uv python install 3.10
@@ -222,17 +239,7 @@ for url in (
     )
 PY
 
-printf '[setup] downloading Hugging Face model snapshots\n' >&2
-"$python" - <<'PY'
-from huggingface_hub import snapshot_download
-
-for repo_id, revision in {
-    "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
-    "hustvl/vitmatte-small-composition-1k": "6a58ad7646403c1df626fbd746900aec7361ea1d",
-    "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
-}.items():
-    snapshot_download(repo_id=repo_id, revision=revision)
-PY
+download_model_snapshots
 
 # Do not mark the environment complete until imports, caches, the selected
 # accelerator, Cutie, SAM2 and ViTMatte survive an offline smoke test.

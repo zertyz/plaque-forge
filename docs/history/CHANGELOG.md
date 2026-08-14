@@ -10,7 +10,7 @@
   trailing occlusions from freezing title motion.
 - Made cache migration serialization-only and bumped analysis compatibility to
   `analysis-v9`; migrations can no longer attach current provenance to stale geometry.
-- Added automatic Python/ML foreground refinement after the Rust occlusion pass finds a useful crossing; authored prompted layers remain authoritative and automatic ML failures fall back to the Rust masks instead of destroying otherwise-useful analysis.
+- Added automatic Python/ML foreground scene after the Rust occlusion pass finds a useful crossing; authored prompted layers remain authoritative and automatic ML failures fall back to the Rust masks instead of destroying otherwise-useful analysis.
 - Added ML configuration and automatic-foreground participation to analysis provenance/cache identity and made review reports state whether Python participated.
 - Repaired writing-surface selection after the global "largest plausible rectangle" regression: preserve the strongest hypothesis, rescue clear compact plaques from broad enclosures, and use area only as a guarded escape from small high-contrast props.
 - Added minimal schema-2 project intent for every bundled sample asset, including the repeatedly ambiguous circular/cloud/wood/spider surfaces and the previously validated holographic plaques.
@@ -18,7 +18,7 @@
 - Added advanced production text effects/materials: chrome, holographic, fire, ice, nebula, liquid, halftone, chromatic split, trails, letterpress, flicker, wave/wobble, typewriter and deterministic dissolve, plus 13 new style presets.
 - Kept the capability matrix explicit about what remains approximate or unimplemented: per-glyph arc/orbit, arbitrary external texture mapping, scramble/split-flap, real particle simulation, and physically correct engraving/protrusion.
 - Restored quality-report generation as a first-class README workflow and made `review_assets.sh` build a single `output/review/index.html` over complete analyses and compact retained failure evidence.
-- Added `scripts/reset_analysis.sh --yes`, constrained to generated `assets/analysis/` state; source videos, refinements, plaque assets, outputs and `/tmp/plaque-forge-python` are preserved.
+- Added `scripts/reset_analysis.sh --yes`, constrained to generated `assets/analysis/` state; source videos, scenes, plaque assets, outputs and `/tmp/plaque-forge-python` are preserved.
 - Added path-free analysis/render/verification schemas, a validated cache migration command, transactional `/tmp` staging, bounded failure retention, and a legacy-work cleanup command.
 - Upgraded the worker protocol with lossless PNG frames/masks, exact alpha seed masks, pinned source/model identities, semantic cache validation, and strict Rust-side output checks.
 - Corrected compositing to linear-light premultiplied alpha, hardened alpha-aware verification/provenance, and made direct render publication transactional.
@@ -27,19 +27,19 @@
 
 ## 0.7.0
 
-- Implemented human-refinement schema 2 while retaining schema-1 compatibility.
-- Added sparse `[[plaques.motion]]` corrections directly in `refinement.toml`; normalized coordinates are the human-oriented default and are converted to source-pixel motion constraints internally.
+- Implemented human-scene schema 2 while retaining schema-1 compatibility.
+- Added sparse `[[plaques.motion]]` corrections directly in `scene.toml`; normalized coordinates are the human-oriented default and are converted to source-pixel motion constraints internally.
 - Added normalized segmentation prompts (`coordinates = "normalized"`) and conversion at the external-worker boundary; legacy prompts still default to source pixels.
 - Moved new dense motion exports under `artifacts/motion.toml` and new implicit prompted ML outputs under `artifacts/layers/`, with legacy artifact-path fallback.
-- Simplified automatically generated refinement manifests by removing commented machine-candidate dumps; alternatives now belong in diagnostics/review.
+- Simplified automatically generated scene manifests by removing commented machine-candidate dumps; alternatives now belong in diagnostics/review.
 - Made `plaque-forge review` work on partial analysis directories, including failures that have only early-stage diagnostics.
-- Added prioritized "Focus first" triage, a plain-text `review.txt`, candidate-alternative comparison, current-refinement summary, and a browser-only coordinate click helper.
+- Added prioritized "Focus first" triage, a plain-text `review.txt`, candidate-alternative comparison, current-scene summary, and a browser-only coordinate click helper.
 - Made `analyze_assets.sh` automatically generate human review reports whenever a quality gate fails; `review_assets.sh` falls back to the newest partial analysis when no complete cache exists.
-- Kept analysis-cache compatibility unchanged: scene algorithms/cache formats are not redefined by this human-interface pass; refinement semantic provenance still invalidates dependent caches when human intent changes.
+- Kept analysis-cache compatibility unchanged: scene algorithms/cache formats are not redefined by this human-interface pass; scene semantic provenance still invalidates dependent caches when human intent changes.
 
 ## 0.6.0
 
-- Added first-class injected plaque surfaces for plaque-less videos. `scripts/place_plaque.sh` copies a transparent PNG, proposes a quiet placement, writes a preview/refinement, and lets normal analysis/rendering handle the result.
+- Added first-class injected plaque surfaces for plaque-less videos. `scripts/place_plaque.sh` copies a transparent PNG, proposes a quiet placement, writes a preview/scene, and lets normal analysis/rendering handle the result.
 - Added injected-surface cache provenance: plaque image content, placement/writable intent, and motion policy participate in cache freshness while title/style changes remain analysis-independent.
 - Added `auto`, `screen`, and `scene` motion policies for injected surfaces; auto scene anchoring falls back safely to screen-fixed placement when evidence is insufficient.
 - Preserved automatic foreground analysis for injected plaques so moving scene objects can be restored in front of the plaque/title; authored segmentation remains available for ambiguous/static foregrounds.
@@ -60,7 +60,7 @@
 - Added linear-gradient and procedural gold/bronze materials, extrusion, bevel, animated pulse, and moving shine without adding production dependencies.
 - Added `styles/bronze-relief.toml`, `styles/gold-shine.toml`, and `styles/neon-pulse.toml`, plus concise `--style NAME` preset selection in the high-level render scripts.
 - Made the high-level analysis script validate/reuse current caches, automatically materialize missing prompted ML layers, and keep the entire optional Python/ML runtime under `/tmp/plaque-forge-python`.
-- Kept the analyzer cache compatibility identifier unchanged because existing cache files retain the same meaning/format; new refinement semantics trigger rebuilds through refinement provenance instead of unrelated source-version churn.
+- Kept the analyzer cache compatibility identifier unchanged because existing cache files retain the same meaning/format; new scene semantics trigger rebuilds through scene provenance instead of unrelated source-version churn.
 
 ## 0.4.0
 
@@ -71,8 +71,8 @@
 - Added render provenance for title text, font path/hash, resolved style, and resolved line layout.
 - Added `plaque-forge review` plus `scripts/review_assets.sh` for human-oriented analysis, typography, and verification triage.
 - Documented the future text pipeline around reusable prepared typography, mask effects, materials, deterministic animation, and plaque-surface effects.
-- Documented a human-refinement v2 direction that separates sparse human intent from dense generated tracks and masks.
-- Centralized generic streaming SHA-256 provenance hashing outside video/refinement layers.
+- Documented a human-scene v2 direction that separates sparse human intent from dense generated tracks and masks.
+- Centralized generic streaming SHA-256 provenance hashing outside video/scene layers.
 
 
 ## 0.3.1
@@ -89,6 +89,6 @@
 
 - Added automatic plaque detection, root-anchored adaptive tracking, structural locking, smoothing, and occlusion recovery.
 - Added irregular-mask typography fitting and strict scene, tracking, temporal, occlusion, and loop verification.
-- Added portable refinement manifests for plaque geometry, motion constraints, soft foreground alpha, writing surfaces, and shadows.
+- Added portable scene manifests for plaque geometry, motion constraints, soft foreground alpha, writing surfaces, and shadows.
 - Added optional SAM 2, Cutie, ViTMatte, and MatAnyone2 segmentation through an isolated Python worker.
 - Validated automatic rendering on three holographic plaques and refined rendering on the rusty chain and two swamp plaques.

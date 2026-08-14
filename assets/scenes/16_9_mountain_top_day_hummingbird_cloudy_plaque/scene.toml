@@ -1,0 +1,151 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../16_9_mountain_top_day_hummingbird_cloudy_plaque.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "declared-only"
+reference_frame = 10
+bounds = [229.0, 36.0, 838.0, 190.0]
+
+[surfaces.writable_region]
+shape = "rounded-rect"
+bounds = [250.0, 55.0, 796.0, 155.0]
+radius = 48.0
+
+# The cloud face is the title's physical writing surface. Its lossless source-pixel
+# alpha sequence constrains material-point selection and depth on every frame. The
+# tracker derives rigid four-corner motion from those material points, not from the
+# cloud's naturally breathing outer silhouette.
+[[layers]]
+id = "cloud-writing-surface"
+role = "writing-surface"
+surface = "main"
+affects_layout = false
+
+[[layers.prompts]]
+frame = 10
+coordinates = "source-pixels"
+object = "cloud-writing-surface"
+box_bounds = [170.0, 18.0, 940.0, 205.0]
+positive_points = [[300.0, 110.0], [640.0, 105.0], [990.0, 105.0]]
+negative_points = [[105.0, 105.0], [1170.0, 105.0], [640.0, 260.0]]
+
+[[layers.prompts]]
+frame = 80
+coordinates = "source-pixels"
+object = "cloud-writing-surface"
+box_bounds = [190.0, 12.0, 925.0, 205.0]
+positive_points = [[315.0, 100.0], [650.0, 100.0], [990.0, 100.0]]
+negative_points = [[105.0, 100.0], [1180.0, 100.0], [650.0, 245.0]]
+
+[[layers.prompts]]
+frame = 140
+coordinates = "source-pixels"
+object = "cloud-writing-surface"
+box_bounds = [145.0, 12.0, 960.0, 230.0]
+positive_points = [[270.0, 110.0], [600.0, 110.0], [700.0, 115.0]]
+# The late third hummingbird crosses in front of the cloud. Explicit background
+# points on its body and wing prevent it from becoming surface geometry.
+negative_points = [[80.0, 100.0], [900.0, 200.0], [1015.0, 160.0], [1180.0, 120.0], [640.0, 270.0]]
+
+[[layers.prompts]]
+frame = 200
+coordinates = "source-pixels"
+object = "cloud-writing-surface"
+box_bounds = [0.0, 12.0, 970.0, 245.0]
+positive_points = [[120.0, 115.0], [460.0, 120.0], [820.0, 135.0]]
+negative_points = [[815.0, 55.0], [1040.0, 145.0], [500.0, 285.0]]
+
+[[layers.prompts]]
+frame = 239
+coordinates = "source-pixels"
+object = "cloud-writing-surface"
+box_bounds = [0.0, 12.0, 910.0, 255.0]
+positive_points = [[120.0, 120.0], [430.0, 125.0], [770.0, 145.0]]
+negative_points = [[735.0, 55.0], [980.0, 175.0], [480.0, 300.0]]
+
+# The late green hummingbird is a distinct object in front of the cloud plane.
+# It first enters from the right near frame 121, crosses the writable region, and
+# then leaves it upward. Keeping this semantic object separate from the cloud
+# prevents its cast shadow from being treated as solid foreground material.
+[[layers]]
+id = "crossing-hummingbird"
+role = "foreground"
+surface = "main"
+affects_layout = false
+active_frames = [128, 239]
+
+[[layers.prompts]]
+frame = 130
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [930.0, 0.0, 350.0, 310.0]
+positive_points = [[1040.0, 180.0], [1160.0, 220.0], [1150.0, 70.0]]
+negative_points = [[940.0, 90.0], [1100.0, 330.0]]
+
+[[layers.prompts]]
+frame = 134
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [835.0, 115.0, 310.0, 255.0]
+positive_points = [[910.0, 190.0], [980.0, 280.0], [1040.0, 170.0]]
+negative_points = [[850.0, 125.0], [1155.0, 220.0], [1000.0, 390.0]]
+
+[[layers.prompts]]
+frame = 140
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [790.0, 105.0, 345.0, 275.0]
+positive_points = [[875.0, 190.0], [930.0, 285.0], [1020.0, 170.0]]
+negative_points = [[800.0, 120.0], [1160.0, 185.0], [900.0, 400.0]]
+
+[[layers.prompts]]
+frame = 157
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [760.0, 35.0, 310.0, 335.0]
+positive_points = [[850.0, 190.0], [930.0, 285.0], [975.0, 145.0]]
+negative_points = [[720.0, 135.0], [1130.0, 180.0], [880.0, 390.0]]
+
+[[layers.prompts]]
+frame = 170
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [745.0, 150.0, 325.0, 255.0]
+positive_points = [[830.0, 215.0], [930.0, 295.0], [850.0, 275.0]]
+negative_points = [[760.0, 160.0], [1100.0, 250.0], [950.0, 430.0]]
+
+[[layers.prompts]]
+frame = 180
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [785.0, 95.0, 330.0, 310.0]
+positive_points = [[850.0, 205.0], [930.0, 300.0], [1015.0, 205.0]]
+negative_points = [[800.0, 110.0], [1130.0, 240.0], [900.0, 430.0]]
+
+[[layers.prompts]]
+frame = 196
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [665.0, 0.0, 260.0, 150.0]
+positive_points = [[710.0, 40.0], [760.0, 30.0], [820.0, 75.0]]
+negative_points = [[650.0, 100.0], [940.0, 90.0]]
+
+[[layers.prompts]]
+frame = 220
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [690.0, 5.0, 180.0, 145.0]
+positive_points = [[760.0, 42.0], [820.0, 85.0], [830.0, 120.0]]
+negative_points = [[670.0, 80.0], [890.0, 100.0]]
+
+[[layers.prompts]]
+frame = 239
+coordinates = "source-pixels"
+object = "crossing-hummingbird"
+box_bounds = [670.0, 5.0, 185.0, 145.0]
+positive_points = [[745.0, 45.0], [800.0, 85.0], [820.0, 120.0]]
+negative_points = [[650.0, 90.0], [880.0, 100.0]]

@@ -1,0 +1,16 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../16_9_dungeon_spider_iron_plaque.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "automatic"
+reference_frame = 10
+bounds = [190.0, 100.0, 935.0, 151.0]
+
+[surfaces.writable_region]
+shape = "rounded-rect"
+bounds = [220.0, 120.0, 875.0, 111.0]
+radius = 12.0

@@ -1,0 +1,5 @@
+format = "plaque-forge.layer/1"
+kind = "alpha-image"
+coordinates = "plaque-canonical"
+path = "writing-surface.png"
+affects_layout = true

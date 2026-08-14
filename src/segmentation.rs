@@ -8,29 +8,33 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    time::{Duration, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail};
+use image::{ImageBuffer, Luma};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     analysis::OCCLUDER_DIR,
     cli::SegmentArgs,
     model::RectF,
-    refinement::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Refinement,
-        SegmentationPrompt, SpatialCoordinates, find_refinement, layer_artifact_path,
-        resolve_relative,
+    scene::{
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Scene, SegmentationPrompt,
+        SpatialCoordinates, find_scene, resolve_relative,
     },
     video::{self, VideoInfo},
     workspace,
 };
 
-const WORKER_PROTOCOL_VERSION: u32 = 2;
+const WORKER_REQUEST_FORMAT: &str = "plaque-forge.segmentation-request/1";
+const WORKER_RESULT_FORMAT: &str = "plaque-forge.segmentation-result/1";
+const TEMP_LAYER_CACHE_MAX_AGE: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+const TEMP_LAYER_CACHE_MAX_ENTRIES: usize = 32;
 
 #[derive(Debug, Clone, Serialize)]
 struct WorkerRequest {
-    schema_version: u32,
+    format: String,
     backend: String,
     model: String,
     device: String,
@@ -59,8 +63,8 @@ struct WorkerPlaque {
     id: String,
     reference_frame: Option<usize>,
     bounds: Option<[f64; 4]>,
-    motion_track: Option<std::path::PathBuf>,
-    motion_track_sha256: Option<String>,
+    trajectory: Option<std::path::PathBuf>,
+    trajectory_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,7 +73,7 @@ struct WorkerLayer {
     role: LayerRole,
     affects_layout: bool,
     active_frames: Option<[usize; 2]>,
-    prompts: Vec<crate::refinement::SegmentationPrompt>,
+    prompts: Vec<crate::scene::SegmentationPrompt>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     seed_masks: Vec<WorkerSeedMask>,
 }
@@ -84,7 +88,7 @@ struct WorkerSeedMask {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WorkerResult {
-    schema_version: u32,
+    format: String,
     backend: String,
     model: String,
     version: String,
@@ -120,7 +124,7 @@ fn seal_request(mut request: WorkerRequest) -> Result<WorkerRequest> {
         .get_mut("plaque")
         .and_then(|value| value.as_object_mut())
     {
-        plaque.remove("motion_track");
+        plaque.remove("trajectory");
     }
     strip_seed_paths(object.get_mut("layer"));
     request.request_sha256 = crate::digest::bytes_sha256(&serde_json::to_vec(&value)?);
@@ -147,7 +151,7 @@ fn strip_seed_paths(layer: Option<&mut serde_json::Value>) {
     }
 }
 
-fn worker_sha256(worker: &Path) -> Result<String> {
+pub(crate) fn worker_sha256(worker: &Path) -> Result<String> {
     let mut identities = Vec::new();
     for path in [
         worker.to_path_buf(),
@@ -173,7 +177,7 @@ fn worker_sha256(worker: &Path) -> Result<String> {
     )?))
 }
 
-fn runtime_sha256() -> Result<Option<String>> {
+pub(crate) fn runtime_sha256() -> Result<Option<String>> {
     let path = std::env::var_os("PLAQUE_FORGE_RUNTIME_MANIFEST")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("plaque-forge-python/runtime-manifest.json"));
@@ -182,10 +186,7 @@ fn runtime_sha256() -> Result<Option<String>> {
         .transpose()
 }
 
-fn worker_layer(
-    layer: &crate::refinement::RefinementLayer,
-    info: &VideoInfo,
-) -> Result<WorkerLayer> {
+fn worker_layer(layer: &crate::scene::SceneLayer, info: &VideoInfo) -> Result<WorkerLayer> {
     Ok(WorkerLayer {
         id: layer.id.clone(),
         role: layer.role,
@@ -210,11 +211,30 @@ struct LayerCacheIdentity<'a> {
     runtime_sha256: Option<&'a str>,
 }
 
+fn temporary_layer_cache(identity: LayerCacheIdentity<'_>) -> PathBuf {
+    let key = crate::digest::bytes_sha256(
+        &serde_json::to_vec(&serde_json::json!({
+            "backend": identity.backend,
+            "model": identity.model,
+            "device": identity.device,
+            "source_sha256": identity.source_sha256,
+            "prompt_sha256": identity.prompt_sha256,
+            "worker_sha256": identity.worker_sha256,
+            "runtime_sha256": identity.runtime_sha256,
+        }))
+        .expect("cache identity is serializable"),
+    );
+    std::env::temp_dir()
+        .join("plaque-forge")
+        .join("ml-layer-cache")
+        .join(key)
+}
+
 fn layer_cache_is_current(path: &Path, expected: LayerCacheIdentity<'_>) -> bool {
     let Ok(artifact) = LayerArtifact::load(path) else {
         return false;
     };
-    if artifact.schema_version != crate::refinement::LAYER_ARTIFACT_SCHEMA_VERSION
+    if artifact.format != crate::scene::LAYER_ARTIFACT_FORMAT
         || artifact
             .referenced_paths(path)
             .iter()
@@ -244,22 +264,22 @@ pub fn run(args: SegmentArgs) -> Result<()> {
             args.worker.display()
         );
     }
-    let refinement_path = args
-        .refinement
+    let scene_path = args
+        .scene
         .clone()
         .map(Ok)
-        .unwrap_or_else(|| workspace::refinement_path(&args.input))?;
-    let refinement = Refinement::load(&refinement_path)?;
-    let declared_source = resolve_relative(&refinement_path, &refinement.source);
+        .unwrap_or_else(|| workspace::scene_path(&args.input))?;
+    let scene = Scene::load(&scene_path)?;
+    let declared_source = resolve_relative(&scene_path, &scene.source);
     ensure_same_file(&declared_source, &args.input)?;
-    let plaque = refinement.select_plaque(args.plaque.as_deref())?;
-    let layer = refinement
+    let plaque = scene.select_surface(args.surface.as_deref())?;
+    let layer = scene
         .layers
         .iter()
-        .find(|layer| layer.id == args.layer && layer.plaque == plaque.id)
+        .find(|layer| layer.id == args.layer && layer.surface == plaque.id)
         .with_context(|| {
             format!(
-                "refinement does not declare layer {:?} for plaque {:?}",
+                "scene does not declare layer {:?} for plaque {:?}",
                 args.layer, plaque.id
             )
         })?;
@@ -292,9 +312,9 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         layer
             .artifact
             .as_ref()
-            .map(|path| resolve_relative(&refinement_path, path))
+            .map(|path| resolve_relative(&scene_path, path))
             .and_then(|path| path.parent().map(Path::to_path_buf))
-            .unwrap_or_else(|| workspace::layer_path(&refinement_path, &layer.id))
+            .unwrap_or_else(|| workspace::layer_path(&scene_path, &layer.id))
     });
     if output.exists() && !args.force {
         bail!(
@@ -316,16 +336,16 @@ pub fn run(args: SegmentArgs) -> Result<()> {
     let prompt_sha256 = prompt_sha256(&worker_layer)?;
     let worker_sha256 = worker_sha256(&args.worker)?;
     let runtime_sha256 = runtime_sha256()?;
-    let motion_track = plaque
-        .motion_track
+    let trajectory = plaque
+        .trajectory
         .as_ref()
-        .map(|path| resolve_relative(&refinement_path, path));
-    let motion_track_sha256 = motion_track
+        .map(|path| resolve_relative(&scene_path, path));
+    let trajectory_sha256 = trajectory
         .as_deref()
         .map(crate::digest::file_sha256)
         .transpose()?;
     let request = seal_request(WorkerRequest {
-        schema_version: WORKER_PROTOCOL_VERSION,
+        format: WORKER_REQUEST_FORMAT.into(),
         backend: args.backend.clone(),
         model: args.model.clone(),
         device: args.device.clone(),
@@ -345,8 +365,8 @@ pub fn run(args: SegmentArgs) -> Result<()> {
             id: plaque.id.clone(),
             reference_frame: plaque.reference_frame,
             bounds: plaque.tracking_bounds(),
-            motion_track,
-            motion_track_sha256,
+            trajectory,
+            trajectory_sha256,
         },
         layer: worker_layer,
     })?;
@@ -387,15 +407,15 @@ pub fn run(args: SegmentArgs) -> Result<()> {
     Ok(())
 }
 
-/// Materialize every prompted refinement layer that is still missing its artifact.
+/// Materialize every prompted scene layer that is still missing its artifact.
 ///
 /// This is used by the high-level analyze workflow so a user does not need to discover
 /// and invoke the lower-level `segment` command for each layer. Existing artifacts are
 /// reused unless `force` is explicitly requested.
 pub struct PromptedLayersRequest<'a> {
     pub input: &'a Path,
-    pub explicit_refinement: Option<&'a Path>,
-    pub plaque_id: Option<&'a str>,
+    pub explicit_scene: Option<&'a Path>,
+    pub surface_id: Option<&'a str>,
     pub worker: &'a Path,
     pub backend: &'a str,
     pub model: &'a str,
@@ -404,13 +424,17 @@ pub struct PromptedLayersRequest<'a> {
     pub ffprobe: &'a Path,
     pub info: &'a VideoInfo,
     pub source_sha256: &'a str,
+    /// Transaction-owned root where one directory per generated layer is written.
+    pub output_root: &'a Path,
+    /// Previously published layer root eligible for validated cache reuse.
+    pub reuse_root: Option<&'a Path>,
 }
 
 pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usize> {
     let PromptedLayersRequest {
         input,
-        explicit_refinement,
-        plaque_id,
+        explicit_scene,
+        surface_id,
         worker,
         backend,
         model,
@@ -419,20 +443,22 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         ffprobe,
         info,
         source_sha256,
+        output_root,
+        reuse_root,
     } = request;
-    let Some(loaded) = find_refinement(input, explicit_refinement)? else {
+    let Some(loaded) = find_scene(input, explicit_scene)? else {
         eprintln!(
-            "[ml] segmentation skipped: no refinement manifest for {}",
+            "[ml] segmentation skipped: no scene manifest for {}",
             input.display()
         );
         return Ok(0);
     };
-    let plaque = loaded.document.select_plaque(plaque_id)?;
+    let plaque = loaded.document.select_surface(surface_id)?;
     let prompted = loaded
         .document
         .layers
         .iter()
-        .filter(|layer| layer.plaque == plaque.id && !layer.prompts.is_empty())
+        .filter(|layer| layer.surface == plaque.id && !layer.prompts.is_empty())
         .collect::<Vec<_>>();
     if prompted.is_empty() {
         eprintln!(
@@ -443,29 +469,47 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
     }
     let expected_worker = worker_sha256(worker)?;
     let expected_runtime = runtime_sha256()?;
+    prune_temporary_layer_cache()?;
     let mut pending = Vec::new();
+    let mut reused = 0usize;
     for layer in &prompted {
-        if let Some(artifact) = layer_artifact_path(&loaded.path, layer) {
-            let prompt = prompt_sha256(&worker_layer(layer, info)?)?;
-            let current = !force
-                && layer_cache_is_current(
-                    &artifact,
-                    LayerCacheIdentity {
-                        backend,
-                        model,
-                        device,
-                        source_sha256,
-                        prompt_sha256: &prompt,
-                        worker_sha256: &expected_worker,
-                        runtime_sha256: expected_runtime.as_deref(),
-                    },
-                );
-            if !current {
-                pending.push((layer.id.clone(), artifact.is_file()));
+        let output = output_root.join(&layer.id);
+        let artifact = output.join("artifact.toml");
+        let prompt = prompt_sha256(&worker_layer(layer, info)?)?;
+        let expected = || LayerCacheIdentity {
+            backend,
+            model,
+            device,
+            source_sha256,
+            prompt_sha256: &prompt,
+            worker_sha256: &expected_worker,
+            runtime_sha256: expected_runtime.as_deref(),
+        };
+        if !force && layer_cache_is_current(&artifact, expected()) {
+            reused += 1;
+            continue;
+        }
+        if !force && let Some(reuse_root) = reuse_root {
+            let cached = reuse_root.join(&layer.id).join("artifact.toml");
+            if layer_cache_is_current(&cached, expected()) {
+                copy_layer_cache(&cached, &output)?;
+                reused += 1;
+                continue;
             }
         }
+        let temporary = temporary_layer_cache(expected());
+        let temporary_artifact = temporary.join("artifact.toml");
+        if !force && layer_cache_is_current(&temporary_artifact, expected()) {
+            copy_layer_cache(&temporary_artifact, &output)?;
+            reused += 1;
+            eprintln!(
+                "[ml] reused validated temporary layer cache for {:?}",
+                layer.id
+            );
+            continue;
+        }
+        pending.push((layer.id.clone(), prompt));
     }
-    let reused = prompted.len().saturating_sub(pending.len());
     if pending.is_empty() {
         eprintln!(
             "[ml] segmentation cache hit: {} prompted layer artifact(s) already exist; Python will not run",
@@ -480,27 +524,117 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         if force { " (forced regeneration)" } else { "" }
     );
 
-    for (layer, replace_stale) in &pending {
+    for (layer, prompt) in &pending {
         run(SegmentArgs {
             input: input.to_path_buf(),
-            refinement: Some(loaded.path.clone()),
-            plaque: Some(plaque.id.clone()),
+            scene: Some(loaded.path.clone()),
+            surface: Some(plaque.id.clone()),
             layer: layer.clone(),
             worker: worker.to_path_buf(),
             backend: backend.to_string(),
             model: model.to_string(),
             device: device.to_string(),
-            output: None,
-            force: force || *replace_stale,
+            output: Some(output_root.join(layer)),
+            force: false,
             ffprobe: ffprobe.to_path_buf(),
         })?;
+        let artifact = output_root.join(layer).join("artifact.toml");
+        store_temporary_layer_cache(
+            &artifact,
+            LayerCacheIdentity {
+                backend,
+                model,
+                device,
+                source_sha256,
+                prompt_sha256: prompt,
+                worker_sha256: &expected_worker,
+                runtime_sha256: expected_runtime.as_deref(),
+            },
+        )?;
     }
     Ok(pending.len())
 }
 
-/// Inputs for the analyzer's automatic ML refinement of a Rust-derived foreground mask.
+fn store_temporary_layer_cache(
+    artifact_path: &Path,
+    identity: LayerCacheIdentity<'_>,
+) -> Result<()> {
+    let target = temporary_layer_cache(identity);
+    let staged = crate::staged_output::create(&target)?;
+    copy_layer_cache(artifact_path, staged.path())?;
+    staged.commit(true)?;
+    prune_temporary_layer_cache()
+}
+
+fn prune_temporary_layer_cache() -> Result<()> {
+    let root = std::env::temp_dir()
+        .join("plaque-forge")
+        .join("ml-layer-cache");
+    let directory = match fs::read_dir(&root) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut entries = directory.collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(|entry| {
+        Reverse(
+            entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(UNIX_EPOCH),
+        )
+    });
+    for (index, entry) in entries.into_iter().enumerate() {
+        let path = entry.path();
+        let expired = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > TEMP_LAYER_CACHE_MAX_AGE);
+        if index >= TEMP_LAYER_CACHE_MAX_ENTRIES || expired {
+            if entry.file_type()?.is_dir() {
+                fs::remove_dir_all(&path)?;
+            } else {
+                fs::remove_file(&path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn copy_layer_cache(artifact_path: &Path, output: &Path) -> Result<()> {
+    let artifact = LayerArtifact::load(artifact_path)?;
+    let owner = artifact_path
+        .parent()
+        .context("layer artifact has no parent directory")?;
+    fs::create_dir_all(output)?;
+    for source in artifact.referenced_paths(artifact_path) {
+        let relative = source.strip_prefix(owner).with_context(|| {
+            format!(
+                "layer artifact asset escapes its cache: {}",
+                source.display()
+            )
+        })?;
+        let destination = output.join(relative);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(&source, &destination).with_context(|| {
+            format!(
+                "failed to reuse validated layer asset {} as {}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+    }
+    fs::copy(artifact_path, output.join("artifact.toml"))?;
+    Ok(())
+}
+
+/// Inputs for the analyzer's automatic ML scene of a Rust-derived foreground mask.
 ///
-/// Unlike authored refinement layers, this is generated cache state: the Rust analyzer
+/// Unlike authored scene layers, this is generated cache state: the Rust analyzer
 /// first finds a rough crossing, then asks the replaceable Python worker to sharpen that
 /// source-pixel mask. A worker failure is handled by the caller as an optional fallback.
 pub struct AutomaticForegroundRequest<'a> {
@@ -547,7 +681,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
         prompts,
     };
     let request_document = seal_request(WorkerRequest {
-        schema_version: WORKER_PROTOCOL_VERSION,
+        format: WORKER_REQUEST_FORMAT.into(),
         backend: request.backend.to_string(),
         model: request.model.to_string(),
         device: request.device.to_string(),
@@ -575,8 +709,8 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
                 request.plaque.width,
                 request.plaque.height,
             ]),
-            motion_track: None,
-            motion_track_sha256: None,
+            trajectory: None,
+            trajectory_sha256: None,
         },
         layer: worker_layer,
     })?;
@@ -589,7 +723,9 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             && validate_worker_output(&cached, &request_document, request.info).is_ok()
         {
             copy_automatic_foreground_cache(&cached, &output, request.info.frames)?;
-            install_automatic_foreground_masks(request.analysis_root, request.info.frames)?;
+            if !install_automatic_foreground_masks(request.analysis_root, request.info.frames)? {
+                return Ok(false);
+            }
             eprintln!(
                 "[ml] automatic foreground cache hit: reused {} validated lossless mask(s)",
                 request.info.frames
@@ -646,11 +782,16 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
         return Err(error.context("automatic foreground worker output was rejected"));
     }
     crate::staged_output::remove_child(&output, &request_path)?;
-    if let Err(error) =
-        install_automatic_foreground_masks(request.analysis_root, request.info.frames)
-    {
-        crate::staged_output::remove_child(request.analysis_root, &output)?;
-        return Err(error);
+    match install_automatic_foreground_masks(request.analysis_root, request.info.frames) {
+        Ok(true) => {}
+        Ok(false) => {
+            crate::staged_output::remove_child(request.analysis_root, &output)?;
+            return Ok(false);
+        }
+        Err(error) => {
+            crate::staged_output::remove_child(request.analysis_root, &output)?;
+            return Err(error);
+        }
     }
     eprintln!(
         "[ml] automatic foreground installed: {} source-pixel mask(s)",
@@ -672,25 +813,22 @@ fn copy_automatic_foreground_cache(
             destination,
         )?;
     }
-    fs::create_dir_all(destination.join("masks"))?;
+    fs::create_dir_all(destination)?;
     for name in ["artifact.toml", "result.json"] {
         fs::copy(source.join(name), destination.join(name))
             .with_context(|| format!("failed to reuse automatic ML cache member {name}"))?;
     }
     for frame in 0..expected_frames {
         let name = format!("{frame:06}.png");
-        fs::copy(
-            source.join("masks").join(&name),
-            destination.join("masks").join(&name),
-        )
-        .with_context(|| format!("failed to reuse automatic ML mask {name}"))?;
+        fs::copy(source.join(&name), destination.join(&name))
+            .with_context(|| format!("failed to reuse automatic ML mask {name}"))?;
     }
     Ok(())
 }
 
 /// Reinstall already-generated ML masks after Rust recomputes extraction/occlusion during
 /// masked retracking. The ML masks are in source coordinates, so they remain valid across
-/// that internal refinement pass and do not need a second Python invocation.
+/// that internal scene pass and do not need a second Python invocation.
 pub fn install_automatic_foreground_masks(
     analysis_root: &Path,
     expected_frames: usize,
@@ -715,6 +853,22 @@ pub fn install_automatic_foreground_masks(
     }
 
     let destination = analysis_root.join(OCCLUDER_DIR);
+    // Semantic membership is not optical opacity, while a photometric residual is
+    // not necessarily a solid object (a cast shadow is the common counterexample).
+    // Automatic ML therefore gates a complete lossless photometric material
+    // sequence. Neither source is installed on its own.
+    if !destination.is_dir() {
+        return Ok(false);
+    }
+    for frame in 0..expected_frames {
+        let photometric = destination.join(format!("{frame:06}.png"));
+        if !photometric.is_file() {
+            bail!(
+                "automatic ML foreground requires a complete photometric mask sequence; missing {}",
+                photometric.display()
+            );
+        }
+    }
     let incoming = analysis_root.join(".occluder-ml-incoming");
     let previous = analysis_root.join(".occluder-rust-backup");
     for owned in [&incoming, &previous] {
@@ -725,11 +879,13 @@ pub fn install_automatic_foreground_masks(
     fs::create_dir(&incoming)?;
     for (frame, source) in sources.iter().enumerate() {
         let target = incoming.join(format!("{frame:06}.png"));
-        if let Err(error) = fs::copy(source, &target) {
+        let photometric = destination.join(format!("{frame:06}.png"));
+        let installed = fuse_automatic_foreground_mask(source, &photometric, &target);
+        if let Err(error) = installed {
             let _ = crate::staged_output::remove_child(analysis_root, &incoming);
             return Err(error).with_context(|| {
                 format!(
-                    "failed to stage automatic ML mask {} -> {}",
+                    "failed to stage automatic foreground mask {} -> {}",
                     source.display(),
                     target.display()
                 )
@@ -751,6 +907,97 @@ pub fn install_automatic_foreground_masks(
         crate::staged_output::remove_child(analysis_root, &previous)?;
     }
     Ok(true)
+}
+
+/// Fuse semantic temporal continuity with direct lossless-image evidence.
+///
+/// SAM2/ViTMatte identifies the foreground object; the Rust residual establishes
+/// where visible material actually differs from the writing surface. Their
+/// intersection rejects cast shadows and background animation. A two-pixel
+/// semantic fringe absorbs matte/registration disagreement without filling holes
+/// in webs, vines, feathers, or other porous silhouettes.
+fn fuse_automatic_foreground_mask(
+    semantic_path: &Path,
+    photometric_path: &Path,
+    target: &Path,
+) -> Result<()> {
+    let semantic = image::open(semantic_path)
+        .with_context(|| format!("failed to load semantic mask {}", semantic_path.display()))?
+        .to_luma16();
+    let photometric = image::open(photometric_path)
+        .with_context(|| {
+            format!(
+                "failed to load photometric mask {}",
+                photometric_path.display()
+            )
+        })?
+        .to_luma16();
+    if semantic.dimensions() != photometric.dimensions() {
+        bail!(
+            "semantic mask {} is {}x{}, but photometric mask {} is {}x{}",
+            semantic_path.display(),
+            semantic.width(),
+            semantic.height(),
+            photometric_path.display(),
+            photometric.width(),
+            photometric.height()
+        );
+    }
+    let fused = fuse_automatic_foreground_alpha(
+        semantic.as_raw(),
+        photometric.as_raw(),
+        semantic.width() as usize,
+        semantic.height() as usize,
+    );
+    let image = ImageBuffer::<Luma<u16>, _>::from_raw(semantic.width(), semantic.height(), fused)
+        .context("automatic foreground fusion produced invalid mask dimensions")?;
+    image
+        .save(target)
+        .with_context(|| format!("failed to save fused foreground mask {}", target.display()))
+}
+
+fn fuse_automatic_foreground_alpha(
+    semantic: &[u16],
+    photometric: &[u16],
+    width: usize,
+    height: usize,
+) -> Vec<u16> {
+    if semantic.len() != photometric.len() || semantic.len() != width.saturating_mul(height) {
+        return Vec::new();
+    }
+    let mut semantic_guard = semantic.to_vec();
+    // A two-pixel source-space fringe absorbs antialiasing and small matte/
+    // homography disagreement. It decays with distance and never creates alpha
+    // without direct photometric material evidence at that pixel.
+    const WEIGHTS: [u32; 3] = [65_535, 42_598, 19_661]; // 1.00, 0.65, 0.30
+    for y in 0..height {
+        for x in 0..width {
+            let source = semantic[y * width + x];
+            if source == 0 {
+                continue;
+            }
+            for dy in -2_i32..=2 {
+                for dx in -2_i32..=2 {
+                    let xx = x as i32 + dx;
+                    let yy = y as i32 + dy;
+                    if xx < 0 || yy < 0 || xx >= width as i32 || yy >= height as i32 {
+                        continue;
+                    }
+                    let distance = dx.unsigned_abs().max(dy.unsigned_abs()) as usize;
+                    let weighted =
+                        ((u32::from(source) * WEIGHTS[distance] + 32_767) / 65_535) as u16;
+                    let target = yy as usize * width + xx as usize;
+                    semantic_guard[target] = semantic_guard[target].max(weighted);
+                }
+            }
+        }
+    }
+    semantic
+        .iter()
+        .zip(photometric)
+        .zip(semantic_guard)
+        .map(|((&semantic, &photometric), guard)| photometric.min(semantic.max(guard)))
+        .collect()
 }
 
 fn automatic_foreground_prompts(
@@ -853,7 +1100,13 @@ fn automatic_foreground_prompts(
         selected.push(SegmentationPrompt {
             frame,
             coordinates: SpatialCoordinates::SourcePixels,
-            object: Some("automatic-foreground".to_string()),
+            // A seed is a distinct temporal hypothesis, not a correction to every
+            // other foreground crossing. Treating a spider at frame 1 and a web at
+            // frame 102 as one SAM2 object lets the later prompt redefine the former.
+            // The worker tracks each hypothesis independently and unions their soft
+            // alpha only after propagation; duplicate hypotheses are harmless under
+            // max-union, while conflated semantic actors are not recoverable.
+            object: Some(format!("automatic-foreground-{frame}")),
             box_bounds: Some(bounds),
             positive_points: vec![positive],
             negative_points: Vec::new(),
@@ -878,7 +1131,7 @@ fn validate_worker_output(
         &fs::read(&result_path)
             .with_context(|| format!("worker did not create {}", result_path.display()))?,
     )?;
-    if result.schema_version != WORKER_PROTOCOL_VERSION
+    if result.format != WORKER_RESULT_FORMAT
         || result.backend != request.backend
         || result.model != request.model
         || result.version.trim().is_empty()
@@ -934,6 +1187,17 @@ fn validate_worker_output(
         .layer
         .active_frames
         .unwrap_or([0, info.frames.saturating_sub(1)]);
+    let boxed_prompts = request
+        .layer
+        .prompts
+        .iter()
+        .filter(|prompt| prompt.box_bounds.is_some())
+        .collect::<Vec<_>>();
+    let bounded_authored_foreground = request.layer.role == LayerRole::Foreground
+        && boxed_prompts.len() >= 2
+        && boxed_prompts
+            .iter()
+            .all(|prompt| prompt.object == boxed_prompts[0].object);
     let pixels_per_frame = u64::from(info.width) * u64::from(info.height);
     let mut nonempty_frames = 0usize;
     let mut coverage_sum = 0.0;
@@ -959,7 +1223,18 @@ fn validate_worker_output(
                 info.height
             );
         }
-        let mask = image.to_luma8();
+        let mask = match image {
+            image::DynamicImage::ImageLuma16(mask) => image::GrayImage::from_raw(
+                mask.width(),
+                mask.height(),
+                mask.into_raw()
+                    .into_iter()
+                    .map(|value| ((u32::from(value) * 255 + 32_767) / 65_535) as u8)
+                    .collect(),
+            )
+            .context("failed to normalize 16-bit worker mask")?,
+            other => other.to_luma8(),
+        };
         let active_pixels = mask.iter().filter(|&&alpha| alpha > 8).count() as u64;
         soft_edge_pixels += mask
             .iter()
@@ -982,7 +1257,13 @@ fn validate_worker_output(
             .iter()
             .filter(|prompt| prompt.frame == frame)
         {
-            validate_prompt_response(prompt, mask.as_raw(), info.width, info.height)?;
+            validate_prompt_response(
+                prompt,
+                mask.as_raw(),
+                info.width,
+                info.height,
+                bounded_authored_foreground,
+            )?;
         }
     }
     let active_frames = active_end.saturating_sub(active_start) + 1;
@@ -1011,6 +1292,7 @@ fn validate_prompt_response(
     mask: &[u8],
     width: u32,
     height: u32,
+    enforce_box_envelope: bool,
 ) -> Result<()> {
     let sample = |point: [f64; 2]| -> u8 {
         let x = point[0].round().clamp(0.0, width.saturating_sub(1) as f64) as usize;
@@ -1053,6 +1335,30 @@ fn validate_prompt_response(
             prompt.frame
         );
     }
+    if enforce_box_envelope {
+        let [x, y, box_width, box_height] = prompt
+            .box_bounds
+            .context("bounded foreground prompt is missing its box")?;
+        let margin = 20.0_f64.max(0.10 * box_width.max(box_height));
+        let left = (x - margin).floor().max(0.0) as usize;
+        let top = (y - margin).floor().max(0.0) as usize;
+        let right = (x + box_width + margin).ceil().min(f64::from(width)) as usize;
+        let bottom = (y + box_height + margin).ceil().min(f64::from(height)) as usize;
+        let leaked = mask.iter().enumerate().any(|(offset, &alpha)| {
+            if alpha <= 8 {
+                return false;
+            }
+            let px = offset % width as usize;
+            let py = offset / width as usize;
+            px < left || px >= right || py < top || py >= bottom
+        });
+        if leaked {
+            bail!(
+                "segmentation mask escapes the authored object box on frame {}",
+                prompt.frame
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1065,7 +1371,7 @@ fn ensure_same_file(left: &Path, right: &Path) -> Result<()> {
         .with_context(|| format!("failed to resolve {}", right.display()))?;
     if left != right {
         bail!(
-            "refinement source {} differs from input {}",
+            "scene source {} differs from input {}",
             left.display(),
             right.display()
         );
@@ -1076,7 +1382,7 @@ fn ensure_same_file(left: &Path, right: &Path) -> Result<()> {
 #[cfg(test)]
 mod prompt_validation_tests {
     use super::validate_prompt_response;
-    use crate::refinement::{SegmentationPrompt, SpatialCoordinates};
+    use crate::scene::{SegmentationPrompt, SpatialCoordinates};
 
     fn prompt(positive: [f64; 2]) -> SegmentationPrompt {
         SegmentationPrompt {
@@ -1095,12 +1401,128 @@ mod prompt_validation_tests {
     fn soft_matte_may_shift_a_positive_seed_within_four_pixels() {
         let mut mask = vec![0_u8; 20 * 20];
         mask[10 * 20 + 14] = 32;
-        validate_prompt_response(&prompt([10.0, 10.0]), &mask, 20, 20).unwrap();
+        validate_prompt_response(&prompt([10.0, 10.0]), &mask, 20, 20, false).unwrap();
     }
 
     #[test]
     fn a_lost_positive_seed_is_still_rejected() {
         let mask = vec![0_u8; 20 * 20];
-        assert!(validate_prompt_response(&prompt([10.0, 10.0]), &mask, 20, 20).is_err());
+        assert!(validate_prompt_response(&prompt([10.0, 10.0]), &mask, 20, 20, false).is_err());
+    }
+
+    #[test]
+    fn authored_object_box_rejects_remote_background_leakage() {
+        let mut prompt = prompt([40.0, 40.0]);
+        prompt.box_bounds = Some([30.0, 30.0, 20.0, 20.0]);
+        let mut mask = vec![0_u8; 100 * 100];
+        mask[40 * 100 + 40] = 255;
+        mask[90 * 100 + 90] = 255;
+        assert!(validate_prompt_response(&prompt, &mask, 100, 100, true).is_err());
+    }
+}
+
+#[cfg(test)]
+mod automatic_prompt_tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        process,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use image::{GrayImage, Luma};
+
+    use super::automatic_foreground_prompts;
+    use crate::video::VideoInfo;
+
+    fn seed(root: &Path, frame: usize, x: u32, y: u32) {
+        let mut image = GrayImage::new(96, 64);
+        for yy in y..y + 6 {
+            for xx in x..x + 6 {
+                image.put_pixel(xx, yy, Luma([255]));
+            }
+        }
+        image.save(root.join(format!("{frame:06}.png"))).unwrap();
+    }
+
+    #[test]
+    fn temporally_distinct_automatic_seeds_are_distinct_objects() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = PathBuf::from(format!(
+            "/tmp/plaque-forge-segmentation-test-{}-{unique}",
+            process::id()
+        ));
+        fs::create_dir(&directory).unwrap();
+        seed(&directory, 1, 8, 8);
+        seed(&directory, 31, 44, 26);
+        let info = VideoInfo {
+            width: 96,
+            height: 64,
+            fps: 24.0,
+            fps_expression: "24/1".to_string(),
+            frames: 64,
+            duration_seconds: 64.0 / 24.0,
+            start_time_seconds: 0.0,
+            constant_frame_rate: true,
+            color_range: None,
+            color_space: None,
+            color_transfer: None,
+            color_primaries: None,
+            rotation_degrees: 0,
+        };
+        let prompts = automatic_foreground_prompts(&directory, &info).unwrap();
+        assert_eq!(prompts.len(), 2);
+        assert_ne!(prompts[0].object, prompts[1].object);
+        assert!(prompts.iter().all(|prompt| {
+            prompt
+                .object
+                .as_deref()
+                .is_some_and(|object| object.ends_with(&prompt.frame.to_string()))
+        }));
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod foreground_fusion_tests {
+    use super::fuse_automatic_foreground_alpha;
+
+    #[test]
+    fn semantic_region_cannot_fill_a_photometric_hole() {
+        let semantic = vec![u16::MAX; 11 * 5];
+        let mut photometric = vec![0_u16; 11 * 5];
+        photometric[2 * 11 + 1] = u16::MAX;
+        photometric[2 * 11 + 9] = u16::MAX;
+        let fused = fuse_automatic_foreground_alpha(&semantic, &photometric, 11, 5);
+        assert_eq!(fused[2 * 11 + 5], 0);
+        assert_eq!(fused[2 * 11 + 1], u16::MAX);
+        assert_eq!(fused[2 * 11 + 9], u16::MAX);
+    }
+
+    #[test]
+    fn photometric_alpha_is_admitted_only_near_semantic_object_support() {
+        let mut semantic = vec![0_u16; 7 * 7];
+        semantic[3 * 7 + 3] = u16::MAX;
+        let mut photometric = vec![0_u16; 7 * 7];
+        for x in 0..7 {
+            photometric[3 * 7 + x] = u16::MAX;
+        }
+        let fused = fuse_automatic_foreground_alpha(&semantic, &photometric, 7, 7);
+        assert_eq!(fused[3 * 7 + 3], u16::MAX);
+        assert_eq!(fused[3 * 7 + 4], 42_598);
+        assert_eq!(fused[3 * 7 + 5], 19_661);
+        assert_eq!(fused[3 * 7 + 6], 0);
+    }
+
+    #[test]
+    fn cast_shadow_without_semantic_object_support_is_rejected() {
+        let semantic = vec![0_u16; 9];
+        let mut photometric = vec![0_u16; 9];
+        photometric[4] = 48_000;
+        let fused = fuse_automatic_foreground_alpha(&semantic, &photometric, 3, 3);
+        assert_eq!(fused[4], 0);
     }
 }

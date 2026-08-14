@@ -1,14 +1,18 @@
 {
   "automatic_mean_plaque_visibility": 1.0,
-  "confidence": 0.8890536996995863,
-  "coverage_persistence": 0.16000656144529346,
+  "confidence": 0.8951349450240366,
+  "coverage_persistence": 0.19135750489726716,
   "has_occluder": true,
-  "max_coverage": 0.30765920926157786,
-  "mean_content_occlusion": 0.05662071379287912,
-  "mean_coverage": 0.04922749217092306,
+  "mask_basis": "lossless-photometric-material",
+  "mask_coordinates": "source-pixels",
+  "mask_frames_summarized": 206,
+  "max_coverage": 0.26286058388872857,
+  "mean_content_occlusion": 0.07452039108010867,
+  "mean_coverage": 0.05030034546878588,
   "mean_plaque_visibility": 1.0,
   "minimum_plaque_visibility": 1.0,
-  "nonempty_adjacent_mask_iou": 0.5562147987983455,
-  "occupied_frames": 138,
-  "occupied_ratio": 0.6699029126213593
+  "nonempty_adjacent_mask_iou": 0.5805397800961463,
+  "occupied_frames": 106,
+  "occupied_ratio": 0.5145631067961165,
+  "summary_matches_installed_masks": true
 }

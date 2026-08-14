@@ -1,15 +1,16 @@
 # Generated analysis cache. Regenerate with analyze.
-schema_version = 2
+format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
-analyzer_build = "analysis-v9"
+analyzer_build = "surface-analysis-v2"
 reference_frame = 10
 canonical_width = 990
 canonical_height = 680
-motion_model = "declared-screen-fixed"
+surface_space = "screen-canvas"
+trajectory_model = "screen-canvas"
 loop_closed = false
 has_occluder = false
-occlusion_mode = "none"
+occlusion_mode = "flat"
 automatic_ml_foreground = false
 analysis_gate_passed = true
 
@@ -32,20 +33,22 @@ height = 680.0
 backend = "sam2-cutie-vitmatte"
 model = "facebook/sam2.1-hiera-large"
 device = "auto"
+worker_sha256 = "eae50516c7549a217484c46d2b894b2053c1cd884c1dc81d85fb3caef3257850"
+runtime_sha256 = "cadd6ac4ea4e4c0b2eca1ecff64b3044d904e50e6cb9776af7fa2905d7969652"
 
-[refinements]
-plaque_id = "main"
+[scenes]
+surface_id = "main"
 locked_keyframes = 0
 guide_keyframes = 0
 
-[refinements.manifest]
-path = "../../refinements/16_9_background_digifall/refinement.toml"
-sha256 = "0a89bde6666c7bca36e1373998a9c65c086623d5c6e5c511b03440f0503bfa63"
-semantic_sha256 = "33f25077cba72306633ef1c8ed6d21ead66abdc29aba7a2215aaf558ccf80607"
+[scenes.manifest]
+path = "../../scenes/16_9_background_digifall/scene.toml"
+sha256 = "3ebd71ddf73cefd60d9047fdd5367bffce462033fa2bf50b6b3fa1a3a1e908ab"
+semantic_sha256 = "a14ff3ac4cd0acd50f24aa67dc1811d43655fd1b51fb9e74bebec775d544341d"
 
 [confidence]
 plaque_detection = 0.98
-motion = 0.98
+motion = 1.0
 extraction = 0.9381867944147355
 occlusion = 0.8
-overall = 0.9214204855612598
+overall = 0.9260860548812697

@@ -1,0 +1,75 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../9_16_dungeon_spider_iron_plaque.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "automatic"
+reference_frame = 10
+bounds = [128.0, 159.0, 464.0, 280.0]
+
+[surfaces.writable_region]
+shape = "rounded-rect"
+bounds = [160.0, 190.0, 401.0, 215.0]
+radius = 22.0
+
+# The iron face is the title's physical writing surface. This lossless, per-frame
+# support matte limits material-point tracking to the plaque; it is deliberately
+# not used as a deforming outline or as a substitute for the rigid four-corner
+# plane. Negative evidence on the moving web and spider keeps foreground detail
+# from being mistaken for plaque texture during the difficult second half.
+[[layers]]
+id = "iron-writing-surface"
+role = "writing-surface"
+surface = "main"
+affects_layout = false
+
+[[layers.prompts]]
+frame = 10
+coordinates = "source-pixels"
+object = "iron-writing-surface"
+# Unobstructed plate: an exact semantic seed is materially stronger than asking
+# a box/three points to distinguish this low-contrast iron face from dark stone.
+polygon = [[145.0, 159.0], [280.0, 159.0], [300.0, 180.0], [440.0, 180.0], [462.0, 159.0], [575.0, 159.0], [592.0, 176.0], [592.0, 421.0], [575.0, 439.0], [145.0, 439.0], [128.0, 421.0], [128.0, 176.0]]
+
+[[layers.prompts]]
+frame = 80
+coordinates = "source-pixels"
+object = "iron-writing-surface"
+# A second clear mask closes the long pre-crossing propagation interval at the
+# plate's displaced position. Blue UI graphics are behind the opaque plate.
+polygon = [[238.0, 159.0], [356.0, 159.0], [374.0, 180.0], [545.0, 180.0], [567.0, 159.0], [670.0, 159.0], [688.0, 177.0], [688.0, 420.0], [670.0, 438.0], [238.0, 438.0], [220.0, 420.0], [220.0, 177.0]]
+
+[[layers.prompts]]
+frame = 120
+coordinates = "source-pixels"
+object = "iron-writing-surface"
+box_bounds = [150.0, 158.0, 470.0, 290.0]
+positive_points = [[205.0, 235.0], [355.0, 255.0], [205.0, 395.0]]
+negative_points = [[294.0, 347.0], [505.0, 255.0], [650.0, 300.0]]
+
+[[layers.prompts]]
+frame = 150
+coordinates = "source-pixels"
+object = "iron-writing-surface"
+box_bounds = [132.0, 150.0, 470.0, 295.0]
+positive_points = [[195.0, 240.0], [315.0, 300.0], [245.0, 390.0]]
+negative_points = [[457.0, 314.0], [520.0, 205.0], [630.0, 300.0]]
+
+[[layers.prompts]]
+frame = 180
+coordinates = "source-pixels"
+object = "iron-writing-surface"
+box_bounds = [130.0, 150.0, 470.0, 295.0]
+positive_points = [[190.0, 260.0], [325.0, 320.0], [275.0, 395.0]]
+negative_points = [[535.0, 370.0], [420.0, 200.0], [635.0, 300.0]]
+
+[[layers.prompts]]
+frame = 205
+coordinates = "source-pixels"
+object = "iron-writing-surface"
+box_bounds = [130.0, 150.0, 470.0, 295.0]
+positive_points = [[190.0, 250.0], [300.0, 330.0], [410.0, 385.0]]
+negative_points = [[530.0, 390.0], [430.0, 190.0], [635.0, 300.0]]

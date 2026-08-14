@@ -1,11 +1,9 @@
 version = 2
 
 [material]
-type = "gold"
-dark = "#4B260DFF"
-mid = "#B87333FF"
-light = "#E8B86CFF"
-highlight = "#FFE2A4FF"
+type = "linear-gradient"
+top = "#E0A45FFF"
+bottom = "#6F3518FF"
 
 [[effects]]
 type = "shadow"

@@ -2,11 +2,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-pub fn refinement_path(input: &Path) -> Result<PathBuf> {
+pub fn scene_path(input: &Path) -> Result<PathBuf> {
     Ok(assets_dir(input)
-        .join("refinements")
+        .join("scenes")
         .join(stem(input)?)
-        .join("refinement.toml"))
+        .join("scene.toml"))
 }
 
 pub fn analysis_path(input: &Path) -> Result<PathBuf> {
@@ -19,21 +19,26 @@ pub fn output_path(input: &Path) -> Result<PathBuf> {
         .join(format!("{}.mkv", stem(input)?)))
 }
 
-pub fn layer_path(refinement: &Path, layer: &str) -> PathBuf {
-    refinement
+pub fn layer_path(scene: &Path, layer: &str) -> PathBuf {
+    let stem = scene.parent().and_then(Path::file_name).unwrap_or_default();
+    let assets = scene
         .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("artifacts")
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new("assets"));
+    assets
+        .join("analysis")
+        .join(stem)
         .join("layers")
         .join(layer)
 }
 
-pub fn motion_path(input: &Path) -> Result<PathBuf> {
-    Ok(refinement_path(input)?
+pub fn trajectory_path(input: &Path) -> Result<PathBuf> {
+    Ok(scene_path(input)?
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("artifacts")
-        .join("motion.toml"))
+        .join("trajectory.toml"))
 }
 
 fn stem(input: &Path) -> Result<&str> {

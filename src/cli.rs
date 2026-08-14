@@ -13,15 +13,15 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Detect a plaque and create an editable refinement manifest.
-    Refine(RefineArgs),
-    /// Place an external plaque PNG into a plaque-less video and create a refinement.
-    PlacePlaque(PlacePlaqueArgs),
+    /// Detect a title-bearing surface and create an editable scene manifest.
+    CreateScene(CreateSceneArgs),
+    /// Place an external plaque image and create a scene-canvas surface.
+    PlaceSurface(PlaceSurfaceArgs),
     /// Analyze the source and cache reusable motion, masks, and confidence data.
     Analyze(AnalyzeArgs),
-    /// Export analyzed plaque motion as an editable refinement track.
-    ExportMotion(ExportMotionArgs),
-    /// Generate a declared refinement layer with an external segmentation worker.
+    /// Export analyzed surface motion as a reviewed trajectory.
+    ExportTrajectory(ExportTrajectoryArgs),
+    /// Generate a declared scene layer with an external segmentation worker.
     Segment(SegmentArgs),
     /// Render from an existing analysis cache.
     Render(Box<RenderArgs>),
@@ -29,20 +29,18 @@ pub enum Command {
     Verify(VerifyArgs),
     /// Build a human-oriented HTML report from analysis and verification diagnostics.
     Review(ReviewArgs),
-    /// Upgrade generated analysis manifests to the current portable schema without rerunning ML.
-    MigrateAnalysis(MigrateAnalysisArgs),
 }
 
 #[derive(Debug, Args)]
-pub struct RefineArgs {
+pub struct CreateSceneArgs {
     #[arg(long)]
     pub input: PathBuf,
 
-    /// Defaults to assets/refinements/<source>/refinement.toml.
+    /// Defaults to assets/scenes/<source>/scene.toml.
     #[arg(long)]
     pub output: Option<PathBuf>,
 
-    /// Replace the refinement file if it already exists.
+    /// Replace the scene file if it already exists.
     #[arg(long)]
     pub force: bool,
 
@@ -54,15 +52,15 @@ pub struct RefineArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct PlacePlaqueArgs {
+pub struct PlaceSurfaceArgs {
     #[arg(long)]
     pub input: PathBuf,
 
-    /// Transparent PNG to composite as the virtual plaque. It is normalized/copied into the refinement directory.
+    /// Transparent PNG to composite as the virtual plaque. It is normalized/copied into the scene directory.
     #[arg(long)]
     pub image: PathBuf,
 
-    /// Defaults to assets/refinements/<source>/refinement.toml.
+    /// Defaults to assets/scenes/<source>/scene.toml.
     #[arg(long)]
     pub output: Option<PathBuf>,
 
@@ -71,15 +69,15 @@ pub struct PlacePlaqueArgs {
     #[arg(long, value_delimiter = ',', num_args = 4)]
     pub bounds: Vec<f64>,
 
-    /// How the virtual plaque should move after placement.
-    #[arg(long, value_enum, default_value_t = PlacementMotion::Auto)]
-    pub motion: PlacementMotion,
+    /// Coordinate space for the placed image.
+    #[arg(long, value_enum, default_value_t = PlacementSpace::ScreenCanvas)]
+    pub space: PlacementSpace,
 
     /// Fractional [left,top,right,bottom] writable inset inside the plaque PNG.
     #[arg(long, value_delimiter = ',', num_args = 4)]
     pub inset: Vec<f64>,
 
-    /// Replace an existing injected-plaque refinement.
+    /// Replace an existing injected-plaque scene.
     #[arg(long)]
     pub force: bool,
 
@@ -108,18 +106,15 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub output: Option<PathBuf>,
 
-    /// Editable refinement manifest. Defaults from the source path.
+    /// Editable scene manifest. Defaults from the source path.
     #[arg(long)]
-    pub refinement: Option<PathBuf>,
+    pub scene: Option<PathBuf>,
 
     #[arg(long)]
-    pub plaque: Option<String>,
+    pub surface: Option<String>,
 
     #[arg(long, default_value_t = 0.70)]
     pub minimum_analysis_confidence: f64,
-
-    #[arg(long)]
-    pub allow_low_confidence: bool,
 
     #[arg(long)]
     pub diagnostics: Option<PathBuf>,
@@ -129,11 +124,11 @@ pub struct AnalyzeArgs {
     pub force: bool,
 
     /// Return successfully without recomputing when the existing cache is current for
-    /// the source, analyzer version, and refinements. Intended for high-level scripts.
+    /// the source, analyzer version, and scenes. Intended for high-level scripts.
     #[arg(long)]
     pub if_needed: bool,
 
-    /// Optional ML segmentation worker used to materialize missing prompted refinement layers.
+    /// Optional ML segmentation worker used to materialize missing prompted scene layers.
     #[arg(long)]
     pub segmentation_worker: Option<PathBuf>,
 
@@ -163,9 +158,9 @@ pub struct AnalyzeArgs {
     pub ffprobe: PathBuf,
 
     #[arg(skip)]
-    pub plaque_hint: Option<[f64; 4]>,
+    pub surface_hint: Option<[f64; 4]>,
     #[arg(skip)]
-    pub plaque_frame: Option<usize>,
+    pub surface_frame: Option<usize>,
     #[arg(skip)]
     pub writable_region_hint: Option<ResolvedWritableRegion>,
     #[arg(skip = 24usize)]
@@ -177,7 +172,7 @@ pub struct AnalyzeArgs {
     #[arg(skip = 72usize)]
     pub extraction_samples: usize,
     #[arg(skip = 12)]
-    pub local_refinement_radius: i32,
+    pub local_scene_radius: i32,
     #[arg(skip = 1.0)]
     pub occlusion_sensitivity: f64,
     #[arg(skip)]
@@ -185,18 +180,18 @@ pub struct AnalyzeArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct ExportMotionArgs {
+pub struct ExportTrajectoryArgs {
     #[arg(long)]
     pub analysis: PathBuf,
 
-    /// Defaults beside the source refinement manifest.
+    /// Defaults beside the source scene manifest.
     #[arg(long)]
     pub output: Option<PathBuf>,
 
     #[arg(long)]
-    pub plaque: Option<String>,
+    pub surface: Option<String>,
 
-    /// Replace the motion refinement file if it already exists.
+    /// Replace the trajectory file if it already exists.
     #[arg(long)]
     pub force: bool,
 
@@ -210,12 +205,12 @@ pub struct SegmentArgs {
     #[arg(long)]
     pub input: PathBuf,
 
-    /// Editable refinement manifest. Defaults from the source path.
+    /// Editable scene manifest. Defaults from the source path.
     #[arg(long)]
-    pub refinement: Option<PathBuf>,
+    pub scene: Option<PathBuf>,
 
     #[arg(long)]
-    pub plaque: Option<String>,
+    pub surface: Option<String>,
 
     #[arg(long)]
     pub layer: String,
@@ -232,7 +227,7 @@ pub struct SegmentArgs {
     #[arg(long, default_value = "auto")]
     pub device: String,
 
-    /// Defaults to the layer directory declared by the refinement.
+    /// Defaults to the layer directory declared by the scene.
     #[arg(long)]
     pub output: Option<PathBuf>,
 
@@ -263,12 +258,12 @@ pub struct RenderArgs {
     #[arg(long)]
     pub analysis: Option<PathBuf>,
 
-    /// Editable refinement manifest. Defaults from the source path.
+    /// Editable scene manifest. Defaults from the source path.
     #[arg(long)]
-    pub refinement: Option<PathBuf>,
+    pub scene: Option<PathBuf>,
 
     #[arg(long)]
-    pub plaque: Option<String>,
+    pub surface: Option<String>,
 
     /// Title text. Exactly one of --text or --text-file is required.
     #[arg(long)]
@@ -367,8 +362,8 @@ pub struct RenderArgs {
 pub struct ComposeArgs {
     pub input: PathBuf,
     pub analysis: PathBuf,
-    pub refinement: Option<PathBuf>,
-    pub plaque: Option<String>,
+    pub scene: Option<PathBuf>,
+    pub surface: Option<String>,
     pub text: Option<String>,
     pub text_file: Option<PathBuf>,
     pub font: PathBuf,
@@ -439,9 +434,9 @@ pub struct ReviewArgs {
     #[arg(long)]
     pub analysis: PathBuf,
 
-    /// Optional human refinement manifest. Used only to explain current intent in the report.
+    /// Optional human scene manifest. Used only to explain current intent in the report.
     #[arg(long)]
-    pub refinement: Option<PathBuf>,
+    pub scene: Option<PathBuf>,
 
     /// Optional verification JSON produced by `plaque-forge verify`.
     #[arg(long)]
@@ -456,24 +451,13 @@ pub struct ReviewArgs {
     pub output: Option<PathBuf>,
 }
 
-#[derive(Debug, Args)]
-pub struct MigrateAnalysisArgs {
-    /// Directory containing one subdirectory per generated analysis.
-    #[arg(long, default_value = "assets/analysis")]
-    pub root: PathBuf,
-
-    /// Apply the migration. Without this flag, report what would change.
-    #[arg(long)]
-    pub apply: bool,
-}
-
 impl RenderArgs {
     pub fn as_compose_args(&self, analysis: PathBuf, output: PathBuf) -> ComposeArgs {
         ComposeArgs {
             input: self.input.clone(),
             analysis,
-            refinement: self.refinement.clone(),
-            plaque: self.plaque.clone(),
+            scene: self.scene.clone(),
+            surface: self.surface.clone(),
             text: self.text.clone(),
             text_file: self.text_file.clone(),
             font: self.font.clone(),
@@ -531,13 +515,11 @@ pub enum VerticalAlign {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum PlacementMotion {
-    /// Try scene anchoring; fall back to screen-fixed placement when tracking is unreliable.
-    Auto,
-    /// Keep the plaque fixed in screen coordinates.
-    Screen,
-    /// Require the plaque to follow estimated scene motion.
-    Scene,
+pub enum PlacementSpace {
+    /// Attach the image to a physical planar surface in the scene.
+    ScenePlane,
+    /// Place the image intentionally in screen coordinates.
+    ScreenCanvas,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

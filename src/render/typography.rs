@@ -303,7 +303,10 @@ fn find_artistic_layout(
         .iter()
         .max_by(|left, right| left.1.total_cmp(&right.1))
         .cloned();
-    proposals.truncate(1);
+    // Keep several font-shaped finalists. The exact masked probe is now cheap,
+    // and a single rectangle-ranked proposal can be badly suboptimal for an
+    // ellipse, rounded plaque, or irregular writable silhouette.
+    proposals.truncate(6);
     if let Some(largest) = largest_proposal
         && proposals.iter().all(|proposal| proposal.0 != largest.0)
     {

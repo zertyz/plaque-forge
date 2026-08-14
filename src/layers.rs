@@ -13,15 +13,14 @@ use crate::{
     analyze::extraction::{rectify, transformed_rect},
     color::Rgba,
     model::{MotionSample, RectF},
-    refinement::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, RefinementLayer,
-        resolve_relative,
+    scene::{
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, SceneLayer, resolve_relative,
     },
     surface::Surface,
 };
 
 pub struct LayerInput {
-    pub refinement: RefinementLayer,
+    pub scene: SceneLayer,
     pub artifact_path: std::path::PathBuf,
     pub artifact: LayerArtifact,
 }
@@ -29,7 +28,7 @@ pub struct LayerInput {
 pub fn has_authored_foreground(inputs: &[LayerInput]) -> bool {
     inputs
         .iter()
-        .any(|input| input.refinement.role == LayerRole::Foreground)
+        .any(|input| input.scene.role == LayerRole::Foreground)
 }
 
 pub fn build_tracking_exclusions(
@@ -39,26 +38,46 @@ pub fn build_tracking_exclusions(
     width: u32,
     height: u32,
     frames: usize,
+    tracked_surface: Option<(&[MotionSample], RectF)>,
 ) -> Result<bool> {
     let foregrounds = inputs
         .iter()
         .filter(|input| {
-            input.refinement.role == LayerRole::Foreground
+            input.scene.role == LayerRole::Foreground
                 && input.artifact.coordinates == LayerCoordinates::SourcePixels
         })
         .collect::<Vec<_>>();
     let backgrounds = inputs
         .iter()
         .filter(|input| {
-            input.refinement.role == LayerRole::Background
+            input.scene.role == LayerRole::Background
                 && input.artifact.coordinates == LayerCoordinates::SourcePixels
         })
         .collect::<Vec<_>>();
-    if foregrounds.is_empty() && backgrounds.is_empty() && !automatic_root.is_dir() {
+    let writing_surfaces = inputs
+        .iter()
+        .filter(|input| {
+            input.scene.role == LayerRole::WritingSurface
+                && input.artifact.coordinates == LayerCoordinates::SourcePixels
+        })
+        .collect::<Vec<_>>();
+    // Background declarations only subtract false-positive foreground. By
+    // themselves they cannot exclude tracking evidence and do not warrant a
+    // directory full of zero masks.
+    if foregrounds.is_empty()
+        && (writing_surfaces.is_empty() || tracked_surface.is_none())
+        && !automatic_root.is_dir()
+    {
         return Ok(false);
     }
-    for input in foregrounds.iter().chain(&backgrounds) {
-        validate_frame_range(&input.artifact, frames, &input.refinement.id)?;
+    for input in foregrounds.iter().chain(&backgrounds).chain(
+        tracked_surface
+            .is_some()
+            .then_some(&writing_surfaces)
+            .into_iter()
+            .flatten(),
+    ) {
+        validate_frame_range(&input.artifact, frames, &input.scene.id)?;
     }
     fs::create_dir_all(output_root)?;
     for frame in 0..frames {
@@ -81,6 +100,41 @@ pub fn build_tracking_exclusions(
                 subtract_alpha(&mut combined, &load_mask(&path, width, height)?);
             }
         }
+        // A writing-surface matte answers a membership/depth question, not a
+        // rigid-pose question. Use it to keep all point/descriptor evidence on
+        // actual surface material (and out of foreground holes), while the
+        // homography itself is estimated from persistent material reference
+        // points. Multiple writing-surface parts form one allowed union.
+        if let Some((motion, plaque)) = tracked_surface
+            && !writing_surfaces.is_empty()
+        {
+            let mut support = vec![0; width as usize * height as usize];
+            let mut has_support = false;
+            for input in &writing_surfaces {
+                if let Some(path) = artifact_frame_path(input, frame) {
+                    max_union(&mut support, &load_mask(&path, width, height)?);
+                    has_support = true;
+                }
+            }
+            // Semantic propagation can report no object or confidently switch to
+            // another dark object between strong prompt frames. It becomes a
+            // tracking prior only after the independently estimated rigid plane
+            // confirms both overlap and area. An unavailable/rejected prior never
+            // means the plaque vanished; foreground exclusions remain authoritative.
+            if has_support
+                && motion.get(frame).is_some_and(|sample| {
+                    writing_surface_support_is_plausible(
+                        &support,
+                        width,
+                        height,
+                        plaque,
+                        sample.transform,
+                    )
+                })
+            {
+                exclude_outside_surface_support(&mut combined, &support);
+            }
+        }
         save_mask(
             width,
             height,
@@ -89,6 +143,56 @@ pub fn build_tracking_exclusions(
         )?;
     }
     Ok(true)
+}
+
+pub(crate) fn writing_surface_support_is_plausible(
+    support: &[u8],
+    width: u32,
+    height: u32,
+    plaque: RectF,
+    transform: crate::model::Mat3,
+) -> bool {
+    if support.len() != width as usize * height as usize {
+        return false;
+    }
+    let Some(inverse) = transform.inverse() else {
+        return false;
+    };
+    let mut supported = 0usize;
+    let mut expected = 0usize;
+    let mut overlap = 0usize;
+    // A four-pixel grid is stable at both project aspect ratios and bounds this
+    // validation to roughly 1/16 of a frame without changing mask composition.
+    for y in (0..height).step_by(4) {
+        for x in (0..width).step_by(4) {
+            let material = inverse.transform(crate::model::PointF {
+                x: f64::from(x),
+                y: f64::from(y),
+            });
+            let on_plane = material.x >= plaque.x
+                && material.y >= plaque.y
+                && material.x <= plaque.x + plaque.width
+                && material.y <= plaque.y + plaque.height;
+            let is_supported = support[y as usize * width as usize + x as usize] >= 64;
+            expected += usize::from(on_plane);
+            supported += usize::from(is_supported);
+            overlap += usize::from(on_plane && is_supported);
+        }
+    }
+    if expected < 64 || supported < 64 {
+        return false;
+    }
+    let precision = overlap as f64 / supported as f64;
+    let plane_coverage = overlap as f64 / expected as f64;
+    precision >= 0.75 && plane_coverage >= 0.25
+}
+
+pub(crate) fn exclude_outside_surface_support(exclusion: &mut [u8], support: &[u8]) {
+    for (excluded, &supported) in exclusion.iter_mut().zip(support) {
+        if supported < 64 {
+            *excluded = 255;
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -106,8 +210,8 @@ pub fn package(
     let mut packed = Vec::with_capacity(inputs.len());
     for input in inputs {
         let artifact = &input.artifact;
-        validate_frame_range(artifact, motion.len(), &input.refinement.id)?;
-        let directory = Path::new(LAYERS_DIR).join(&input.refinement.id);
+        validate_frame_range(artifact, motion.len(), &input.scene.id)?;
+        let directory = Path::new(LAYERS_DIR).join(&input.scene.id);
         fs::create_dir_all(output_root.join(&directory))?;
         let packed_path = match artifact.kind {
             LayerArtifactKind::AlphaImage => directory.join("mask.png"),
@@ -119,17 +223,43 @@ pub fn package(
                 LayerCoordinates::PlaqueCanonical => (canonical_width, canonical_height),
                 LayerCoordinates::SourcePixels => (source_width, source_height),
             };
-            let mask = load_mask(&source, expected_width, expected_height)?;
+            // Decode once to validate geometry and channel semantics, then preserve
+            // the original lossless PNG bytes (including 16-bit soft alpha).
+            let _ = load_mask(&source, expected_width, expected_height)?;
             let destination = match frame {
                 Some(frame) => output_root.join(sequence_path(&packed_path, frame)),
                 None => output_root.join(&packed_path),
             };
-            save_mask(expected_width, expected_height, &mask, &destination)?;
+            fs::copy(&source, &destination).with_context(|| {
+                format!(
+                    "failed to import layer mask {} as {}",
+                    source.display(),
+                    destination.display()
+                )
+            })?;
+        }
+        if !input.scene.prompts.is_empty() {
+            let mut published = artifact.clone();
+            match published.kind {
+                LayerArtifactKind::AlphaImage => {
+                    published.path = Some(std::path::PathBuf::from("mask.png"));
+                }
+                LayerArtifactKind::AlphaSequence => {
+                    published.pattern = Some(std::path::PathBuf::from("%06d.png"));
+                }
+            }
+            fs::write(
+                output_root.join(&directory).join("artifact.toml"),
+                format!(
+                    "# Generated layer cache. Regenerate with analyze.\n{}",
+                    toml::to_string_pretty(&published)?
+                ),
+            )?;
         }
 
         let layer = LayerAsset {
-            id: input.refinement.id.clone(),
-            role: input.refinement.role,
+            id: input.scene.id.clone(),
+            role: input.scene.role,
             coordinates: artifact.coordinates,
             kind: artifact.kind,
             affects_layout: artifact.affects_layout,
@@ -454,7 +584,14 @@ fn load_mask(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {
     if image.color().has_alpha() {
         Ok(image.to_rgba8().pixels().map(|pixel| pixel.0[3]).collect())
     } else {
-        Ok(image.to_luma8().into_raw())
+        Ok(match image {
+            image::DynamicImage::ImageLuma16(mask) => mask
+                .into_raw()
+                .into_iter()
+                .map(|value| ((u32::from(value) * 255 + 32_767) / 65_535) as u8)
+                .collect(),
+            other => other.to_luma8().into_raw(),
+        })
     }
 }
 
@@ -501,11 +638,15 @@ fn intersect(output: &mut [u8], input: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{LayerInput, alpha_over, has_authored_foreground, intersect, package};
+    use super::{
+        LayerInput, alpha_over, exclude_outside_surface_support, has_authored_foreground,
+        intersect, package,
+    };
     use crate::{
         model::{Mat3, MotionSample, RectF},
-        refinement::{
-            LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, RefinementLayer,
+        scene::{
+            LAYER_ARTIFACT_FORMAT, LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole,
+            SceneLayer,
         },
     };
     use image::{GrayImage, ImageBuffer, Luma};
@@ -554,6 +695,13 @@ mod tests {
     }
 
     #[test]
+    fn writing_surface_support_excludes_only_non_surface_pixels() {
+        let mut exclusion = [0, 64, 255, 0];
+        exclude_outside_surface_support(&mut exclusion, &[255, 192, 128, 0]);
+        assert_eq!(exclusion, [0, 64, 255, 255]);
+    }
+
+    #[test]
     fn shadow_is_restored_but_does_not_change_layout() {
         let root = temporary_directory("shadow");
         let input_root = root.join("input");
@@ -565,10 +713,10 @@ mod tests {
             ImageBuffer::<Luma<u8>, _>::from_raw(4, 2, vec![0, 64, 128, 0, 0, 0, 0, 0]).unwrap();
         image.save(&source_mask).unwrap();
         let input = LayerInput {
-            refinement: RefinementLayer {
+            scene: SceneLayer {
                 id: "shadow".into(),
                 role: LayerRole::Shadow,
-                plaque: "main".into(),
+                surface: "main".into(),
                 in_front_of: Some("main".into()),
                 artifact: None,
                 active_frames: None,
@@ -577,7 +725,7 @@ mod tests {
             },
             artifact_path: input_root.join("artifact.toml"),
             artifact: LayerArtifact {
-                schema_version: 1,
+                format: LAYER_ARTIFACT_FORMAT.into(),
                 kind: LayerArtifactKind::AlphaImage,
                 coordinates: LayerCoordinates::PlaqueCanonical,
                 path: Some(PathBuf::from("mask.png")),
@@ -591,6 +739,11 @@ mod tests {
         let motion = [MotionSample {
             frame: 0,
             transform: Mat3::IDENTITY,
+            measurement_valid: true,
+            tracked_points: 20,
+            spatial_coverage: 1.0,
+            uncertainty_px: 0.25,
+            measurement_source: "test".into(),
             inlier_ratio: 1.0,
             reprojection_error: 0.0,
             ecc: Some(1.0),
@@ -634,10 +787,10 @@ mod tests {
             ImageBuffer::<Luma<u8>, _>::from_raw(4, 2, vec![0, 64, 255, 0, 0, 0, 0, 0]).unwrap();
         image.save(&source_mask).unwrap();
         let input = LayerInput {
-            refinement: RefinementLayer {
+            scene: SceneLayer {
                 id: "moss".into(),
                 role: LayerRole::Foreground,
-                plaque: "main".into(),
+                surface: "main".into(),
                 in_front_of: Some("main".into()),
                 artifact: None,
                 active_frames: None,
@@ -646,7 +799,7 @@ mod tests {
             },
             artifact_path: input_root.join("artifact.toml"),
             artifact: LayerArtifact {
-                schema_version: 1,
+                format: LAYER_ARTIFACT_FORMAT.into(),
                 kind: LayerArtifactKind::AlphaImage,
                 coordinates: LayerCoordinates::PlaqueCanonical,
                 path: Some(PathBuf::from("mask.png")),
@@ -660,6 +813,11 @@ mod tests {
         let motion = [MotionSample {
             frame: 0,
             transform: Mat3::IDENTITY,
+            measurement_valid: true,
+            tracked_points: 20,
+            spatial_coverage: 1.0,
+            uncertainty_px: 0.25,
+            measurement_source: "test".into(),
             inlier_ratio: 1.0,
             reprojection_error: 0.0,
             ecc: None,
@@ -700,10 +858,10 @@ mod tests {
         last_frame: Option<usize>,
     ) -> LayerInput {
         LayerInput {
-            refinement: RefinementLayer {
+            scene: SceneLayer {
                 id: "test".into(),
                 role,
-                plaque: "main".into(),
+                surface: "main".into(),
                 in_front_of: Some("main".into()),
                 artifact: None,
                 active_frames: None,
@@ -712,7 +870,7 @@ mod tests {
             },
             artifact_path: PathBuf::from("artifact.toml"),
             artifact: LayerArtifact {
-                schema_version: 1,
+                format: LAYER_ARTIFACT_FORMAT.into(),
                 kind,
                 coordinates,
                 path: (kind == LayerArtifactKind::AlphaImage).then(|| "mask.png".into()),

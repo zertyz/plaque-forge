@@ -1,6 +1,6 @@
 use std::{
     collections::hash_map::DefaultHasher,
-    fs,
+    fs::{self, File, OpenOptions, TryLockError},
     hash::{Hash, Hasher},
     io::ErrorKind,
     path::{Component, Path, PathBuf},
@@ -13,12 +13,15 @@ const STALE_WORK_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const DEAD_OWNER_GRACE: Duration = Duration::from_secs(5);
 const FAILURE_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const FAILURE_MAX_PER_TARGET: usize = 3;
+const LEASE_FILE: &str = ".lease";
 
 pub struct StagedOutput {
     path: PathBuf,
     target: PathBuf,
+    work_lease: Option<File>,
     locked_targets: Vec<PathBuf>,
     locks: Vec<PathBuf>,
+    lock_leases: Vec<File>,
     committed: bool,
 }
 
@@ -58,6 +61,14 @@ impl StagedOutput {
                     )
                 });
             }
+        }
+        // The directory is no longer visible to the work reaper. Release its
+        // lease and remove every transaction-private file before publication.
+        // This is also deliberately tolerant of work made by pre-lease builds.
+        self.work_lease.take();
+        if let Err(error) = strip_private_bookkeeping(&incoming) {
+            let _ = remove_if_exists(&incoming);
+            return Err(error).context("failed to strip private staging bookkeeping");
         }
 
         if self.target.exists() && !replace {
@@ -236,6 +247,7 @@ impl StagedOutput {
             prepared[index].installed = true;
         }
 
+        self.work_lease.take();
         self.committed = true;
         remove_if_exists(&self.path)?;
         purge_failures(&self.target)?;
@@ -256,17 +268,20 @@ impl StagedOutput {
             return Ok(());
         }
         let lock = lock_path(target);
-        acquire_lock(&lock, target)?;
+        let lease = acquire_lock(&lock, target)?;
         if let Err(error) = recover_interrupted_publication(target) {
+            drop(lease);
             let _ = remove_if_exists(&lock);
             return Err(error);
         }
         self.locked_targets.push(target.to_path_buf());
         self.locks.push(lock);
+        self.lock_leases.push(lease);
         Ok(())
     }
 
     fn release_locks(&mut self) -> Result<()> {
+        self.lock_leases.clear();
         let mut first_error = None;
         for lock in self.locks.drain(..) {
             if let Err(error) = remove_if_exists(&lock)
@@ -314,9 +329,11 @@ fn rollback_prepared(members: &mut [PreparedFile]) {
 
 impl Drop for StagedOutput {
     fn drop(&mut self) {
+        self.work_lease.take();
         if !self.committed {
             let _ = remove_if_exists(&self.path);
         }
+        self.lock_leases.clear();
         for lock in &self.locks {
             let _ = remove_if_exists(lock);
         }
@@ -336,8 +353,9 @@ pub fn create(target: &Path) -> Result<StagedOutput> {
 
     let target = absolute_lexical(target)?;
     let lock = lock_root.join(format!("{:016x}", path_hash(&target)));
-    acquire_lock(&lock, &target)?;
+    let lock_lease = acquire_lock(&lock, &target)?;
     if let Err(error) = recover_interrupted_publication(&target) {
+        drop(lock_lease);
         let _ = remove_if_exists(&lock);
         return Err(error);
     }
@@ -354,15 +372,27 @@ pub fn create(target: &Path) -> Result<StagedOutput> {
         .as_nanos();
     let path = work_root.join(format!("{name}-{}-{nonce}", std::process::id()));
     if let Err(error) = fs::create_dir(&path) {
+        drop(lock_lease);
         let _ = remove_if_exists(&lock);
         return Err(error)
             .with_context(|| format!("failed to create staged output {}", path.display()));
     }
+    let work_lease = match create_lease(&path.join(LEASE_FILE)) {
+        Ok(lease) => lease,
+        Err(error) => {
+            let _ = remove_if_exists(&path);
+            drop(lock_lease);
+            let _ = remove_if_exists(&lock);
+            return Err(error).context("failed to lease staged output");
+        }
+    };
     Ok(StagedOutput {
         path,
         target: target.clone(),
+        work_lease: Some(work_lease),
         locked_targets: vec![target],
         locks: vec![lock],
+        lock_leases: vec![lock_lease],
         committed: false,
     })
 }
@@ -401,7 +431,7 @@ pub fn retain_failure(stage: &Path, target: &Path) -> Result<Option<PathBuf>> {
         if diagnostics.is_dir() {
             copy_tree(&diagnostics, &retained.join("diagnostics"))?;
         }
-        for name in ["analysis-summary.json", "motion.json"] {
+        for name in ["analysis-summary.json", "trajectory.json"] {
             let source = stage.join(name);
             if source.is_file() {
                 fs::copy(&source, retained.join(name))?;
@@ -431,18 +461,20 @@ pub fn remove_child(root: &Path, child: &Path) -> Result<()> {
     remove(&child)
 }
 
-fn acquire_lock(lock: &Path, target: &Path) -> Result<()> {
+fn acquire_lock(lock: &Path, target: &Path) -> Result<File> {
     for attempt in 0..2 {
         match fs::create_dir(lock) {
-            Ok(()) => {
-                fs::write(
-                    lock.join("owner"),
-                    format!("pid={}\ntarget={}\n", std::process::id(), target.display()),
-                )?;
-                return Ok(());
-            }
+            Ok(()) => match create_lease(&lock.join(LEASE_FILE)) {
+                Ok(lease) => return Ok(lease),
+                Err(error) => {
+                    let _ = remove_if_exists(lock);
+                    return Err(error).with_context(|| {
+                        format!("failed to lease output lock for {}", target.display())
+                    });
+                }
+            },
             Err(error) if error.kind() == ErrorKind::AlreadyExists && attempt == 0 => {
-                if owner_is_abandoned(lock, lock_owner_pid(lock)) {
+                if lease_is_abandoned(lock, DEAD_OWNER_GRACE) {
                     remove(lock)?;
                     continue;
                 }
@@ -490,14 +522,14 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
 fn reap_stale_work(root: &Path) -> Result<()> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
-        if owner_is_abandoned(&entry.path(), work_owner_pid(&entry.path())) {
+        if lease_is_abandoned(&entry.path(), STALE_WORK_AGE) {
             remove(&entry.path())?;
         }
     }
     Ok(())
 }
 
-fn owner_is_abandoned(path: &Path, owner_pid: Option<u32>) -> bool {
+fn lease_is_abandoned(path: &Path, missing_lease_age: Duration) -> bool {
     let Some(age) = fs::metadata(path)
         .and_then(|metadata| metadata.modified())
         .ok()
@@ -505,44 +537,40 @@ fn owner_is_abandoned(path: &Path, owner_pid: Option<u32>) -> bool {
     else {
         return false;
     };
-    should_reap_owner(owner_pid, age)
-}
-
-fn should_reap_owner(owner_pid: Option<u32>, age: Duration) -> bool {
-    match owner_pid {
-        Some(pid) => !process_is_alive(pid) && age > DEAD_OWNER_GRACE,
-        None => age > STALE_WORK_AGE,
+    let lease = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path.join(LEASE_FILE))
+    {
+        Ok(lease) => lease,
+        Err(error) if error.kind() == ErrorKind::NotFound => return age > missing_lease_age,
+        Err(_) => return false,
+    };
+    match lease.try_lock() {
+        Ok(()) => age > DEAD_OWNER_GRACE,
+        Err(TryLockError::WouldBlock) => false,
+        Err(TryLockError::Error(_)) => false,
     }
 }
 
-fn lock_owner_pid(lock: &Path) -> Option<u32> {
-    fs::read_to_string(lock.join("owner"))
-        .ok()
-        .and_then(|owner| {
-            owner
-                .lines()
-                .find_map(|line| line.strip_prefix("pid="))
-                .and_then(|pid| pid.parse::<u32>().ok())
-        })
+fn create_lease(path: &Path) -> Result<File> {
+    let lease = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    lease
+        .try_lock()
+        .map_err(std::io::Error::from)
+        .context("failed to acquire filesystem lease")?;
+    Ok(lease)
 }
 
-fn work_owner_pid(path: &Path) -> Option<u32> {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .and_then(|name| name.rsplit('-').nth(1))
-        .and_then(|pid| pid.parse::<u32>().ok())
-}
-
-#[cfg(target_os = "linux")]
-fn process_is_alive(pid: u32) -> bool {
-    Path::new("/proc").join(pid.to_string()).exists()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn process_is_alive(_pid: u32) -> bool {
-    // On platforms without a dependency-free process-liveness probe, retain the
-    // conservative age-only behavior rather than introducing a shell dependency.
-    false
+fn strip_private_bookkeeping(root: &Path) -> Result<()> {
+    for name in [LEASE_FILE, "owner"] {
+        remove_if_exists(&root.join(name))?;
+    }
+    Ok(())
 }
 
 fn reap_failures(root: &Path) -> Result<()> {
@@ -763,33 +791,27 @@ mod tests {
     }
 
     #[test]
-    fn staged_work_name_records_its_owner_process() {
-        let path = PathBuf::from(format!(
-            "asset-with-dashes-{}-123456789",
-            std::process::id()
-        ));
-        assert_eq!(work_owner_pid(&path), Some(std::process::id()));
-        assert_eq!(work_owner_pid(Path::new("asset-without-owner")), None);
+    fn active_work_is_protected_by_an_os_held_lease() {
+        let root = test_root("active-lease");
+        let target = root.join("analysis");
+        let staged = create(&target).unwrap();
+        assert!(!lease_is_abandoned(staged.path(), Duration::ZERO));
+        assert!(staged.path().join(LEASE_FILE).is_file());
+        drop(staged);
     }
 
     #[test]
-    fn dead_known_owners_are_reaped_without_waiting_a_day() {
-        assert!(should_reap_owner(
-            Some(u32::MAX),
-            DEAD_OWNER_GRACE + Duration::from_secs(1)
-        ));
-        assert!(!should_reap_owner(
-            Some(std::process::id()),
-            STALE_WORK_AGE + Duration::from_secs(1)
-        ));
-        assert!(!should_reap_owner(
-            None,
-            STALE_WORK_AGE - Duration::from_secs(1)
-        ));
-        assert!(should_reap_owner(
-            None,
-            STALE_WORK_AGE + Duration::from_secs(1)
-        ));
+    fn committed_directory_never_publishes_private_bookkeeping() {
+        let root = test_root("private-bookkeeping");
+        let target = root.join("analysis");
+        let staged = create(&target).unwrap();
+        fs::write(staged.path().join("value"), "new").unwrap();
+        fs::write(staged.path().join("owner"), "legacy private path").unwrap();
+        staged.commit(true).unwrap();
+        assert_eq!(fs::read_to_string(target.join("value")).unwrap(), "new");
+        assert!(!target.join(LEASE_FILE).exists());
+        assert!(!target.join("owner").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

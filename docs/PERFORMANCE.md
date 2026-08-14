@@ -15,7 +15,7 @@ Performance work is intentionally split from outcome-quality work. This pass aud
   material painting. Candidate search counts actual shaped advances (including spaces,
   kerning, and punctuation); only the selected layout pays for gold/bevel/blur paint.
 - A forced scene rebuild reuses an existing automatic-foreground ML sequence only when
-  its complete portable request identity and every lossless output validate. Refinement-
+  its complete portable request identity and every lossless output validate. Scene-
   only iterations no longer initialize SAM/Cutie/VitMatte for an identical request.
 
 These changes preserve the same frame count, geometry, effect timing, masks, and artifact identities. Linear-light, premultiplied-alpha compositing is a separate correctness fix, not presented as a speed optimization.
@@ -60,7 +60,7 @@ correctness-only implementation and more than five minutes in the reported regre
 
 The final 720×1280 temporary-dungeon title rendered and encoded in 5.51 seconds;
 font-aware artistic fitting took 1 second. A forced analysis after a visibility-only
-refinement took 50.64 seconds while reusing 240 validated automatic-foreground PNGs,
+scene took 50.64 seconds while reusing 240 validated automatic-foreground PNGs,
 instead of relaunching an approximately twelve-minute ML pass.
 
 ## Reproducible checks

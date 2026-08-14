@@ -1,0 +1,16 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../16_9_plaqueless_mountain_top_night.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "screen-canvas"
+depth = "flat"
+reference_frame = 0
+bounds = [180.0, 28.0, 920.0, 258.0]
+
+[surfaces.appearance]
+kind = "image"
+image = "../../plaques/aetherglass-aurora-16_9.png"
+inset = [0.08, 0.12, 0.08, 0.12]

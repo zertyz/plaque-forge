@@ -13,10 +13,10 @@ mod layers;
 pub mod model;
 mod portable_path;
 mod progress;
-pub mod refinement;
-mod refinement_commands;
 mod render;
 mod review;
+pub mod scene;
+mod scene_commands;
 mod segmentation;
 mod staged_output;
 mod surface;
@@ -34,14 +34,13 @@ use cli::{Cli, Command};
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Refine(args) => refinement_commands::refine(args),
-        Command::PlacePlaque(args) => refinement_commands::place_plaque(args),
+        Command::CreateScene(args) => scene_commands::create(args),
+        Command::PlaceSurface(args) => scene_commands::place_surface(args),
         Command::Analyze(args) => analyze::run(args),
-        Command::ExportMotion(args) => refinement_commands::export_motion(args),
+        Command::ExportTrajectory(args) => scene_commands::export_trajectory(args),
         Command::Segment(args) => segmentation::run(args),
         Command::Verify(args) => verify::run(args),
         Command::Review(args) => review::run(args),
-        Command::MigrateAnalysis(args) => analysis::migrate_tree(&args.root, args.apply),
         Command::Render(args) => {
             let analysis = args
                 .analysis

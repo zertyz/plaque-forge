@@ -1,0 +1,27 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../swamp-rusty-plaque.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "declared-only"
+reference_frame = 83
+bounds = [323.0, 53.0, 640.0, 125.0]
+
+[[layers]]
+id = "moss"
+role = "foreground"
+surface = "main"
+in_front_of = "main"
+artifact = "moss-soft.toml"
+affects_layout = false
+
+[[layers]]
+id = "moss-shadow"
+role = "shadow"
+surface = "main"
+in_front_of = "main"
+artifact = "moss-shadow.toml"
+affects_layout = false

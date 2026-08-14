@@ -41,7 +41,7 @@ cat > "$index_tmp" <<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><title>Plaque Forge quality reports</title>
 <style>body{font:16px system-ui,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem;background:#111;color:#ddd}a{color:#77e8ff}li{margin:.6rem 0}.ok{color:#8fda8f}.partial{color:#ffd27a}code{color:#fff}</style></head><body>
 <h1>Plaque Forge quality reports</h1>
-<p>Open an asset report for prioritized findings, visual evidence, exact refinement guidance, and render/verification provenance.</p><ul>
+<p>Open an asset report for prioritized findings, visual evidence, exact scene guidance, and render/verification provenance.</p><ul>
 HTML
 
 reports=0
@@ -60,9 +60,9 @@ for name in "${cases[@]}"; do
 
   verification="output/$name.verification.json"
   render_manifest="output/$name.hevc.render-manifest.json"
-  refinement="assets/refinements/$name/refinement.toml"
+  scene="assets/scenes/$name/scene.toml"
   args=(--analysis "$analysis")
-  [[ -f "$refinement" ]] && args+=(--refinement "$refinement")
+  [[ -f "$scene" ]] && args+=(--scene "$scene")
   [[ -f "$verification" ]] && args+=(--verification "$verification")
   [[ -f "$render_manifest" ]] && args+=(--render-manifest "$render_manifest")
   target/release/plaque-forge review "${args[@]}"

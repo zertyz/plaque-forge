@@ -10,7 +10,7 @@ usage() {
 Usage: ./scripts/reset_analysis.sh --yes
 
 Delete only Plaque Forge generated scene-analysis caches under assets/analysis/.
-Human refinements, source videos, plaque assets, rendered outputs, and the optional
+Human scenes, source videos, plaque assets, rendered outputs, and the optional
 Python runtime/model cache under /tmp/plaque-forge-python are preserved.
 
 Bounded failure diagnostics under /tmp/plaque-forge/failures are also preserved;
@@ -55,4 +55,4 @@ else
 fi
 shopt -u dotglob nullglob
 mkdir -p "$analysis_root"
-printf 'done; refinements and Python/model caches were not touched\n'
+printf 'done; scenes and Python/model caches were not touched\n'

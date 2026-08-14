@@ -3,7 +3,6 @@ set -euo pipefail
 
 root="/tmp/plaque-forge-python"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-export HOME="$root/home"
 export XDG_CACHE_HOME="$root/cache/xdg"
 export XDG_CONFIG_HOME="$root/config"
 export XDG_DATA_HOME="$root/data"

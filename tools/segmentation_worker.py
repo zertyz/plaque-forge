@@ -11,6 +11,7 @@ import sys
 import time
 import tempfile
 import warnings
+from contextlib import nullcontext
 from pathlib import Path
 
 import cv2
@@ -19,7 +20,7 @@ from PIL import Image, ImageDraw
 
 MODEL_REVISIONS = {
     "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
-    "hustvl/vitmatte-small-composition-1k": "6a58ad7646403c1df626fbd746900aec7361ea1d",
+    "hustvl/vitmatte-base-composition-1k": "bf486d01a7d9e3dbcc8400f7942835caf0eaf76e",
     "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
 }
 
@@ -157,6 +158,19 @@ def extract_frames(source, directory):
     return sorted(directory.glob("*.png"))
 
 
+def require_lossless_frames(frames, expected, stage):
+    """Fail coherently if the parent transaction or its PNG frame set vanished."""
+    if len(frames) != expected:
+        raise RuntimeError(
+            f"{stage}: lossless frame set has {len(frames)} entries, expected {expected}"
+        )
+    missing = next((path for path in frames if not path.is_file()), None)
+    if missing is not None:
+        raise RuntimeError(
+            f"{stage}: parent analysis transaction removed lossless frame {missing.name}"
+        )
+
+
 def prompt_shape(prompt, size):
     mask = Image.new("L", size, 0)
     draw = ImageDraw.Draw(mask)
@@ -182,6 +196,22 @@ def exact_seed_mask(request, frame, size):
             raise ValueError(f"seed mask dimensions differ on frame {frame}")
         return image
     return None
+
+
+def probability_from_png(path):
+    """Load 8- or 16-bit grayscale PNG without quantizing it through PIL L mode."""
+    encoded = np.asarray(Image.open(path))
+    if encoded.ndim == 3:
+        encoded = encoded[..., 0]
+    maximum = 65535.0 if encoded.dtype == np.uint16 or encoded.max(initial=0) > 255 else 255.0
+    return encoded.astype(np.float32) / maximum
+
+
+def save_probability_png(path, probability):
+    encoded = np.round(np.asarray(probability, dtype=np.float32).clip(0, 1) * 65535).astype(
+        np.uint16
+    )
+    Image.fromarray(encoded).save(path, format="PNG", compress_level=6)
 
 
 def seed_mask(request, frame, size):
@@ -301,6 +331,32 @@ def sam2_masks(request, frames, device):
     predictor = SAM2VideoPredictor.from_pretrained(
         request["model"], device=device, **model_revision(request["model"])
     )
+
+    # SAM2 unconditionally compresses its temporal memory to BF16 before storing
+    # it. That is appropriate under the documented accelerator autocast path, but
+    # CPU inference otherwise feeds BF16 memory into FP32 projection weights and
+    # fails in memory attention. Keep the CPU fallback genuinely full precision by
+    # restoring stored memory tensors to FP32 at the two points where upstream
+    # performs that compression. This is intentionally instance-local: accelerator
+    # predictors retain upstream's efficient BF16 memory contract.
+    if device.startswith("cpu"):
+        original_single_frame = predictor._run_single_frame_inference
+        original_memory_encoder = predictor._run_memory_encoder
+
+        def run_single_frame_fp32(*args, **kwargs):
+            compact, masks = original_single_frame(*args, **kwargs)
+            memory = compact.get("maskmem_features")
+            if memory is not None:
+                compact["maskmem_features"] = memory.float()
+            return compact, masks
+
+        def run_memory_encoder_fp32(*args, **kwargs):
+            memory, positions = original_memory_encoder(*args, **kwargs)
+            return memory.float(), positions
+
+        predictor._run_single_frame_inference = run_single_frame_fp32
+        predictor._run_memory_encoder = run_memory_encoder_fp32
+
     state = predictor.init_state(video_path=str(frames[0].parent), offload_video_to_cpu=True)
     prompts = request["layer"]["prompts"]
     active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
@@ -308,7 +364,16 @@ def sam2_masks(request, frames, device):
     first = min(prompt["frame"] for prompt in prompts)
     last = max(prompt["frame"] for prompt in prompts)
     objects = {}
-    with torch.inference_mode():
+    # Upstream SAM2 stores accelerator video memory in BF16. Its documented CUDA
+    # inference path uses BF16 autocast; the same contract is required on Intel XPU
+    # once more than one object exercises memory attention. CPU stays full FP32 via
+    # the instance-local storage adapters above.
+    autocast = (
+        torch.autocast(device_type=device.split(":", 1)[0], dtype=torch.bfloat16)
+        if device.startswith(("xpu", "cuda"))
+        else nullcontext()
+    )
+    with torch.inference_mode(), autocast:
         for prompt in prompts:
             object_name = prompt.get("object") or "default"
             object_id = objects.setdefault(object_name, len(objects) + 1)
@@ -397,7 +462,6 @@ def load_cutie(device):
 
 def cutie_masks(request, frames, device, guides=None):
     import torch
-    import torch.nn.functional as functional
     from cutie.inference.inference_core import InferenceCore
     from torchvision.transforms.functional import to_tensor
 
@@ -406,11 +470,8 @@ def cutie_masks(request, frames, device, guides=None):
     if device == "cpu":
         torch.set_num_threads(min(8, len(os.sched_getaffinity(0))))
     seed = min(prompt["frame"] for prompt in prompts)
-    initial = None if guides is not None else seed_mask(request, seed, Image.open(frames[0]).size)
     prompt_frames = {prompt["frame"] for prompt in prompts}
     source_width, source_height = Image.open(frames[0]).size
-    scale = min(1.0, 512.0 / max(source_width, source_height))
-    network_size = (round(source_height * scale), round(source_width * scale))
 
     model = load_cutie(device)
 
@@ -420,18 +481,14 @@ def cutie_masks(request, frames, device, guides=None):
         with torch.inference_mode():
             for position, frame in enumerate(indices):
                 image = to_tensor(Image.open(frames[frame]).convert("RGB")).to(device).float()
-                if scale < 1.0:
-                    image = functional.interpolate(
-                        image.unsqueeze(0), size=network_size, mode="bilinear", align_corners=False
-                    )[0]
-                correction = position == 0 or (guides is not None and frame in prompt_frames)
+                correction = position == 0 or frame in prompt_frames
                 if correction:
-                    source = guides[frame] >= 0.5 if guides is not None else np.asarray(initial) > 0
+                    source = (
+                        guides[frame] >= 0.5
+                        if guides is not None
+                        else np.asarray(seed_mask(request, frame, (source_width, source_height))) > 0
+                    )
                     mask = torch.from_numpy(source.astype(np.float32)).to(device)
-                    if scale < 1.0:
-                        mask = functional.interpolate(
-                            mask[None, None], size=network_size, mode="nearest"
-                        )[0, 0]
                     probability = processor.step(image, mask, objects=[1])
                 else:
                     probability = processor.step(image)
@@ -440,13 +497,6 @@ def cutie_masks(request, frames, device, guides=None):
                     probability = probability[1:].amax(dim=0)
                 elif probability.ndim == 3:
                     probability = probability[0]
-                if scale < 1.0:
-                    probability = functional.interpolate(
-                        probability[None, None],
-                        size=(source_height, source_width),
-                        mode="bilinear",
-                        align_corners=False,
-                    )[0, 0]
                 output[frame] = probability.float().clamp(0, 1).detach().cpu().numpy()
         return output
 
@@ -472,7 +522,13 @@ def refine_vitmatte(probabilities, frames, model_name, device):
         foreground = cv2.erode((probability >= 0.82).astype(np.uint8), kernel)
         if not foreground.any():
             foreground = (probability >= 0.60).astype(np.uint8)
-        support = cv2.dilate((probability >= 0.08).astype(np.uint8), kernel, iterations=3)
+        # SAM2 probabilities below roughly 0.35 are semantic uncertainty, not
+        # evidence that a pixel may be opaque. The former 0.08 support threshold
+        # often admitted most of a frame into ViTMatte's unknown trimap, allowing
+        # dark background/actors to become false solid occluders. A modest dilation
+        # around calibrated semantic support still leaves room for translucent
+        # hair, vines, and web strands without filling their holes.
+        support = cv2.dilate((probability >= 0.35).astype(np.uint8), kernel, iterations=3)
         trimap = np.zeros(probability.shape, dtype=np.uint8)
         trimap[support > 0] = 128
         trimap[foreground > 0] = 255
@@ -502,11 +558,13 @@ def refine_vitmatte(probabilities, frames, model_name, device):
 
 
 def dense_flow(source, target):
-    scale = 0.25
+    # Half-resolution variational flow preserves narrow vines/webs far better than
+    # the former quarter-resolution FAST preset while keeping this post-pass bounded.
+    scale = 0.5
     size = (max(1, round(source.shape[1] * scale)), max(1, round(source.shape[0] * scale)))
     source_small = cv2.resize(source, size, interpolation=cv2.INTER_AREA)
     target_small = cv2.resize(target, size, interpolation=cv2.INTER_AREA)
-    estimator = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_FAST)
+    estimator = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
     flow = estimator.calc(source_small, target_small, None)
     flow = cv2.resize(flow, (source.shape[1], source.shape[0]), interpolation=cv2.INTER_LINEAR)
     flow[..., 0] /= scale
@@ -626,7 +684,7 @@ def cached_sam2(request, frames, requested_device, cache_root):
         paths = sorted(mask_root.glob("*.png"))
         if metadata.get("key") == sam2_cache_key(request) and len(paths) == len(frames):
             probabilities = [
-                np.asarray(Image.open(path).convert("L"), dtype=np.float32) / 255 for path in paths
+                probability_from_png(path) for path in paths
             ]
             print("SAM 2: checkpoint", file=sys.stderr)
             return probabilities, metadata["version"], metadata["device"]
@@ -636,9 +694,7 @@ def cached_sam2(request, frames, requested_device, cache_root):
     )
     mask_root.mkdir(parents=True, exist_ok=True)
     for frame, probability in enumerate(probabilities):
-        Image.fromarray(np.round(np.asarray(probability).clip(0, 1) * 255).astype(np.uint8)).save(
-            mask_root / f"{frame:06}.png"
-        )
+        save_probability_png(mask_root / f"{frame:06}.png", probability)
     metadata_path.write_text(
         json.dumps(
             {"key": sam2_cache_key(request), "version": version, "device": device}, indent=2
@@ -651,6 +707,8 @@ def cached_sam2(request, frames, requested_device, cache_root):
 
 def model_masks(request, frames, requested_device, cache_root):
     backend = request["backend"]
+    expected_frames = request["source"]["frames"]
+    require_lossless_frames(frames, expected_frames, "model startup")
     if backend == "sam2-vitmatte":
         probabilities, version, device = cached_sam2(
             request, frames, requested_device, cache_root
@@ -668,28 +726,68 @@ def model_masks(request, frames, requested_device, cache_root):
         sam2, sam2_version, sam2_device = cached_sam2(
             request, frames, requested_device, cache_root
         )
+        require_lossless_frames(frames, expected_frames, "Cutie startup")
         (cutie, cutie_version), cutie_device = run_component(
             "Cutie",
             requested_device,
+            # SAM2 turns sparse points/boxes into semantic per-frame guides.  Feeding
+            # those guides into Cutie is materially better than asking Cutie to track
+            # the coarse prompt boxes themselves: it preserves disconnected objects,
+            # corrects every authored prompt frame, and still lets the independent
+            # sequence scorer choose SAM2 when Cutie's temporal memory is worse.
             lambda candidate: cutie_masks(request, frames, candidate, guides=sam2),
-            allow_xpu=True,
+            # Short XPU smoke tests pass, but full-resolution temporal memory can
+            # terminate the Level Zero device. CPU runs the identical weights and
+            # arithmetic contract without first wasting work on a doomed XPU pass.
+            allow_xpu=False,
         )
-        probabilities = [
-            (0.60 * first + 0.40 * second).astype(np.float32)
-            for first, second in zip(sam2, cutie)
-        ]
+        # Repeated boxes for one authored foreground object are a spatial contract,
+        # not merely loose hints.  Constrain both independent candidates before
+        # scoring so a temporally stable background leak cannot win selection.
+        sam2 = constrain_to_authored_motion_envelope(request, sam2)
+        cutie = constrain_to_authored_motion_envelope(request, cutie)
+        probabilities, selection = select_sequence_candidate(request, frames, sam2, cutie)
         version = f"{sam2_version}@{sam2_device}+{cutie_version}@{cutie_device}"
+        version += f"+selected-{selection}"
     else:
         raise ValueError(f"unsupported backend: {backend}")
-    probabilities, matte_device = run_component(
-        "ViTMatte",
-        requested_device,
-        lambda candidate: refine_vitmatte(
-            probabilities, frames, "hustvl/vitmatte-small-composition-1k", candidate
-        ),
-    )
+    probabilities = constrain_to_authored_motion_envelope(request, probabilities)
+    role = request["layer"].get("role")
+    if role == "writing-surface":
+        # A writing-surface mask represents categorical material membership, not
+        # optical opacity. Feeding an opaque, low-contrast iron/cloud face through
+        # an image-matting model can legitimately return a near-zero alpha even
+        # though SAM2 identified the semantic object correctly. Preserve the
+        # strongest selected semantic sequence for tracking/depth support; soft
+        # alpha matting remains mandatory for foreground occluders below.
+        probabilities = [
+            (np.asarray(probability, dtype=np.float32) >= 0.5).astype(np.float32)
+            for probability in probabilities
+        ]
+        matte_version = "categorical-material-support-p50"
+        print("ViTMatte: skipped for categorical writing-surface membership", file=sys.stderr)
+    else:
+        require_lossless_frames(frames, expected_frames, "ViTMatte startup")
+        probabilities, matte_device = run_component(
+            "ViTMatte",
+            requested_device,
+            lambda candidate: refine_vitmatte(
+                probabilities, frames, "hustvl/vitmatte-base-composition-1k", candidate
+            ),
+        )
+        matte_version = f"vitmatte-{package_version('transformers')}@{matte_device}"
+    probabilities = constrain_to_authored_motion_envelope(request, probabilities)
+    probabilities = preserve_authored_prompt_evidence(request, probabilities)
+    require_lossless_frames(frames, expected_frames, "temporal stabilization startup")
     started = time.monotonic()
-    probabilities = stabilize_alpha(probabilities, frames)
+    # Semantic material membership is already produced independently for every
+    # frame by SAM2/Cutie. Alpha blending it across time would blur boundaries and
+    # reintroduce non-membership. Optical alpha stabilization is for foreground
+    # translucency only.
+    if role != "writing-surface":
+        probabilities = stabilize_alpha(probabilities, frames)
+    probabilities = constrain_to_authored_motion_envelope(request, probabilities)
+    probabilities = preserve_authored_prompt_evidence(request, probabilities)
     if request["layer"].get("active_frames"):
         active_start, active_end = request["layer"]["active_frames"]
         empty = np.zeros_like(probabilities[0])
@@ -698,9 +796,144 @@ def model_masks(request, frames, requested_device, cache_root):
             for frame, probability in enumerate(probabilities)
         ]
     print(f"Temporal stabilization: {time.monotonic() - started:.1f}s", file=sys.stderr)
-    return probabilities, (
-        f"{version}+vitmatte-{package_version('transformers')}@{matte_device}"
+    return probabilities, f"{version}+{matte_version}"
+
+
+def constrain_to_authored_motion_envelope(request, probabilities):
+    """Reject remote foreground leakage using the authored moving-object boxes.
+
+    SAM2 boxes ordinarily describe the complete target object.  When the same
+    named foreground object has two or more boxed corrections, their interpolated
+    envelope is therefore authoritative spatial evidence.  Automatic discovery
+    deliberately gives independent seeds distinct object names, so it is not
+    accidentally pinned to one seed location by this authored-object contract.
+    """
+    layer = request["layer"]
+    if layer.get("role") != "foreground":
+        return probabilities
+    prompts = [prompt for prompt in layer["prompts"] if prompt.get("box_bounds")]
+    names = {prompt.get("object") for prompt in prompts}
+    if len(prompts) < 2 or len(names) != 1:
+        return probabilities
+
+    prompts.sort(key=lambda prompt: prompt["frame"])
+    height, width = np.asarray(probabilities[0]).shape
+
+    def box_at(frame):
+        if frame <= prompts[0]["frame"]:
+            return np.asarray(prompts[0]["box_bounds"], dtype=np.float64)
+        if frame >= prompts[-1]["frame"]:
+            return np.asarray(prompts[-1]["box_bounds"], dtype=np.float64)
+        right = next(index for index, prompt in enumerate(prompts) if prompt["frame"] >= frame)
+        left = right - 1
+        before = prompts[left]
+        after = prompts[right]
+        span = max(1, after["frame"] - before["frame"])
+        weight = (frame - before["frame"]) / span
+        return (
+            np.asarray(before["box_bounds"], dtype=np.float64) * (1.0 - weight)
+            + np.asarray(after["box_bounds"], dtype=np.float64) * weight
+        )
+
+    constrained = []
+    for frame, probability in enumerate(probabilities):
+        probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
+        x, y, box_width, box_height = box_at(frame)
+        margin = max(20.0, 0.10 * max(box_width, box_height))
+        left = max(0, int(np.floor(x - margin)))
+        top = max(0, int(np.floor(y - margin)))
+        right = min(width, int(np.ceil(x + box_width + margin)))
+        bottom = min(height, int(np.ceil(y + box_height + margin)))
+        bounded = np.zeros_like(probability)
+        bounded[top:bottom, left:right] = probability[top:bottom, left:right]
+        constrained.append(bounded)
+    return constrained
+
+
+def preserve_authored_prompt_evidence(request, probabilities):
+    """Keep explicit semantic supervision true through matting and smoothing.
+
+    SAM2 consumes these points before propagation, but a later trimap crop or
+    temporal blend can otherwise erase a thin vine/web exactly at its authored
+    seed.  A tiny feathered guard is local enough not to invent an object, while
+    negative points remain exact background constraints.
+    """
+    output = [np.asarray(value, dtype=np.float32).clip(0, 1).copy() for value in probabilities]
+    for prompt in request["layer"]["prompts"]:
+        probability = output[prompt["frame"]]
+        height, width = probability.shape
+        for x, y in prompt.get("positive_points", []):
+            x = int(round(np.clip(x, 0, width - 1)))
+            y = int(round(np.clip(y, 0, height - 1)))
+            cv2.circle(probability, (x, y), 2, 1.0, thickness=-1, lineType=cv2.LINE_AA)
+        for x, y in prompt.get("negative_points", []):
+            x = int(round(np.clip(x, 0, width - 1)))
+            y = int(round(np.clip(y, 0, height - 1)))
+            cv2.circle(probability, (x, y), 2, 0.0, thickness=-1, lineType=cv2.LINE_AA)
+    return output
+
+
+def sequence_candidate_score(request, frames, probabilities):
+    """Score a complete candidate independently; never average incompatible masks."""
+    active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
+    prompt_score = 0.0
+    prompt_count = 0
+    for prompt in request["layer"]["prompts"]:
+        probability = probabilities[prompt["frame"]]
+        height, width = probability.shape
+        for label, points in ((1.0, prompt.get("positive_points", [])), (0.0, prompt.get("negative_points", []))):
+            for x, y in points:
+                x = int(round(np.clip(x, 0, width - 1)))
+                y = int(round(np.clip(y, 0, height - 1)))
+                prompt_score += 1.0 - abs(float(probability[y, x]) - label)
+                prompt_count += 1
+        seed = exact_seed_mask(request, prompt["frame"], (width, height))
+        if seed is not None:
+            region = np.asarray(seed) > 24
+            if region.any():
+                prompt_score += float(np.mean(probability[region]))
+                prompt_count += 1
+
+    prompt_score = prompt_score / max(prompt_count, 1)
+    temporal_scores = []
+    gray = [cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in frames]
+    stride = max(1, (active_end - active_start + 1) // 24)
+    for frame in range(active_start, active_end, stride):
+        target = min(active_end, frame + stride)
+        if target == frame:
+            continue
+        forward = dense_flow(gray[frame], gray[target])
+        backward = dense_flow(gray[target], gray[frame])
+        warped, confidence = warp_alpha(
+            probabilities[frame], gray[frame], gray[target], forward, backward
+        )
+        reliable = confidence > 0.35
+        if reliable.any():
+            temporal_scores.append(
+                1.0 - float(np.mean(np.abs(warped[reliable] - probabilities[target][reliable])))
+            )
+    temporal_score = float(np.mean(temporal_scores)) if temporal_scores else 0.0
+    areas = np.asarray(
+        [np.mean(probabilities[frame] > 0.08) for frame in range(active_start, active_end + 1)]
     )
+    area_stability = float(np.exp(-np.std(np.diff(areas)) / max(np.mean(areas), 1e-4)))
+    return 0.55 * prompt_score + 0.35 * temporal_score + 0.10 * area_stability
+
+
+def select_sequence_candidate(request, frames, sam2, cutie):
+    candidates = {"sam2": sam2, "cutie": cutie}
+    scores = {
+        name: sequence_candidate_score(request, frames, values)
+        for name, values in candidates.items()
+    }
+    selected = max(scores, key=scores.get)
+    print(
+        "Candidate selection: "
+        + ", ".join(f"{name}={score:.4f}" for name, score in scores.items())
+        + f", selected={selected}",
+        file=sys.stderr,
+    )
+    return candidates[selected], selected
 
 
 def verify_torch_device(device):
@@ -732,10 +965,16 @@ def verify_sam2_device(device):
                 "prompts": [
                     {
                         "frame": 0,
-                        "object": "smoke",
+                        "object": "smoke-a",
                         "positive_points": [[32.0, 32.0]],
                         "negative_points": [[4.0, 4.0]],
-                    }
+                    },
+                    {
+                        "frame": 1,
+                        "object": "smoke-b",
+                        "positive_points": [[36.0, 32.0]],
+                        "negative_points": [[4.0, 4.0]],
+                    },
                 ],
             },
         }
@@ -767,7 +1006,7 @@ def verify_vitmatte_device(device):
     import torch
     from transformers import VitMatteForImageMatting, VitMatteImageProcessor
 
-    model_name = "hustvl/vitmatte-small-composition-1k"
+    model_name = "hustvl/vitmatte-base-composition-1k"
     revision = model_revision(model_name)
     processor = VitMatteImageProcessor.from_pretrained(
         model_name, local_files_only=True, **revision
@@ -831,7 +1070,7 @@ def verify_runtime():
 
 
 def write_output(request, output, probabilities, version):
-    mask_dir = output / "masks"
+    mask_dir = output
     mask_dir.mkdir(parents=True, exist_ok=True)
     confidences = []
     coverages = []
@@ -844,22 +1083,25 @@ def write_output(request, output, probabilities, version):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
         if not active_start <= frame <= active_end:
             probability = np.zeros_like(probability)
-        encoded = np.round(probability * 255).astype(np.uint8)
+        encoded = np.round(probability * 65535).astype(np.uint16)
+        validation_alpha = np.round(encoded.astype(np.float64) * 255 / 65535).astype(np.uint8)
         support = probability[encoded > 0]
         confidences.append(
             float(np.mean(2.0 * np.abs(support - 0.5))) if support.size else 0.0
         )
         if active_start <= frame <= active_end:
-            coverages.append(float(np.count_nonzero(encoded > 8) / encoded.size))
-        soft_edge_pixels += int(np.count_nonzero((encoded > 0) & (encoded < 255)))
-        Image.fromarray(encoded, "L").save(mask_dir / f"{frame:06}.png")
+            coverages.append(float(np.count_nonzero(validation_alpha > 8) / encoded.size))
+        soft_edge_pixels += int(
+            np.count_nonzero((validation_alpha > 0) & (validation_alpha < 255))
+        )
+        save_probability_png(mask_dir / f"{frame:06}.png", probability)
     backend = request["backend"]
     model = request["model"]
     artifact = (
-        "schema_version = 2\n"
+        'format = "plaque-forge.layer/1"\n'
         'kind = "alpha-sequence"\n'
         'coordinates = "source-pixels"\n'
-        'pattern = "masks/%06d.png"\n'
+        'pattern = "%06d.png"\n'
         f"first_frame = 0\nlast_frame = {len(probabilities) - 1}\n"
         f"affects_layout = {str(request['layer']['affects_layout']).lower()}\n\n"
         "[generator]\n"
@@ -879,7 +1121,7 @@ def write_output(request, output, probabilities, version):
     )
     (output / "artifact.toml").write_text(artifact, encoding="utf-8")
     result = {
-        "schema_version": 2,
+        "format": "plaque-forge.segmentation-result/1",
         "backend": backend,
         "model": model,
         "version": version,
@@ -935,7 +1177,7 @@ def main():
         file=sys.stderr,
         flush=True,
     )
-    if request.get("schema_version") != 2:
+    if request.get("format") != "plaque-forge.segmentation-request/1":
         raise ValueError("unsupported worker protocol")
     if file_sha256(request["source"]["path"]) != request["source"]["sha256"]:
         raise ValueError("source changed after the segmentation request was created")

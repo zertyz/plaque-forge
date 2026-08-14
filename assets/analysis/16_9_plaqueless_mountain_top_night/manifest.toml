@@ -1,15 +1,16 @@
 # Generated analysis cache. Regenerate with analyze.
-schema_version = 2
+format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
-analyzer_build = "analysis-v9"
+analyzer_build = "surface-analysis-v2"
 reference_frame = 0
 canonical_width = 920
 canonical_height = 258
-motion_model = "declared-screen-fixed"
+surface_space = "screen-canvas"
+trajectory_model = "screen-canvas"
 loop_closed = false
 has_occluder = false
-occlusion_mode = "none"
+occlusion_mode = "flat"
 automatic_ml_foreground = false
 analysis_gate_passed = true
 
@@ -32,29 +33,30 @@ height = 258.0
 backend = "sam2-cutie-vitmatte"
 model = "facebook/sam2.1-hiera-large"
 device = "auto"
+worker_sha256 = "eae50516c7549a217484c46d2b894b2053c1cd884c1dc81d85fb3caef3257850"
+runtime_sha256 = "cadd6ac4ea4e4c0b2eca1ecff64b3044d904e50e6cb9776af7fa2905d7969652"
 
 [injected_surface]
 path = "injected-surface.png"
 source_sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"
-motion = "screen"
 
-[refinements]
-plaque_id = "main"
+[scenes]
+surface_id = "main"
 locked_keyframes = 0
 guide_keyframes = 0
 
-[refinements.manifest]
-path = "../../refinements/16_9_plaqueless_mountain_top_night/refinement.toml"
-sha256 = "7dd65493ace95cb4cc6147fe4b4bd384ba291c923f4a1e15176d1a343254728c"
-semantic_sha256 = "07d12d8180530c0b5c155ca41f125378479501f989c4b7d3bd1dc1630169232f"
+[scenes.manifest]
+path = "../../scenes/16_9_plaqueless_mountain_top_night/scene.toml"
+sha256 = "215b91c4e784e65f31fbe6e9b068a62b01f59d94537fa33de7a91b8e2335c1f0"
+semantic_sha256 = "12e3e77739c5601fa3971c4dacd8a1ca69b2f96146e7e4a26bef508b6d18c631"
 
-[refinements.surface_asset]
+[scenes.surface_asset]
 path = "../../plaques/aetherglass-aurora-16_9.png"
 sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"
 
 [confidence]
 plaque_detection = 0.92
-motion = 0.98
+motion = 1.0
 extraction = 0.756727334007415
 occlusion = 0.8
-overall = 0.8595295814434439
+overall = 0.8638817690794511

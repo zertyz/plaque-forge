@@ -13,7 +13,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
-use crate::{cli::ReviewArgs, refinement::Refinement};
+use crate::{cli::ReviewArgs, scene::Scene};
 
 #[derive(Debug, Clone)]
 struct FocusItem {
@@ -31,7 +31,7 @@ struct ReportInputs<'a> {
     candidates: Option<&'a Value>,
     verification: Option<&'a Value>,
     render_manifest: Option<&'a Value>,
-    refinement: Option<&'a (PathBuf, Refinement)>,
+    scene: Option<&'a (PathBuf, Scene)>,
     focus: &'a [FocusItem],
 }
 
@@ -62,8 +62,8 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         Some(path) => Some(read_json(path)?),
         None => None,
     };
-    let refinement = match args.refinement.as_deref() {
-        Some(path) if path.is_file() => Some((path.to_path_buf(), Refinement::load(path)?)),
+    let scene = match args.scene.as_deref() {
+        Some(path) if path.is_file() => Some((path.to_path_buf(), Scene::load(path)?)),
         _ => None,
     };
 
@@ -77,14 +77,14 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         candidates: candidates.as_ref(),
         verification: verification.as_ref(),
         render_manifest: render_manifest.as_ref(),
-        refinement: refinement.as_ref(),
+        scene: scene.as_ref(),
         focus: &focus,
     });
     let text = build_text_summary(
         &text_output,
         &analysis_root,
         &summary,
-        refinement.as_ref(),
+        scene.as_ref(),
         &focus,
     );
     let staged = crate::staged_output::create(&output)?;
@@ -128,21 +128,6 @@ fn read_json_optional(path: &Path) -> Result<Option<Value>> {
 }
 
 fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> {
-    if verification
-        .and_then(|report| report.get("passed"))
-        .and_then(Value::as_bool)
-        == Some(true)
-    {
-        let overall = verification.and_then(|report| number(report, "overall"));
-        return vec![FocusItem {
-            title: "Rendered result passes exhaustive verification",
-            evidence: overall
-                .map(|score| format!("lossless rendered-video verification passed at {score:.3}"))
-                .unwrap_or_else(|| "lossless rendered-video verification passed".to_string()),
-            action: "Proceed to visual typography/effect tuning. Low raw confidence can remain useful context for low-texture or explicitly refined surfaces, but is not an actionable blocker when the current rendered result passes.",
-        }];
-    }
-
     let mut items = Vec::new();
     let candidate = number(summary, "candidate_confidence");
     let motion = number(summary, "motion_confidence");
@@ -153,7 +138,7 @@ fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> 
         items.push(FocusItem {
             title: "Analysis stopped before the final quality summary",
             evidence: "only early-stage diagnostics were produced".to_string(),
-            action: "Start with the selected-surface/candidate evidence below. If selection is correct, rerun after addressing the explicit analyzer error rather than inventing downstream refinements.",
+            action: "Start with the selected-surface/candidate evidence below. If selection is correct, rerun after addressing the explicit analyzer error rather than inventing downstream scenes.",
         });
     }
 
@@ -161,14 +146,14 @@ fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> 
         items.push(FocusItem {
             title: "Writing-surface selection",
             evidence: format!("candidate confidence {:.3}", candidate.unwrap_or_default()),
-            action: "Confirm the intended surface in candidate.png. If it is wrong, edit only reference_frame/bounds or writable_region in refinement.toml.",
+            action: "Confirm the intended surface in candidate.png. If it is wrong, edit only reference_frame/bounds or writable_region in scene.toml.",
         });
     }
     if motion.is_some_and(|value| value < 0.75) {
         items.push(FocusItem {
             title: "Motion tracking",
             evidence: format!("tracking confidence {:.3}", motion.unwrap_or_default()),
-            action: "Inspect tracking-contact-sheet.jpg. Add sparse [[plaques.motion]] anchors only at frames where the tracked surface is visibly wrong.",
+            action: "Inspect tracking-contact-sheet.png. Add sparse [[surfaces.anchors]] measurements only at frames where the tracked surface is visibly wrong.",
         });
     }
     if structural.is_some_and(|value| value < 0.65) {
@@ -188,15 +173,42 @@ fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> 
 
     if let Some(verification) = verification {
         let tracking = number(verification, "tracking_lock");
+        let title_plane = number(verification, "rendered_title_plane_lock");
         let typography = number(verification, "typography_fit");
         let temporal = number(verification, "temporal_stability");
         if tracking.is_some_and(|value| value < 0.95)
             && !items.iter().any(|item| item.title == "Motion tracking")
         {
+            let supported = verification
+                .get("source_flow_uses_writing_surface_support")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let p95 = number(verification, "source_flow_p95_error_pixels");
+            let p99 = number(verification, "source_flow_p99_error_pixels");
+            let pairs = verification
+                .get("source_flow_observed_pairs")
+                .and_then(Value::as_u64)
+                .unwrap_or_default();
             items.push(FocusItem {
                 title: "Rendered tracking lock",
-                evidence: format!("verification tracking score {:.3}", tracking.unwrap_or_default()),
-                action: "Compare the rendered video against tracking-contact-sheet.jpg before changing typography.",
+                evidence: format!(
+                    "verification tracking score {:.3}; independent {} p95 {}, p99 {} across {pairs} observations",
+                    tracking.unwrap_or_default(),
+                    if supported { "surface-supported material flow" } else { "source flow" },
+                    display_pixels(p95),
+                    display_pixels(p99),
+                ),
+                action: "Inspect the independent source-flow worst frame and tracking-contact-sheet.png before changing typography.",
+            });
+        }
+        if title_plane.is_some_and(|value| value < 0.96) {
+            items.push(FocusItem {
+                title: "Rendered title-to-plaque lock",
+                evidence: format!(
+                    "source-subtracted title-plane score {:.3}",
+                    title_plane.unwrap_or_default()
+                ),
+                action: "Inspect the reported worst frame: the actual rendered title does not remain fixed in expected plaque coordinates.",
             });
         }
         if typography.is_some_and(|value| value < 0.95) {
@@ -216,10 +228,23 @@ fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> 
     }
 
     if items.is_empty() {
+        let verification_passed = verification
+            .and_then(|report| report.get("passed"))
+            .and_then(Value::as_bool)
+            == Some(true);
         items.push(FocusItem {
-            title: "No obvious scene-analysis blocker",
-            evidence: "the available analysis/verification metrics are above the triage thresholds".to_string(),
-            action: "Proceed to visual typography/effect tuning. Human refinement is optional unless you can see a defect that metrics missed.",
+            title: if verification_passed {
+                "Automated checks pass; visual review remains required"
+            } else {
+                "No obvious automated scene-analysis blocker"
+            },
+            evidence: if verification_passed {
+                "independent source evidence and rendered-video checks meet their thresholds; these checks cannot certify artistic judgment"
+            } else {
+                "the available analysis/verification metrics are above the triage thresholds"
+            }
+            .to_string(),
+            action: "Inspect motion-relative contact sheets and the rendered video for plaque drift, depth inversions, matte lag, and timid or awkward type before accepting the asset.",
         });
     }
     items
@@ -235,7 +260,7 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
         candidates,
         verification,
         render_manifest,
-        refinement,
+        scene,
         focus,
     } = inputs;
     let mut body = String::new();
@@ -292,9 +317,9 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
     );
     body.push_str("</div>");
 
-    append_actionable_commands(&mut body, report_path, analysis_root, refinement);
+    append_actionable_commands(&mut body, report_path, analysis_root, scene);
     append_ml_status(&mut body, summary);
-    append_refinement_owned(&mut body, report_path, refinement);
+    append_scene_owned(&mut body, report_path, scene);
     append_candidate_ranking(&mut body, candidates);
     append_coordinate_helper(
         &mut body,
@@ -333,6 +358,7 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
         for (label, key) in [
             ("Overall", "overall"),
             ("Tracking lock", "tracking_lock"),
+            ("Rendered title-plane lock", "rendered_title_plane_lock"),
             ("Scene integrity", "scene_integrity"),
             ("Typography fit", "typography_fit"),
             ("Typography validity", "typography_validity"),
@@ -345,6 +371,98 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
             metric(&mut body, label, number(verification, key), green, amber);
         }
         body.push_str("</div>");
+        let supported = verification
+            .get("source_flow_uses_writing_surface_support")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let supported_frames = verification
+            .get("source_flow_writing_surface_supported_frames")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let fallback_frames = verification
+            .get("source_flow_writing_surface_fallback_frames")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        body.push_str(if supported {
+            "<h3>Independent source-motion evidence</h3><p>This is measured from lossless decoded source material at consecutive and longer frame baselines. A writing-surface matte constrains membership only on frames whose area and overlap agree with the independently predicted rigid plane; rejected/dropout frames fall back to foreground-aware plaque-region evidence. The matte is never mistaken for four-corner geometry. This neither trusts analyzer residuals nor registers the rendered title.</p><div class=metrics>"
+        } else {
+            "<h3>Independent source-motion evidence</h3><p>This is measured from lossless decoded source pixels at consecutive and longer frame baselines. It neither trusts the analyzer's residuals nor registers the rendered title.</p><div class=metrics>"
+        });
+        metric_neutral(
+            &mut body,
+            "Observed frame pairs",
+            verification
+                .get("source_flow_observed_pairs")
+                .and_then(Value::as_u64)
+                .map(|value| value as f64),
+        );
+        if supported_frames + fallback_frames > 0 {
+            metric_neutral(
+                &mut body,
+                "Support-qualified frames",
+                Some(supported_frames as f64),
+            );
+            metric_neutral(
+                &mut body,
+                "Support-fallback frames",
+                Some(fallback_frames as f64),
+            );
+        }
+        for (label, key) in [
+            ("Median error (px)", "source_flow_median_error_pixels"),
+            ("p95 error (px)", "source_flow_p95_error_pixels"),
+            ("p99 error (px)", "source_flow_p99_error_pixels"),
+            (
+                "Median inlier fraction",
+                "source_flow_median_inlier_fraction",
+            ),
+            (
+                "Median spatial coverage",
+                "source_flow_median_spatial_coverage",
+            ),
+        ] {
+            metric_neutral(&mut body, label, number(verification, key));
+        }
+        metric_neutral(
+            &mut body,
+            "Worst frame",
+            verification
+                .get("source_flow_worst_frame")
+                .and_then(Value::as_u64)
+                .map(|value| value as f64),
+        );
+        body.push_str("</div>");
+        body.push_str("<h4>Residual by temporal baseline</h4><p>Lag 1 catches a one-frame slip; lags 6 and 12 expose a title that drifts slowly or remains screen-fixed while the plaque moves.</p><table><thead><tr><th>Lag</th><th>Observed pairs</th><th>p95 error</th><th>p99 error</th></tr></thead><tbody>");
+        for lag in [1, 6, 12] {
+            let pairs = verification
+                .get(format!("source_flow_lag_{lag}_observed_pairs"))
+                .and_then(Value::as_u64)
+                .unwrap_or_default();
+            let p95 = number(
+                verification,
+                &format!("source_flow_lag_{lag}_p95_error_pixels"),
+            );
+            let p99 = number(
+                verification,
+                &format!("source_flow_lag_{lag}_p99_error_pixels"),
+            );
+            body.push_str(&format!(
+                "<tr><td>{lag} frame{}</td><td>{pairs}</td><td>{}</td><td>{}</td></tr>",
+                if lag == 1 { "" } else { "s" },
+                escape_html(&display_pixels(p95)),
+                escape_html(&display_pixels(p99)),
+            ));
+        }
+        body.push_str("</tbody></table>");
+        if let Some(basis) = verification
+            .get("tracking_lock_basis")
+            .and_then(Value::as_str)
+        {
+            body.push_str(&format!(
+                "<p><strong>Tracking decision basis:</strong> <code>{}</code></p>",
+                escape_html(basis)
+            ));
+        }
         append_string_array(
             &mut body,
             "Verification failures",
@@ -368,7 +486,7 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
     diagnostic_image(
         &mut body,
         report_path,
-        diagnostics.join("tracking-contact-sheet.jpg"),
+        diagnostics.join("tracking-contact-sheet.png"),
         "Tracking across time",
         "Look for drift, scale jumps, or perspective errors. Correct only the frames that are actually wrong.",
     );
@@ -419,7 +537,7 @@ fn append_actionable_commands(
     body: &mut String,
     report_path: &Path,
     analysis_root: &Path,
-    refinement: Option<&(PathBuf, Refinement)>,
+    scene: Option<&(PathBuf, Scene)>,
 ) {
     let Some(asset) = analysis_asset_stem(analysis_root) else {
         return;
@@ -432,14 +550,14 @@ fn append_actionable_commands(
         "./scripts/review_assets.sh {asset}\n"
     )));
     body.push_str("</pre>");
-    if let Some((path, _)) = refinement {
+    if let Some((path, _)) = scene {
         body.push_str(&format!(
             "<p>Human intent file: <code>{}</code>. Dense generated tracks/masks should not be hand-edited.</p>",
             escape_html(&portable_display(report_path, path))
         ));
     } else {
         body.push_str(&format!(
-            "<p>No refinement exists. Only create one when the automatic result is visibly wrong: <code>target/release/plaque-forge refine --input assets/{}.mp4</code>.</p>",
+            "<p>No scene exists. Only create one when the automatic result is visibly wrong: <code>target/release/plaque-forge create-scene --input assets/{}.mp4</code>.</p>",
             escape_html(&asset)
         ));
     }
@@ -458,26 +576,22 @@ fn append_ml_status(body: &mut String, summary: &Value) {
     if automatic {
         body.push_str("<p><strong>Python ML was used automatically</strong> to refine foreground masks after Rust detected a crossing. Inspect <code>ml-foreground/</code> for generated provenance and <code>./scripts/ml_status.sh</code> for runtime history.</p>");
     } else if has_occluder {
-        body.push_str("<p>Foreground was detected but this cache does not record automatic ML refinement. If the crossing looks poor, rerun analysis with the ML runtime installed and enabled, then inspect <code>./scripts/ml_status.sh</code>.</p>");
+        body.push_str("<p>Foreground was detected but this cache does not record automatic ML scene. If the crossing looks poor, rerun analysis with the ML runtime installed and enabled, then inspect <code>./scripts/ml_status.sh</code>.</p>");
     } else {
-        body.push_str("<p>No automatic ML foreground pass was needed for this analysis. Authored prompted layers, when present, are reported through refinement provenance.</p>");
+        body.push_str("<p>No automatic ML foreground pass was needed for this analysis. Authored prompted layers, when present, are reported through scene provenance.</p>");
     }
 }
 
-fn append_refinement_owned(
-    body: &mut String,
-    report_path: &Path,
-    refinement: Option<&(PathBuf, Refinement)>,
-) {
-    let Some((path, refinement)) = refinement else {
+fn append_scene_owned(body: &mut String, report_path: &Path, scene: Option<&(PathBuf, Scene)>) {
+    let Some((path, scene)) = scene else {
         return;
     };
-    let selected = refinement.select_plaque(None).ok();
+    let selected = scene.select_surface(None).ok();
     body.push_str("<h2>Current human intent</h2>");
     body.push_str(&format!(
         "<p><code>{}</code> &middot; schema {}.</p>",
         escape_html(&portable_display(report_path, path)),
-        refinement.schema_version,
+        scene.format,
     ));
     if let Some(plaque) = selected {
         let shape = plaque
@@ -489,17 +603,17 @@ fn append_refinement_owned(
             "<p>Plaque <code>{}</code>; {}; {} sparse motion anchor(s); {} plaque prompt(s).</p>",
             escape_html(&plaque.id),
             escape_html(&shape),
-            plaque.motion.len(),
+            plaque.anchors.len(),
             plaque.prompts.len(),
         ));
-        let prompted_layers = refinement
+        let prompted_layers = scene
             .layers
             .iter()
-            .filter(|layer| layer.plaque == plaque.id && !layer.prompts.is_empty())
+            .filter(|layer| layer.surface == plaque.id && !layer.prompts.is_empty())
             .count();
         if prompted_layers > 0 {
             body.push_str(&format!(
-                "<p>{prompted_layers} foreground/layer refinement(s) contain sparse prompts.</p>"
+                "<p>{prompted_layers} foreground/layer scene(s) contain sparse prompts.</p>"
             ));
         }
     }
@@ -595,7 +709,7 @@ fn append_coordinate_helper(body: &mut String, report_path: &Path, path: PathBuf
     }}
     if (points.length === 4) {{
       const q = points.map(p => `[${{p.nx.toFixed(5)}}, ${{p.ny.toFixed(5)}}]`).join(', ');
-      text += `\n# Sparse motion correction\n[[plaques.motion]]\nframe = ${{img.dataset.frame}}\ncoordinates = "normalized"\nquad = [${{q}}]\nlocked = true\n`;
+      text += `\n# Sparse physical-plane anchor\n[[surfaces.anchors]]\nframe = ${{img.dataset.frame}}\ncoordinates = "normalized"\nquad = [${{q}}]\nlocked = true\n`;
     }} else if (points.length > 0) {{
       text += `\n${{points.length}}/4 motion-quad points selected.`;
     }}
@@ -622,7 +736,7 @@ fn build_text_summary(
     report_path: &Path,
     analysis_root: &Path,
     summary: &Value,
-    refinement: Option<&(PathBuf, Refinement)>,
+    scene: Option<&(PathBuf, Scene)>,
     focus: &[FocusItem],
 ) -> String {
     let mut output = format!(
@@ -641,18 +755,24 @@ fn build_text_summary(
             item.action,
         ));
     }
-    if let Some((path, refinement)) = refinement {
+    if let Some((path, scene)) = scene {
         output.push_str(&format!(
-            "\nRefinement: {} (schema {})\n",
+            "\nScene: {} (schema {})\n",
             portable_display(report_path, path),
-            refinement.schema_version
+            scene.format
         ));
-        if let Ok(plaque) = refinement.select_plaque(None) {
+        if let Ok(plaque) = scene.select_surface(None) {
+            let layer_prompts = scene
+                .layers
+                .iter()
+                .filter(|layer| layer.surface == plaque.id)
+                .map(|layer| layer.prompts.len())
+                .sum::<usize>();
             output.push_str(&format!(
-                "Selected plaque: {}; sparse motion anchors: {}; plaque prompts: {}\n",
+                "Selected surface: {}; sparse trajectory anchors: {}; segmentation prompts: {}\n",
                 plaque.id,
-                plaque.motion.len(),
-                plaque.prompts.len(),
+                plaque.anchors.len(),
+                plaque.prompts.len() + layer_prompts,
             ));
         }
     }
@@ -664,14 +784,18 @@ fn build_text_summary(
         .get("has_occluder")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let prompted_ml =
+        scene.is_some_and(|(_, scene)| scene.layers.iter().any(|layer| !layer.prompts.is_empty()));
     output.push_str(&format!(
         "\nPython ML: {}\n",
         if automatic_ml {
-            "used automatically for foreground refinement"
+            "used automatically for foreground scene"
+        } else if prompted_ml {
+            "used for authored lossless segmentation layers"
         } else if has_occluder {
             "not recorded for this cache although a foreground crossing was detected"
         } else {
-            "not needed for automatic foreground refinement"
+            "not needed for automatic foreground scene"
         }
     ));
     if let Some(asset) = analysis_asset_stem(analysis_root) {
@@ -787,6 +911,20 @@ fn relative_url(owner: &Path, path: &Path) -> String {
 }
 
 fn portable_display(owner: &Path, path: &Path) -> String {
+    if path.is_relative() {
+        return path.to_string_lossy().into_owned();
+    }
+    if let Ok(project) = std::env::current_dir()
+        && let Ok(relative) = path.strip_prefix(&project)
+    {
+        return relative.to_string_lossy().into_owned();
+    }
+    if path.is_absolute() {
+        return path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| ".".to_string());
+    }
     crate::portable_path::relative_reference(owner, path)
         .map(|path| path.to_string())
         .unwrap_or_else(|_| {
@@ -797,7 +935,19 @@ fn portable_display(owner: &Path, path: &Path) -> String {
 }
 
 fn number(value: &Value, key: &str) -> Option<f64> {
-    value.get(key).and_then(Value::as_f64)
+    value.get(key).and_then(|value| {
+        value
+            .as_f64()
+            .or_else(|| value.as_u64().map(|value| value as f64))
+            .or_else(|| value.as_i64().map(|value| value as f64))
+    })
+}
+
+fn display_pixels(value: Option<f64>) -> String {
+    value
+        .filter(|value| value.is_finite())
+        .map(|value| format!("{value:.2}px"))
+        .unwrap_or_else(|| "unmeasurable".to_string())
 }
 
 fn metric(body: &mut String, label: &str, value: Option<f64>, green: f64, amber: f64) {
@@ -905,7 +1055,7 @@ mod tests {
     }
 
     #[test]
-    fn passing_render_verification_supersedes_low_raw_analysis_confidence() {
+    fn passing_render_verification_does_not_hide_analysis_findings() {
         let summary = json!({
             "overall": 0.72,
             "candidate_confidence": 0.60,
@@ -917,11 +1067,18 @@ mod tests {
 
         let focus = focus_items(&summary, Some(&verification));
 
-        assert_eq!(focus.len(), 1);
-        assert_eq!(
-            focus[0].title,
-            "Rendered result passes exhaustive verification"
+        assert_eq!(focus.len(), 4);
+        assert!(
+            focus
+                .iter()
+                .any(|item| item.title == "Writing-surface selection")
         );
-        assert!(focus[0].evidence.contains("0.990"));
+        assert!(focus.iter().any(|item| item.title == "Motion tracking"));
+        assert!(
+            focus
+                .iter()
+                .any(|item| item.title == "Writable surface / canonical reconstruction")
+        );
+        assert!(focus.iter().any(|item| item.title == "Foreground crossing"));
     }
 }

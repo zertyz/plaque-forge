@@ -33,7 +33,7 @@ Analysis is intentionally reusable. Rendering must not rebuild or delete analysi
 - `main.rs` is a thin executable entry point.
 - `lib.rs` owns command dispatch and the single module graph used by the executable and library tests.
 - `cli.rs` defines user-facing arguments.
-- `analyze/`, `render/`, `verify/`, `review.rs`, `refinement_commands.rs`, and `segmentation.rs` implement application workflows.
+- `analyze/`, `render/`, `verify/`, `review.rs`, `scene_commands.rs`, and `segmentation.rs` implement application workflows.
 
 These modules coordinate operations. They should not contain asset-specific scene data.
 
@@ -41,7 +41,7 @@ These modules coordinate operations. They should not contain asset-specific scen
 
 - `model.rs` contains geometry-independent data exchanged across workflows.
 - `geometry.rs` contains projective geometry helpers.
-- `refinement.rs` defines sparse reviewed-input schemas, normalized human coordinates, legacy compatibility, and provenance.
+- `scene.rs` defines the strict scene/trajectory/layer contracts, normalized human coordinates, and provenance.
 - `analysis.rs` defines the generated cache schema.
 - `layers.rs` resolves and packages authored scene layers.
 
@@ -51,19 +51,24 @@ These modules coordinate operations. They should not contain asset-specific scen
 - `digest.rs` owns generic streaming content hashes used for cache/provenance identity.
 - `portable_path.rs` is the only serialized-path boundary. Generated project references are relative, slash-separated, and reject workstation roots; bundle-local references cannot escape their owner.
 - `analyze/candidate.rs` proposes plausible writing-surface enclosures. Selection preserves the strongest surface hypothesis by default, rescues clear compact plaques from broad architectural enclosures, and uses guarded area dominance only to escape small high-contrast props such as magnifying glasses.
-- `analyze/tracking.rs` estimates placement/scene motion and supports authoritative screen-fixed trajectories.
+- `analyze/tracking.rs` estimates a physical four-corner trajectory. A complete
+  source-pixel writing-surface sequence constrains feature membership but never
+  dictates pose from its potentially deforming outline. Persistent material points
+  and independent projective flow provide rigid-plane evidence; a future-aware
+  solver bridges only missing observations. Screen-fixed behavior exists only for a
+  declared `screen-canvas`.
 - `analyze/extraction.rs` recovers canonical source-underlay and structural data used by source surfaces and foreground analysis.
-- `analyze/occlusion.rs` estimates automatic foreground occlusion. When a crossing benefits from semantic refinement, `segmentation.rs` can automatically sharpen those masks through the replaceable Python worker.
+- `analyze/occlusion.rs` estimates automatic foreground occlusion. When a crossing benefits from semantic scene, `segmentation.rs` can automatically sharpen those masks through the replaceable Python worker.
 - `render/typography.rs` shapes and fits text and owns line-layout decisions.
 - `render/effects.rs` paints mask-derived text effects such as stroke, glow, and shadow.
 
 Text effects are intentionally split by the data they operate on. Layout/glyph transforms, mask effects, material/fill effects, and plaque-surface effects are separate extension points; see [TEXT_EFFECTS.md](TEXT_EFFECTS.md).
 
-OpenCV and `cosmic-text` are implementation libraries inside these layers. They are not part of the refinement or analysis-cache interfaces.
+OpenCV and `cosmic-text` are implementation libraries inside these layers. They are not part of the scene or analysis-cache interfaces.
 
 ## Surface sources
 
-A writing surface has two orthogonal properties: **placement/pose** and **writable mask**. Its visual source is either already present in the video or injected from a transparent image. Injected surfaces skip automatic plaque selection because their placement is explicit, but they still reuse motion/underlay/foreground analysis so scene objects can cross in front. Their PNG alpha controls plaque compositing, not title writability: the declared writable region or inset remains authoritative even for glass and holographic interiors. The injected image hash is part of refinement/cache provenance.
+A writing surface has two orthogonal properties: **placement/pose** and **writable mask**. Its visual source is either already present in the video or injected from a transparent image. Injected surfaces skip automatic plaque selection because their placement is explicit, but they still reuse motion/underlay/foreground analysis so scene objects can cross in front. Their PNG alpha controls plaque compositing, not title writability: the declared writable region or inset remains authoritative even for glass and holographic interiors. The injected image hash is part of scene/cache provenance.
 
 ## External processes
 
@@ -76,25 +81,24 @@ Shell scripts do not implement scene-analysis algorithms. They build the Rust bi
 
 ## Cache compatibility
 
-Analysis cache compatibility is explicit in `build_info::ANALYZER_CACHE_VERSION` and `analysis::ANALYSIS_SCHEMA_VERSION`.
+Analysis cache compatibility is explicit in `build_info::ANALYZER_CACHE_VERSION` and `analysis::ANALYSIS_FORMAT`.
 
-- Change `ANALYSIS_SCHEMA_VERSION` when the serialized schema itself becomes incompatible.
+- Change `ANALYSIS_FORMAT` when the serialized schema itself becomes incompatible.
 - Change `ANALYZER_CACHE_VERSION` when analysis semantics change such that an old cache must not be reused, even if its schema still parses.
 - Do not invalidate analysis caches for renderer-only, CLI-only, documentation, or unrelated refactoring changes.
 
 No custom `build.rs` source hashing is used. Renderer-only text effects and styles therefore do not invalidate scene analysis.
 
-Schema-2 generated manifests never contain absolute paths. `migrate-analysis` is
-serialization-only: it can make equivalent paths portable when the semantic analyzer
-identity already matches, but it never refreshes refinement provenance, geometry,
-motion, depth state, or analyzer identity. Semantic changes require a real rebuild.
+Generated manifests never contain absolute paths. A format or semantic analyzer
+identity mismatch requires a real rebuild; no migration command can relabel stale
+geometry, depth, or model output as current.
 
 ## Artifact lifecycle
 
 Authored intent and generated state are deliberately separate:
 
 ```text
-assets/*.mp4 + assets/refinements/ + assets/plaques/   authored/project inputs
+assets/*.mp4 + assets/scenes/ + assets/plaques/   authored/project inputs
 assets/analysis/                                      complete generated caches only
 output/                                               complete published render bundles
 /tmp/plaque-forge/work/                               in-progress transactional work
@@ -106,7 +110,7 @@ Analysis/segmentation stages are RAII-owned and committed by rename when possibl
 
 ## Human diagnostics
 
-Machine-readable JSON remains canonical for automated validation. `review.rs` is a presentation layer that accepts complete analyses or compact retained failure evidence and turns metrics, candidate alternatives, refinement intent, and diagnostic imagery into prioritized `review.html`/`review.txt` triage. Its browser-only coordinate helper emits human-copyable normalized points; it does not alter caches or analysis decisions.
+Machine-readable JSON remains canonical for automated validation. `review.rs` is a presentation layer that accepts complete analyses or compact retained failure evidence and turns metrics, candidate alternatives, scene intent, and diagnostic imagery into prioritized `review.html`/`review.txt` triage. Its browser-only coordinate helper emits human-copyable normalized points; it does not alter caches or analysis decisions.
 
 ## Color and alpha contract
 

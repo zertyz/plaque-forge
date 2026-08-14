@@ -90,6 +90,22 @@ impl Mat3 {
 pub struct MotionSample {
     pub frame: usize,
     pub transform: Mat3,
+    /// True only when this frame has independent visual evidence for its pose.
+    /// A temporally solved pose is never relabelled as a measurement.
+    #[serde(default)]
+    pub measurement_valid: bool,
+    /// Number of robust point correspondences supporting the selected model.
+    #[serde(default)]
+    pub tracked_points: usize,
+    /// Spatial distribution of the observations over the surface, in [0, 1].
+    #[serde(default)]
+    pub spatial_coverage: f64,
+    /// Estimated one-sigma image-space uncertainty in pixels.
+    #[serde(default = "unknown_uncertainty")]
+    pub uncertainty_px: f64,
+    /// Measurement backend, or `temporal-solve` for an inferred pose.
+    #[serde(default)]
+    pub measurement_source: String,
     pub inlier_ratio: f64,
     pub reprojection_error: f64,
     pub ecc: Option<f64>,
@@ -99,8 +115,62 @@ pub struct MotionSample {
     pub occluder_coverage: f64,
 }
 
+impl Default for MotionSample {
+    fn default() -> Self {
+        Self {
+            frame: 0,
+            transform: Mat3::IDENTITY,
+            measurement_valid: false,
+            tracked_points: 0,
+            spatial_coverage: 0.0,
+            uncertainty_px: f64::INFINITY,
+            measurement_source: String::new(),
+            inlier_ratio: 0.0,
+            reprojection_error: f64::INFINITY,
+            ecc: None,
+            plaque_visibility: 1.0,
+            occluder_coverage: 0.0,
+        }
+    }
+}
+
+fn unknown_uncertainty() -> f64 {
+    f64::INFINITY
+}
+
 fn fully_visible() -> f64 {
     1.0
+}
+
+impl MotionSample {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        let finite_transform = self
+            .transform
+            .values
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite());
+        anyhow::ensure!(
+            finite_transform,
+            "motion transform contains a non-finite value"
+        );
+        anyhow::ensure!(
+            self.inlier_ratio.is_finite()
+                && self.reprojection_error.is_finite()
+                && self.spatial_coverage.is_finite()
+                && self.uncertainty_px.is_finite()
+                && self.plaque_visibility.is_finite()
+                && self.occluder_coverage.is_finite(),
+            "motion sample {} contains a non-finite metric",
+            self.frame
+        );
+        anyhow::ensure!(
+            self.ecc.is_none_or(f64::is_finite),
+            "motion sample {} contains a non-finite ECC value",
+            self.frame
+        );
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

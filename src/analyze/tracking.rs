@@ -1,15 +1,19 @@
 //! Plaque motion tracking across the source video.
 //!
 //! A tracker estimates a projective transform for each frame, then stabilizes that
-//! trajectory and applies any locked or guiding motion refinements.
+//! trajectory and applies any locked or guiding motion scenes.
 
-use std::path::Path;
+use std::{collections::VecDeque, path::Path};
 
 use anyhow::{Context, Result, bail};
 use opencv::{
-    core::{self, DMatch, KeyPoint, Mat, Point, Point2f, Rect, Scalar, Vector},
-    features2d, geometry, imgcodecs, imgproc,
+    core::{
+        self, DMatch, KeyPoint, Mat, Point, Point2f, Rect, Scalar, Size, TermCriteria,
+        TermCriteria_Type, Vector,
+    },
+    features, features2d, geometry, imgcodecs, imgproc,
     prelude::*,
+    video as cv_video,
     videoio::{CAP_PROP_FRAME_COUNT, CAP_PROP_POS_FRAMES, VideoCapture},
 };
 
@@ -18,7 +22,8 @@ use crate::{
     geometry::{Point as GeoPoint, Quad as GeoQuad, homography},
     model::{Mat3, MotionSample, PointF, RectF},
     progress::ProgressReporter,
-    refinement::MotionRefinement,
+    scene::SurfaceTrajectory,
+    surface::Surface,
     video::VideoInfo,
 };
 
@@ -30,17 +35,17 @@ enum MotionModel {
     Projective,
 }
 
-pub fn apply_motion_refinement(
+pub fn apply_motion_scene(
     result: &mut TrackingResult,
-    track: &MotionRefinement,
+    track: &SurfaceTrajectory,
     plaque: RectF,
 ) -> Result<()> {
-    apply_refinement_constraints(&mut result.samples, track, plaque, ConstraintSelection::All)?;
+    apply_scene_constraints(&mut result.samples, track, plaque, ConstraintSelection::All)?;
 
     let dense = track.is_dense_locked(result.samples.len());
     let locked = track.locked_keyframes();
     let guides = track.guide_keyframes();
-    let old_model = std::mem::take(&mut result.model_name);
+    let base_model = std::mem::take(&mut result.model_name);
     result.model_name = if dense {
         result.confidence = 0.99;
         for sample in &mut result.samples {
@@ -48,37 +53,34 @@ pub fn apply_motion_refinement(
             sample.reprojection_error = 0.0;
             sample.ecc = Some(1.0);
         }
-        format!(
-            "authoritative-refined-quad-track-{}-frames",
-            track.keyframes.len()
-        )
+        format!("reviewed-dense-quad-track-{}-frames", track.keyframes.len())
     } else if locked > 0 && guides > 0 {
-        format!("refined-mixed-quad-track-{locked}-locked-{guides}-guided+{old_model}")
+        format!("reviewed-mixed-quad-track-{locked}-locked-{guides}-guided+{base_model}")
     } else if locked > 0 {
         format!(
-            "refined-constrained-quad-track-{}-keyframes+{old_model}",
+            "reviewed-constrained-quad-track-{}-keyframes+{base_model}",
             locked
         )
     } else {
         format!(
-            "refined-guided-quad-track-{}-keyframes+{old_model}",
+            "reviewed-guided-quad-track-{}-keyframes+{base_model}",
             track.keyframes.len()
         )
     };
 
-    result.loop_closed = refined_loop_closed(&result.samples, plaque);
+    result.loop_closed = trajectory_loop_closed(&result.samples, plaque);
     Ok(())
 }
 
-pub fn reapply_locked_refinements(
+pub fn reapply_locked_scenes(
     samples: &mut [MotionSample],
-    track: &MotionRefinement,
+    track: &SurfaceTrajectory,
     plaque: RectF,
 ) -> Result<()> {
     if track.locked_keyframes() == 0 {
         return Ok(());
     }
-    apply_refinement_constraints(samples, track, plaque, ConstraintSelection::Locked)
+    apply_scene_constraints(samples, track, plaque, ConstraintSelection::Locked)
 }
 
 #[derive(Clone, Copy)]
@@ -87,9 +89,9 @@ enum ConstraintSelection {
     Locked,
 }
 
-fn apply_refinement_constraints(
+fn apply_scene_constraints(
     samples: &mut [MotionSample],
-    track: &MotionRefinement,
+    track: &SurfaceTrajectory,
     plaque: RectF,
     selection: ConstraintSelection,
 ) -> Result<()> {
@@ -110,8 +112,8 @@ fn apply_refinement_constraints(
         let current = automatic
             .get(keyframe.frame)
             .with_context(|| format!("missing automatic frame {}", keyframe.frame))?;
-        let desired = refinement_quad(keyframe.quad);
-        desired.validate(&format!("motion refinement keyframe {}", keyframe.frame))?;
+        let desired = scene_quad(keyframe.quad);
+        desired.validate(&format!("trajectory anchor {}", keyframe.frame))?;
         corrections.push((keyframe.frame, quad_difference(desired, *current)));
     }
     if corrections.is_empty() {
@@ -121,7 +123,7 @@ fn apply_refinement_constraints(
     for (frame, sample) in samples.iter_mut().enumerate() {
         let correction = correction_at(&corrections, frame);
         let corrected = quad_sum(automatic[frame], correction);
-        corrected.validate(&format!("refined-constrained frame {frame}"))?;
+        corrected.validate(&format!("reviewed-constrained frame {frame}"))?;
         sample.transform = Mat3 {
             values: homography(source, corrected)?.m,
         };
@@ -130,9 +132,9 @@ fn apply_refinement_constraints(
     Ok(())
 }
 
-pub fn apply_visibility_refinements(
+pub fn apply_visibility_scenes(
     samples: &mut [MotionSample],
-    track: &MotionRefinement,
+    track: &SurfaceTrajectory,
 ) -> Result<()> {
     if samples.is_empty() {
         bail!("automatic track contains no frames");
@@ -167,7 +169,7 @@ pub fn apply_visibility_refinements(
     Ok(())
 }
 
-fn transformed_quad(source: GeoQuad, transform: Mat3) -> GeoQuad {
+pub(crate) fn transformed_quad(source: GeoQuad, transform: Mat3) -> GeoQuad {
     let transform_point = |point: GeoPoint| {
         let point = transform.transform(PointF {
             x: point.x,
@@ -183,7 +185,7 @@ fn transformed_quad(source: GeoQuad, transform: Mat3) -> GeoQuad {
     )
 }
 
-fn refinement_quad(points: [[f64; 2]; 4]) -> GeoQuad {
+fn scene_quad(points: [[f64; 2]; 4]) -> GeoQuad {
     GeoQuad::new(
         GeoPoint::new(points[0][0], points[0][1]),
         GeoPoint::new(points[1][0], points[1][1]),
@@ -255,7 +257,7 @@ fn scalar_correction_at(corrections: &[(usize, f64)], frame: usize) -> f64 {
     a.1 + (b.1 - a.1) * t
 }
 
-fn refined_loop_closed(samples: &[MotionSample], plaque: RectF) -> bool {
+fn trajectory_loop_closed(samples: &[MotionSample], plaque: RectF) -> bool {
     let Some((first, remainder)) = samples.split_first() else {
         return false;
     };
@@ -292,6 +294,11 @@ pub fn screen_fixed(
             .map(|frame| MotionSample {
                 frame,
                 transform: Mat3::IDENTITY,
+                measurement_valid: false,
+                tracked_points: 0,
+                spatial_coverage: 0.0,
+                uncertainty_px: 0.0,
+                measurement_source: "screen-canvas".into(),
                 inlier_ratio: confidence,
                 reprojection_error: 0.0,
                 ecc: Some(1.0),
@@ -306,23 +313,103 @@ pub fn screen_fixed(
     }
 }
 
-pub fn select_masked_refinement(
-    mut baseline: TrackingResult,
-    refinement: TrackingResult,
-) -> TrackingResult {
-    if refinement.confidence >= baseline.confidence {
-        refinement
+pub fn select_masked_scene(mut baseline: TrackingResult, scene: TrackingResult) -> TrackingResult {
+    if scene.confidence >= baseline.confidence {
+        scene
     } else {
         baseline.model_name.push_str("-masked-retrack-rejected");
         baseline
     }
 }
 
-pub fn load_dense_refinement(
+/// Keeps the strongest absolute pose measurements, then refines that same global
+/// trajectory using the final foreground-aware source flow. A fully masked
+/// retrack is retained only when its own absolute evidence is genuinely stronger;
+/// sparse masked frames must not discard a well-rooted baseline.
+#[allow(clippy::too_many_arguments)]
+pub fn refine_scene_with_masked_flow(
     args: &AnalyzeArgs,
     info: &VideoInfo,
     plaque: RectF,
-    track: &MotionRefinement,
+    baseline: TrackingResult,
+    masked: TrackingResult,
+    exclusion_root: &Path,
+    progress: &mut ProgressReporter,
+) -> Result<TrackingResult> {
+    let selected = select_masked_scene(baseline, masked);
+    refine_selected_with_foreground_flow(
+        args,
+        info,
+        plaque,
+        selected,
+        exclusion_root,
+        progress,
+        "foreground-aware-source-flow",
+    )
+}
+
+/// Applies the final foreground-aware material-flow solve when the fully masked
+/// absolute retracker cannot cover the complete shot. The original trajectory
+/// remains the absolute-pose prior, but foreground pixels are excluded from the
+/// noncausal relative-motion graph exactly as they are for a successful masked
+/// retrack.
+#[allow(clippy::too_many_arguments)]
+pub fn refine_baseline_with_foreground_flow(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    baseline: TrackingResult,
+    exclusion_root: &Path,
+    progress: &mut ProgressReporter,
+) -> Result<TrackingResult> {
+    refine_selected_with_foreground_flow(
+        args,
+        info,
+        plaque,
+        baseline,
+        exclusion_root,
+        progress,
+        "masked-retrack-unusable-foreground-aware-source-flow",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn refine_selected_with_foreground_flow(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    mut selected: TrackingResult,
+    exclusion_root: &Path,
+    progress: &mut ProgressReporter,
+    model_suffix: &str,
+) -> Result<TrackingResult> {
+    let summary = constrain_trajectory_to_source_flow(
+        args,
+        info,
+        plaque,
+        selected.reference_frame,
+        selected.loop_closed,
+        &mut selected.samples,
+        Some(exclusion_root),
+        progress,
+    )?;
+    selected.confidence = selected
+        .confidence
+        .min(summary.confidence.unwrap_or(selected.confidence));
+    selected.model_name.push('-');
+    selected.model_name.push_str(model_suffix);
+    eprintln!(
+        "foreground-aware trajectory constraint: source-flow p95 {:.2}px -> {:.2}px, p99 {:.2}px -> {:.2}px",
+        summary.before_p95, summary.after_p95, summary.before_p99, summary.after_p99
+    );
+    Ok(selected)
+}
+
+pub fn load_dense_scene(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    track: &SurfaceTrajectory,
     diagnostics: &Path,
     progress: &mut ProgressReporter,
 ) -> Result<TrackingResult> {
@@ -338,11 +425,16 @@ pub fn load_dense_refinement(
         .into_iter()
         .enumerate()
         .map(|(frame, keyframe)| {
-            let keyframe = keyframe.with_context(|| format!("missing refined frame {frame}"))?;
-            let matrix = homography(source, refinement_quad(keyframe.quad))?;
+            let keyframe = keyframe.with_context(|| format!("missing reviewed frame {frame}"))?;
+            let matrix = homography(source, scene_quad(keyframe.quad))?;
             Ok(MotionSample {
                 frame,
                 transform: Mat3 { values: matrix.m },
+                measurement_valid: false,
+                tracked_points: 0,
+                spatial_coverage: 0.0,
+                uncertainty_px: 0.0,
+                measurement_source: "declared-trajectory".into(),
                 inlier_ratio: 1.0,
                 reprojection_error: 0.0,
                 ecc: Some(1.0),
@@ -353,7 +445,7 @@ pub fn load_dense_refinement(
         .collect::<Result<Vec<_>>>()?;
 
     let mut capture = crate::video::open_capture(&args.input)?;
-    progress.start(3, 7, "Load refined plaque track", Some(info.frames));
+    progress.start(3, 7, "Load reviewed plaque trajectory", Some(info.frames));
     write_tracking_diagnostics(&mut capture, &samples, plaque, diagnostics, info.frames)?;
     progress.update(
         info.frames,
@@ -361,14 +453,11 @@ pub fn load_dense_refinement(
     );
     progress.finish("authoritative all-frame quadrilateral track");
 
-    let loop_closed = refined_loop_closed(&samples, plaque);
+    let loop_closed = trajectory_loop_closed(&samples, plaque);
     Ok(TrackingResult {
         samples,
-        model_name: format!(
-            "authoritative-refined-quad-track-{}-frames",
-            track.keyframes.len()
-        ),
-        reference_frame: args.plaque_frame.unwrap_or(0),
+        model_name: format!("reviewed-dense-quad-track-{}-frames", track.keyframes.len()),
+        reference_frame: args.surface_frame.unwrap_or(0),
         confidence: 0.99,
         loop_closed,
     })
@@ -389,6 +478,7 @@ pub fn track(
     reference_frame: usize,
     diagnostics: &Path,
     progress: &mut ProgressReporter,
+    tracking_exclusions: Option<&Path>,
 ) -> Result<TrackingResult> {
     track_with_exclusions(
         args,
@@ -397,10 +487,11 @@ pub fn track(
         reference_frame,
         diagnostics,
         progress,
-        None,
+        tracking_exclusions,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn retrack_masked(
     args: &AnalyzeArgs,
     info: &VideoInfo,
@@ -445,7 +536,10 @@ fn track_with_exclusions(
     let frame_count = info.frames.min(actual_frames).max(1);
     let reference_frame = reference_frame.min(frame_count.saturating_sub(1));
 
-    let mut sift = features2d::SIFT::create(1_800, 3, 0.025, 12.0, 1.6, true)?;
+    // Destination features are searched across the full frame so a temporarily
+    // wrong prediction cannot exclude the real surface from reacquisition. Keep
+    // enough features for a narrow plaque to compete with a detailed background.
+    let mut sift = features2d::SIFT::create(4_000, 3, 0.015, 12.0, 1.6, true)?;
     let reference_gray = read_gray(&mut capture, reference_frame)?;
     let reference_exclusion = load_exclusion(
         occluder_masks,
@@ -462,50 +556,41 @@ fn track_with_exclusions(
         reference_exclusion.as_ref(),
     )?;
     let root_contour = detect_plaque_contour(&root.gray, plaque, Mat3::IDENTITY)?;
-    if root.descriptors.empty() || root.keypoints.len() < 20 {
+    let root_persistent_points = persistent_corner_count(
+        &root.gray,
+        plaque,
+        Mat3::IDENTITY,
+        reference_exclusion.as_ref(),
+    )?;
+    // SIFT is the drift-closing reacquisition path, not the sole proof that a
+    // physical plane is observable. Low-texture metal/cloud faces can carry few
+    // descriptors after a precise support matte removes their detailed border,
+    // yet still provide many well-distributed subpixel corners for persistent
+    // forward/backward flow. Allow that primary material-point path to initialize;
+    // all-frame source-flow verification remains an independent hard gate.
+    if (root.descriptors.empty() || root.keypoints.len() < 8) && root_persistent_points < 12 {
         bail!(
-            "insufficient stable plaque-border features at frame {reference_frame}; \
-             inspect {} and correct the plaque bounds in the refinement if needed",
+            "insufficient stable writing-surface features at frame {reference_frame} \
+             ({} SIFT descriptors, {root_persistent_points} subpixel corners); \
+             inspect {} and correct the surface bounds/support in the scene if needed",
+            root.keypoints.len(),
             diagnostics.join("candidate.png").display()
         );
     }
 
     let loop_closed = should_close_loop(&mut capture, frame_count)?;
-    if let Some(confidence) = detect_static_plaque(
-        &mut capture,
-        &mut sift,
-        &root,
-        plaque,
-        frame_count,
-        occluder_masks,
-    )? {
-        progress.start(3, 7, "Static plaque validation", Some(frame_count));
-        let samples = (0..frame_count)
-            .map(|frame| MotionSample {
-                frame,
-                transform: Mat3::IDENTITY,
-                inlier_ratio: confidence,
-                reprojection_error: 0.0,
-                ecc: Some(1.0),
-                plaque_visibility: 1.0,
-                occluder_coverage: 0.0,
-            })
-            .collect::<Vec<_>>();
-        progress.update(frame_count, "identity model");
-        progress.finish("static plaque confirmed");
-        write_tracking_diagnostics(&mut capture, &samples, plaque, diagnostics, frame_count)?;
-        return Ok(TrackingResult {
-            samples,
-            model_name: "static-plaque-identity".into(),
-            reference_frame,
-            confidence,
-            loop_closed,
-        });
-    }
+    // A physical surface is measured throughout the clip even when a sparse
+    // sample happens to look static. Subtle late motion must never be turned into
+    // a screen-fixed title.
     let mut raw: Vec<Option<MotionSample>> = vec![None; frame_count];
     raw[reference_frame] = Some(MotionSample {
         frame: reference_frame,
         transform: Mat3::IDENTITY,
+        measurement_valid: true,
+        tracked_points: root.keypoints.len().max(root_persistent_points),
+        spatial_coverage: 1.0,
+        uncertainty_px: 0.25,
+        measurement_source: "reference-frame".into(),
         inlier_ratio: 1.0,
         reprojection_error: 0.0,
         ecc: Some(1.0),
@@ -513,7 +598,12 @@ fn track_with_exclusions(
         occluder_coverage: 0.0,
     });
 
-    progress.start(3, 7, "Adaptive scene tracking", Some(frame_count));
+    progress.start(
+        3,
+        7,
+        "Bidirectional persistent scene tracking",
+        Some(frame_count.saturating_mul(2)),
+    );
     let mut completed = 1usize;
     let mut adaptive_anchor_count = 1usize;
     if reference_frame + 1 < frame_count {
@@ -549,6 +639,38 @@ fn track_with_exclusions(
         )?;
     }
 
+    let reverse_anchor = find_reverse_anchor_from_measurements(
+        &mut capture,
+        &mut sift,
+        &raw,
+        plaque,
+        reference_frame,
+        occluder_masks,
+    )?;
+    if let Some(reverse_root) = reverse_anchor {
+        let reverse_contour =
+            detect_plaque_contour(&reverse_root.gray, plaque, reverse_root.transform)?;
+        let mut reverse = vec![None; frame_count];
+        reverse[reverse_root.frame] = Some(anchor_sample(&reverse_root));
+        let reverse_indices = ((reference_frame + 1)..reverse_root.frame)
+            .rev()
+            .collect::<Vec<_>>();
+        adaptive_anchor_count += process_direction(
+            args,
+            &mut capture,
+            &mut sift,
+            &reverse_root,
+            reverse_contour.as_ref(),
+            plaque,
+            &reverse_indices,
+            &mut reverse,
+            &mut completed,
+            progress,
+            occluder_masks,
+        )?;
+        fuse_bidirectional_measurements(&mut raw, &reverse, plaque)?;
+    }
+
     let mut samples: Vec<MotionSample> = raw
         .into_iter()
         .enumerate()
@@ -556,6 +678,11 @@ fn track_with_exclusions(
             sample.unwrap_or(MotionSample {
                 frame,
                 transform: Mat3::IDENTITY,
+                measurement_valid: false,
+                tracked_points: 0,
+                spatial_coverage: 0.0,
+                uncertainty_px: f64::INFINITY,
+                measurement_source: "missing".into(),
                 inlier_ratio: 0.0,
                 reprojection_error: f64::INFINITY,
                 ecc: None,
@@ -565,6 +692,8 @@ fn track_with_exclusions(
         })
         .collect();
     let repaired_frames = repair_outliers(&mut samples, plaque);
+    let inferred_frames =
+        solve_unobserved_intervals(&mut samples, plaque, info.width, info.height)?;
     optimize_trajectory(
         &mut samples,
         plaque,
@@ -572,8 +701,33 @@ fn track_with_exclusions(
         args.tracking_inertia,
         loop_closed,
     )?;
+    let source_flow = if occluder_masks.is_some() {
+        constrain_trajectory_to_source_flow(
+            args,
+            info,
+            plaque,
+            reference_frame,
+            loop_closed,
+            &mut samples,
+            occluder_masks,
+            progress,
+        )?
+    } else {
+        SourceFlowConstraintSummary::not_evaluated()
+    };
+    let source_flow_status = if source_flow.confidence.is_some() {
+        format!(
+            "source-flow p95 {:.2}px -> {:.2}px, p99 {:.2}px -> {:.2}px",
+            source_flow.before_p95,
+            source_flow.after_p95,
+            source_flow.before_p99,
+            source_flow.after_p99,
+        )
+    } else {
+        "source-flow not evaluated until foreground exclusions are available".to_string()
+    };
     progress.finish(format!(
-        "{adaptive_anchor_count} adaptive anchors, {repaired_frames} repaired frames"
+        "{adaptive_anchor_count} adaptive anchors, {inferred_frames} inferred, {repaired_frames} rejected measurements; {source_flow_status}"
     ));
 
     write_tracking_diagnostics(&mut capture, &samples, plaque, diagnostics, frame_count)?;
@@ -588,13 +742,18 @@ fn track_with_exclusions(
     );
     let repair_penalty =
         (repaired_frames as f64 / frame_count.max(1) as f64 * 2.0).clamp(0.0, 0.35);
-    let confidence =
+    let measurement_confidence =
         (median_inliers * (-median_error / 4.0).exp() - repair_penalty).clamp(0.0, 0.99);
+    let confidence = source_flow
+        .confidence
+        .map_or(measurement_confidence, |source| {
+            measurement_confidence.min(source)
+        });
 
     Ok(TrackingResult {
         samples,
         model_name: format!(
-            "adaptive-anchors-sift-{:?}-inertia-{:.2}",
+            "bidirectional-persistent-point-homography-sift-{:?}-regularization-{:.2}-global-source-flow",
             MotionModel::Adaptive,
             args.tracking_inertia
         )
@@ -620,8 +779,19 @@ fn process_direction(
     occluder_masks: Option<&Path>,
 ) -> Result<usize> {
     let mut anchor = clone_anchor(root)?;
+    let mut flow = PersistentPointTracker::new(
+        &root.gray,
+        plaque,
+        root.transform,
+        load_exclusion(
+            occluder_masks,
+            root.frame,
+            root.gray.cols(),
+            root.gray.rows(),
+        )?
+        .as_ref(),
+    )?;
     let mut last_transform = root.transform;
-    let mut before_last_transform: Option<Mat3> = None;
     let sequential_forward = indices
         .windows(2)
         .all(|pair| pair[1] == pair[0].saturating_add(1));
@@ -636,18 +806,17 @@ fn process_direction(
             read_gray(capture, frame_index)
         }
         .with_context(|| format!("failed to decode tracking frame {frame_index}"))?;
-        let extrapolated = before_last_transform
-            .map(|previous| extrapolate_matrix(previous, last_transform))
-            .unwrap_or(last_transform);
-        let predicted = if plaque_transform_is_valid(extrapolated, plaque) {
-            extrapolated
-        } else {
-            last_transform
-        };
-        let mut current_mask =
+        // This pose is used only to limit the search region. It is never emitted
+        // as a measurement; gaps are solved after both temporal directions have
+        // been inspected.
+        let predicted = last_transform;
+        let mut plaque_mask =
             plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, predicted)?;
         let exclusion = load_exclusion(occluder_masks, frame_index, gray.cols(), gray.rows())?;
-        let excluded = apply_exclusion(&mut current_mask, exclusion.as_ref())?;
+        let excluded = apply_exclusion(&mut plaque_mask, exclusion.as_ref())?;
+        let persistent = flow
+            .advance(&gray, plaque, exclusion.as_ref())?
+            .filter(|estimate| plaque_transform_is_valid(estimate.matrix, plaque));
         let contour = (excluded < 0.01)
             .then(|| {
                 root_contour
@@ -660,9 +829,11 @@ fn process_direction(
                         homography(reference.quad, current.quad)
                             .ok()
                             .map(|matrix| Estimate {
-                                matrix: Mat3 { values: matrix.m },
+                                matrix: Mat3 { values: matrix.m }.multiply(root.transform),
                                 inlier_ratio: current.confidence,
                                 error: (1.0 - current.confidence) * 2.0,
+                                tracked_points: 4,
+                                spatial_coverage: 1.0,
                                 ecc: None,
                                 source: "geometry",
                                 static_model: false,
@@ -673,13 +844,14 @@ fn process_direction(
             .flatten();
         let mut keypoints = Vector::<KeyPoint>::new();
         let mut descriptors = Mat::default();
-        sift.detect_and_compute(
-            &gray,
-            &current_mask,
-            &mut keypoints,
-            &mut descriptors,
-            false,
+        let mut search_mask = Mat::new_rows_cols_with_default(
+            gray.rows(),
+            gray.cols(),
+            core::CV_8UC1,
+            Scalar::all(255.0),
         )?;
+        apply_exclusion(&mut search_mask, exclusion.as_ref())?;
+        sift.detect_and_compute(&gray, &search_mask, &mut keypoints, &mut descriptors, false)?;
 
         let local = estimate_reference_transform(
             &anchor.keypoints,
@@ -708,31 +880,51 @@ fn process_direction(
             } else {
                 "root"
             };
-            estimate.named(source)
+            estimate.anchored(root.transform, source)
         });
 
         let feature = choose_estimate(local, direct, plaque, predicted);
-        let estimate = choose_geometric_constraint(feature, contour, plaque).unwrap_or(Estimate {
+        let reacquired = choose_geometric_constraint(feature, contour, plaque);
+        let trustworthy_reacquisition = reacquired
+            .as_ref()
+            .is_some_and(reacquisition_can_reseed_points);
+        let estimate = choose_persistent_estimate(persistent, reacquired, plaque, predicted);
+        let valid = estimate.as_ref().is_some_and(measurement_is_credible);
+        let estimate = estimate.unwrap_or(Estimate {
             matrix: predicted,
             inlier_ratio: 0.0,
-            error: 24.0,
+            error: f64::INFINITY,
+            tracked_points: 0,
+            spatial_coverage: 0.0,
             ecc: None,
-            source: "inertial-fallback",
+            source: "unobserved",
             static_model: false,
         });
         output[frame_index] = Some(MotionSample {
             frame: frame_index,
             transform: estimate.matrix,
+            measurement_valid: valid,
+            tracked_points: estimate.tracked_points,
+            spatial_coverage: estimate.spatial_coverage,
+            uncertainty_px: measurement_uncertainty(&estimate),
+            measurement_source: estimate.source.into(),
             inlier_ratio: estimate.inlier_ratio,
             reprojection_error: estimate.error,
             ecc: estimate.ecc,
             plaque_visibility: 1.0,
             occluder_coverage: 0.0,
         });
-        before_last_transform = Some(last_transform);
-        last_transform = estimate.matrix;
+        if valid {
+            last_transform = estimate.matrix;
+            if estimate.source != "persistent-flow" && trustworthy_reacquisition {
+                // A fixed-root or geometric reacquisition is an independent loop
+                // closure. Rebind fresh image points to that canonical pose rather
+                // than carrying any suspect rolling identities across the event.
+                flow.reset(&gray, plaque, estimate.matrix, exclusion.as_ref())?;
+            }
+        }
 
-        let trustworthy = estimate.inlier_ratio >= 0.22 && estimate.error <= 5.0;
+        let trustworthy = valid;
         let anchor_motion = mean_corner_distance(anchor.transform, estimate.matrix, plaque);
         let motion_refresh = plaque
             .width
@@ -765,82 +957,1488 @@ fn process_direction(
     Ok(anchors_added)
 }
 
-fn detect_static_plaque(
-    capture: &mut VideoCapture,
-    sift: &mut core::Ptr<features2d::SIFT>,
-    root: &FeatureAnchor,
-    plaque: RectF,
-    frame_count: usize,
-    occluder_masks: Option<&Path>,
-) -> Result<Option<f64>> {
-    let mut displacements = Vec::new();
-    let mut qualities = Vec::new();
-    for slot in 0..11 {
-        let frame = slot * frame_count.saturating_sub(1) / 10;
-        if frame == root.frame {
-            continue;
-        }
-        let gray = read_gray(capture, frame)?;
-        let mut mask =
-            plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, Mat3::IDENTITY)?;
-        let exclusion = load_exclusion(occluder_masks, frame, gray.cols(), gray.rows())?;
-        apply_exclusion(&mut mask, exclusion.as_ref())?;
-        let mut keypoints = Vector::<KeyPoint>::new();
-        let mut descriptors = Mat::default();
-        sift.detect_and_compute(&gray, &mask, &mut keypoints, &mut descriptors, false)?;
-        let Ok(estimate) = estimate_reference_transform(
-            &root.keypoints,
-            &root.descriptors,
-            &keypoints,
-            &descriptors,
-            MotionModel::Adaptive,
-            true,
-        ) else {
-            continue;
-        };
-        if estimate.inlier_ratio < 0.45 || estimate.error > 2.0 {
-            continue;
-        }
-        displacements.push(mean_corner_distance(
-            Mat3::IDENTITY,
-            estimate.matrix,
-            plaque,
-        ));
-        qualities.push(estimate.inlier_ratio * (-estimate.error / 2.0).exp());
+fn anchor_sample(anchor: &FeatureAnchor) -> MotionSample {
+    MotionSample {
+        frame: anchor.frame,
+        transform: anchor.transform,
+        measurement_valid: true,
+        tracked_points: anchor.keypoints.len(),
+        spatial_coverage: 1.0,
+        uncertainty_px: 0.35,
+        measurement_source: "reverse-root".into(),
+        inlier_ratio: 1.0,
+        reprojection_error: 0.0,
+        ecc: Some(1.0),
+        plaque_visibility: 1.0,
+        occluder_coverage: 0.0,
     }
-    if displacements.len() < 6 {
-        return Ok(None);
-    }
-    displacements.sort_by(f64::total_cmp);
-    let stationary = displacements
-        .iter()
-        .filter(|&&displacement| displacement <= 1.50)
-        .count();
-    let robust_limit = displacements[displacements.len() * 4 / 5];
-    if stationary * 4 < displacements.len() * 3 || robust_limit > 2.50 {
-        return Ok(None);
-    }
-    let support = stationary as f64 / displacements.len() as f64;
-    Ok(Some((median(qualities) * support).clamp(0.80, 0.99)))
 }
 
+fn find_reverse_anchor_from_measurements(
+    capture: &mut VideoCapture,
+    sift: &mut core::Ptr<features2d::SIFT>,
+    measurements: &[Option<MotionSample>],
+    plaque: RectF,
+    reference_frame: usize,
+    occluder_masks: Option<&Path>,
+) -> Result<Option<FeatureAnchor>> {
+    for frame in (reference_frame + 16..measurements.len()).rev() {
+        let Some(sample) = measurements[frame].as_ref().filter(|sample| {
+            sample.measurement_valid
+                && matches!(
+                    sample.measurement_source.as_str(),
+                    "root" | "root-static" | "adaptive" | "geometry"
+                )
+                && sample.tracked_points >= 24
+                && sample.spatial_coverage >= 0.55
+                && sample.uncertainty_px <= 2.0
+                && sample_confidence(sample) >= 0.28
+                && plaque_transform_is_valid(sample.transform, plaque)
+        }) else {
+            continue;
+        };
+        let gray = read_gray(capture, frame)?;
+        let exclusion = load_exclusion(occluder_masks, frame, gray.cols(), gray.rows())?;
+        let anchor = make_anchor(
+            sift,
+            frame,
+            gray,
+            plaque,
+            sample.transform,
+            exclusion.as_ref(),
+        )?;
+        if anchor.keypoints.len() >= 8 && !anchor.descriptors.empty() {
+            return Ok(Some(anchor));
+        }
+    }
+    Ok(None)
+}
+
+fn fuse_bidirectional_measurements(
+    forward: &mut [Option<MotionSample>],
+    reverse: &[Option<MotionSample>],
+    plaque: RectF,
+) -> Result<()> {
+    for (frame, candidate) in forward.iter_mut().zip(reverse) {
+        let Some(candidate) = candidate.as_ref().filter(|sample| sample.measurement_valid) else {
+            continue;
+        };
+        match frame {
+            Some(existing) if existing.measurement_valid => {
+                let disagreement =
+                    mean_corner_distance(existing.transform, candidate.transform, plaque);
+                if disagreement <= 2.5 {
+                    let left = transformed_plaque(plaque, existing.transform);
+                    let right = transformed_plaque(plaque, candidate.transform);
+                    let left_weight = sample_confidence(existing).max(0.05);
+                    let right_weight = sample_confidence(candidate).max(0.05);
+                    let fused = left.lerp(right, right_weight / (left_weight + right_weight));
+                    if inferred_quad_is_physical(fused, plaque) {
+                        existing.transform = Mat3 {
+                            values: homography(
+                                GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height),
+                                fused,
+                            )?
+                            .m,
+                        };
+                        existing.measurement_source = "bidirectional-fused".into();
+                        existing.tracked_points += candidate.tracked_points;
+                        existing.spatial_coverage =
+                            existing.spatial_coverage.max(candidate.spatial_coverage);
+                        existing.inlier_ratio = existing.inlier_ratio.max(candidate.inlier_ratio);
+                        existing.reprojection_error = existing
+                            .reprojection_error
+                            .min(candidate.reprojection_error);
+                        existing.uncertainty_px =
+                            disagreement.max(existing.uncertainty_px.min(candidate.uncertainty_px));
+                    }
+                } else {
+                    // The reverse pass starts from an independently reacquired
+                    // pose, but its point track still depends on that single late
+                    // anchor. It cannot veto or weaken a valid forward material
+                    // observation; a reverse observation is authoritative only
+                    // where it fills a forward gap.
+                }
+            }
+            slot @ None => {
+                let mut candidate = candidate.clone();
+                candidate.measurement_source = "reverse-persistent".into();
+                *slot = Some(candidate);
+            }
+            Some(existing) => {
+                *existing = candidate.clone();
+                existing.measurement_source = "reverse-persistent".into();
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Tracks durable material points whose coordinates always live on the reference
+/// plaque. Lucas-Kanade only advances their image observations; it never changes
+/// their canonical identity. Points added after an occlusion are inverse-projected
+/// through an independently accepted pose before they can participate.
+struct PersistentPointTracker {
+    previous_gray: Mat,
+    canonical: Vector<Point2f>,
+    current: Vector<Point2f>,
+}
+
+impl PersistentPointTracker {
+    fn new(gray: &Mat, plaque: RectF, pose: Mat3, exclusion: Option<&Mat>) -> Result<Self> {
+        let mut tracker = Self {
+            previous_gray: gray.try_clone()?,
+            canonical: Vector::new(),
+            current: Vector::new(),
+        };
+        tracker.reset(gray, plaque, pose, exclusion)?;
+        Ok(tracker)
+    }
+
+    fn advance(
+        &mut self,
+        gray: &Mat,
+        plaque: RectF,
+        exclusion: Option<&Mat>,
+    ) -> Result<Option<Estimate>> {
+        if self.current.len() < 8 {
+            self.previous_gray = gray.try_clone()?;
+            self.canonical.clear();
+            self.current.clear();
+            return Ok(None);
+        }
+
+        let criteria = TermCriteria::new(
+            i32::from(TermCriteria_Type::COUNT) + i32::from(TermCriteria_Type::EPS),
+            40,
+            0.005,
+        )?;
+        let mut next = Vector::<Point2f>::new();
+        let mut forward_status = Vector::<u8>::new();
+        let mut forward_error = Vector::<f32>::new();
+        cv_video::calc_optical_flow_pyr_lk(
+            &self.previous_gray,
+            gray,
+            &self.current,
+            &mut next,
+            &mut forward_status,
+            &mut forward_error,
+            Size::new(31, 31),
+            4,
+            criteria,
+            0,
+            1.0e-4,
+        )?;
+
+        // A forward result is accepted only when tracking it back reaches the
+        // prior observation. This cheaply rejects points captured by a crossing
+        // spider, vine, web, highlight, or newly revealed background.
+        let mut back = Vector::<Point2f>::new();
+        let mut backward_status = Vector::<u8>::new();
+        let mut backward_error = Vector::<f32>::new();
+        cv_video::calc_optical_flow_pyr_lk(
+            gray,
+            &self.previous_gray,
+            &next,
+            &mut back,
+            &mut backward_status,
+            &mut backward_error,
+            Size::new(31, 31),
+            4,
+            criteria,
+            0,
+            1.0e-4,
+        )?;
+
+        let mut canonical = Vector::<Point2f>::new();
+        let mut observed = Vector::<Point2f>::new();
+        for index in 0..self.current.len() {
+            if forward_status.get(index)? == 0 || backward_status.get(index)? == 0 {
+                continue;
+            }
+            let before = self.current.get(index)?;
+            let after = next.get(index)?;
+            let returned = back.get(index)?;
+            let fb_error = (before.x - returned.x).hypot(before.y - returned.y);
+            if !after.x.is_finite()
+                || !after.y.is_finite()
+                || fb_error > 1.25
+                || after.x < 0.0
+                || after.y < 0.0
+                || after.x >= gray.cols() as f32
+                || after.y >= gray.rows() as f32
+                || point_is_excluded(exclusion, after)?
+            {
+                continue;
+            }
+            canonical.push(self.canonical.get(index)?);
+            observed.push(after);
+        }
+
+        self.previous_gray = gray.try_clone()?;
+        self.canonical = canonical;
+        self.current = observed;
+        let estimate = estimate_persistent_transform(&self.canonical, &self.current, plaque).ok();
+        if let Some(estimate) = &estimate {
+            self.prune_to_pose(estimate.matrix, 3.0)?;
+        }
+        Ok(estimate)
+    }
+
+    fn reset(
+        &mut self,
+        gray: &Mat,
+        plaque: RectF,
+        pose: Mat3,
+        exclusion: Option<&Mat>,
+    ) -> Result<()> {
+        self.previous_gray = gray.try_clone()?;
+        self.canonical.clear();
+        self.current.clear();
+        self.add_corners(gray, plaque, pose, exclusion, 1_200)
+    }
+
+    fn add_corners(
+        &mut self,
+        gray: &Mat,
+        plaque: RectF,
+        pose: Mat3,
+        exclusion: Option<&Mat>,
+        maximum: i32,
+    ) -> Result<()> {
+        let Some(inverse) = pose.inverse() else {
+            return Ok(());
+        };
+        let mut mask = plaque_feature_mask_for_transform(gray.cols(), gray.rows(), plaque, pose)?;
+        apply_exclusion(&mut mask, exclusion)?;
+        for point in &self.current {
+            imgproc::circle(
+                &mut mask,
+                Point::new(point.x.round() as i32, point.y.round() as i32),
+                5,
+                Scalar::all(0.0),
+                -1,
+                imgproc::LINE_8,
+                0,
+            )?;
+        }
+        let mut detected = Vector::<Point2f>::new();
+        features::good_features_to_track(
+            gray,
+            &mut detected,
+            maximum,
+            0.005,
+            4.0,
+            &mask,
+            5,
+            false,
+            0.04,
+        )?;
+        if !detected.is_empty() {
+            imgproc::corner_sub_pix(
+                gray,
+                &mut detected,
+                Size::new(3, 3),
+                Size::new(-1, -1),
+                TermCriteria::new(
+                    i32::from(TermCriteria_Type::COUNT) + i32::from(TermCriteria_Type::EPS),
+                    20,
+                    0.01,
+                )?,
+            )?;
+        }
+        for point in detected {
+            let mapped = inverse.transform(PointF {
+                x: f64::from(point.x),
+                y: f64::from(point.y),
+            });
+            if mapped.x.is_finite()
+                && mapped.y.is_finite()
+                && mapped.x >= plaque.x
+                && mapped.y >= plaque.y
+                && mapped.x <= plaque.x + plaque.width
+                && mapped.y <= plaque.y + plaque.height
+            {
+                self.canonical
+                    .push(Point2f::new(mapped.x as f32, mapped.y as f32));
+                self.current.push(point);
+            }
+        }
+        Ok(())
+    }
+
+    fn prune_to_pose(&mut self, pose: Mat3, maximum_error: f64) -> Result<()> {
+        let mut canonical = Vector::<Point2f>::new();
+        let mut current = Vector::<Point2f>::new();
+        for index in 0..self.canonical.len() {
+            let source = self.canonical.get(index)?;
+            let observed = self.current.get(index)?;
+            let expected = pose.transform(PointF {
+                x: f64::from(source.x),
+                y: f64::from(source.y),
+            });
+            if (expected.x - f64::from(observed.x)).hypot(expected.y - f64::from(observed.y))
+                <= maximum_error
+            {
+                canonical.push(source);
+                current.push(observed);
+            }
+        }
+        self.canonical = canonical;
+        self.current = current;
+        Ok(())
+    }
+}
+
+fn persistent_corner_count(
+    gray: &Mat,
+    plaque: RectF,
+    pose: Mat3,
+    exclusion: Option<&Mat>,
+) -> Result<usize> {
+    let mut tracker = PersistentPointTracker {
+        previous_gray: gray.try_clone()?,
+        canonical: Vector::new(),
+        current: Vector::new(),
+    };
+    tracker.add_corners(gray, plaque, pose, exclusion, 1_200)?;
+    Ok(tracker.current.len())
+}
+
+fn point_is_excluded(exclusion: Option<&Mat>, point: Point2f) -> Result<bool> {
+    let Some(exclusion) = exclusion else {
+        return Ok(false);
+    };
+    let x = point.x.round() as i32;
+    let y = point.y.round() as i32;
+    if x < 0 || y < 0 || x >= exclusion.cols() || y >= exclusion.rows() {
+        return Ok(true);
+    }
+    Ok(*exclusion.at_2d::<u8>(y, x)? > 0)
+}
+
+/// Independent source-frame evidence used by render verification.
+///
+/// Unlike the analysis tracker, this starts fresh on every frame pair. It observes
+/// material motion with forward/backward Lucas-Kanade flow, then asks how closely
+/// the persisted four-corner trajectory predicts those observations. It therefore
+/// detects a screen-fixed or lagging trajectory without registering the rendered
+/// title or trusting the tracker's own residuals.
+#[derive(Debug, Clone)]
+pub(crate) struct SourceFlowConsistency {
+    pub median_error_pixels: f64,
+    pub inlier_fraction: f64,
+    pub tracked_points: usize,
+    pub spatial_coverage: f64,
+    pub flow_model_inlier_fraction: f64,
+    /// Independent image-space motion from the earlier source frame to the later
+    /// one. This is estimated from fresh forward/backward optical flow, not from
+    /// either stored surface pose.
+    pub material_transform: Mat3,
+    pub(crate) flow_model_error_pixels: f64,
+    correspondences: Vec<(PointF, PointF)>,
+}
+
+impl SourceFlowConsistency {
+    fn error_for_poses(&self, plaque: RectF, previous_pose: Mat3, current_pose: Mat3) -> f64 {
+        let Some(previous_inverse) = previous_pose.inverse() else {
+            return f64::INFINITY;
+        };
+        let mut errors = Vec::with_capacity(self.correspondences.len());
+        for &(source, _observed) in &self.correspondences {
+            let material = previous_inverse.transform(source);
+            if !material.x.is_finite()
+                || !material.y.is_finite()
+                || material.x < plaque.x
+                || material.y < plaque.y
+                || material.x > plaque.x + plaque.width
+                || material.y > plaque.y + plaque.height
+            {
+                continue;
+            }
+            let predicted = current_pose.transform(material);
+            // Compare two projective motion models: the stored four-corner plane
+            // and a fresh robust homography fitted directly to source pixels.
+            // Comparing against each raw LK endpoint instead would charge the
+            // trajectory for irreducible optical-flow noise and non-planar
+            // animation (for example a softly billowing cloud plaque), even when
+            // it exactly matches the independently observed best-fit plane.
+            let independently_observed = self.material_transform.transform(source);
+            errors.push(
+                (predicted.x - independently_observed.x)
+                    .hypot(predicted.y - independently_observed.y),
+            );
+        }
+        median(errors)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn measure_source_flow_consistency(
+    previous: &Surface,
+    current: &Surface,
+    plaque: RectF,
+    previous_pose: Mat3,
+    current_pose: Mat3,
+    previous_exclusion: Option<&[u8]>,
+    current_exclusion: Option<&[u8]>,
+) -> Result<Option<SourceFlowConsistency>> {
+    if previous.width() != current.width() || previous.height() != current.height() {
+        bail!("source-flow frames have different dimensions");
+    }
+    let width = previous.width() as i32;
+    let height = previous.height() as i32;
+    let previous_gray = surface_luma_mat(previous)?;
+    let current_gray = surface_luma_mat(current)?;
+    let mut feature_mask = plaque_feature_mask_for_transform(width, height, plaque, previous_pose)?;
+    apply_byte_exclusion(&mut feature_mask, previous_exclusion, width, height)?;
+
+    let mut before = Vector::<Point2f>::new();
+    features::good_features_to_track(
+        &previous_gray,
+        &mut before,
+        800,
+        0.005,
+        5.0,
+        &feature_mask,
+        7,
+        false,
+        0.04,
+    )?;
+    if before.len() < 16 {
+        return Ok(None);
+    }
+    imgproc::corner_sub_pix(
+        &previous_gray,
+        &mut before,
+        Size::new(3, 3),
+        Size::new(-1, -1),
+        TermCriteria::new(
+            i32::from(TermCriteria_Type::COUNT) + i32::from(TermCriteria_Type::EPS),
+            20,
+            0.01,
+        )?,
+    )?;
+
+    let criteria = TermCriteria::new(
+        i32::from(TermCriteria_Type::COUNT) + i32::from(TermCriteria_Type::EPS),
+        40,
+        0.005,
+    )?;
+    let mut after = Vector::<Point2f>::new();
+    let mut forward_status = Vector::<u8>::new();
+    let mut forward_error = Vector::<f32>::new();
+    cv_video::calc_optical_flow_pyr_lk(
+        &previous_gray,
+        &current_gray,
+        &before,
+        &mut after,
+        &mut forward_status,
+        &mut forward_error,
+        Size::new(31, 31),
+        4,
+        criteria,
+        0,
+        1.0e-4,
+    )?;
+    let mut returned = Vector::<Point2f>::new();
+    let mut backward_status = Vector::<u8>::new();
+    let mut backward_error = Vector::<f32>::new();
+    cv_video::calc_optical_flow_pyr_lk(
+        &current_gray,
+        &previous_gray,
+        &after,
+        &mut returned,
+        &mut backward_status,
+        &mut backward_error,
+        Size::new(31, 31),
+        4,
+        criteria,
+        0,
+        1.0e-4,
+    )?;
+
+    let Some(previous_inverse) = previous_pose.inverse() else {
+        return Ok(None);
+    };
+    let mut source_points = Vector::<Point2f>::new();
+    let mut observed_points = Vector::<Point2f>::new();
+    for index in 0..before.len() {
+        if forward_status.get(index)? == 0 || backward_status.get(index)? == 0 {
+            continue;
+        }
+        let source = before.get(index)?;
+        let observed = after.get(index)?;
+        let round_trip = returned.get(index)?;
+        if !observed.x.is_finite()
+            || !observed.y.is_finite()
+            || (source.x - round_trip.x).hypot(source.y - round_trip.y) > 1.25
+            || observed.x < 0.0
+            || observed.y < 0.0
+            || observed.x >= width as f32
+            || observed.y >= height as f32
+            || byte_point_is_excluded(current_exclusion, width, height, observed)
+        {
+            continue;
+        }
+        source_points.push(source);
+        observed_points.push(observed);
+    }
+    if source_points.len() < 16 {
+        return Ok(None);
+    }
+    // A fresh robust model rejects coherent foreground motion (a spider, vine,
+    // web, bird, or arm) before the stored plaque trajectory is evaluated.
+    let robust = estimate_model(
+        &source_points,
+        &observed_points,
+        MotionModel::Projective,
+        1.0,
+    )
+    .or_else(|_| estimate_model(&source_points, &observed_points, MotionModel::Affine, 1.0))?;
+    if robust.inlier_ratio < 0.40 {
+        return Ok(None);
+    }
+
+    let mut canonical = Vector::<Point2f>::new();
+    let mut correspondences = Vec::new();
+    let mut errors = Vec::new();
+    for index in 0..source_points.len() {
+        let source = source_points.get(index)?;
+        let observed = observed_points.get(index)?;
+        let robust_prediction = robust.matrix.transform(PointF {
+            x: f64::from(source.x),
+            y: f64::from(source.y),
+        });
+        if (robust_prediction.x - f64::from(observed.x))
+            .hypot(robust_prediction.y - f64::from(observed.y))
+            > 2.25
+        {
+            continue;
+        }
+        let material = previous_inverse.transform(PointF {
+            x: f64::from(source.x),
+            y: f64::from(source.y),
+        });
+        if !material.x.is_finite()
+            || !material.y.is_finite()
+            || material.x < plaque.x
+            || material.y < plaque.y
+            || material.x > plaque.x + plaque.width
+            || material.y > plaque.y + plaque.height
+        {
+            continue;
+        }
+        let predicted = current_pose.transform(material);
+        let independently_observed = robust.matrix.transform(PointF {
+            x: f64::from(source.x),
+            y: f64::from(source.y),
+        });
+        // The independent verifier evaluates rigid projective plane agreement.
+        // Raw endpoint scatter remains represented by `robust.error` and gates
+        // whether this observation is usable; it is not motion disagreement.
+        errors.push(
+            (predicted.x - independently_observed.x).hypot(predicted.y - independently_observed.y),
+        );
+        canonical.push(Point2f::new(material.x as f32, material.y as f32));
+        correspondences.push((
+            PointF {
+                x: f64::from(source.x),
+                y: f64::from(source.y),
+            },
+            PointF {
+                x: f64::from(observed.x),
+                y: f64::from(observed.y),
+            },
+        ));
+    }
+    if errors.len() < 16 {
+        return Ok(None);
+    }
+    let spatial_coverage = plaque_point_coverage(plaque, &canonical);
+    if spatial_coverage < 0.30 {
+        return Ok(None);
+    }
+    let inlier_fraction =
+        errors.iter().filter(|&&error| error <= 1.5).count() as f64 / errors.len() as f64;
+    Ok(Some(SourceFlowConsistency {
+        median_error_pixels: median(errors),
+        inlier_fraction,
+        tracked_points: canonical.len(),
+        spatial_coverage,
+        flow_model_inlier_fraction: robust.inlier_ratio,
+        material_transform: robust.matrix,
+        flow_model_error_pixels: robust.error,
+        correspondences,
+    }))
+}
+
+fn surface_luma_mat(surface: &Surface) -> Result<Mat> {
+    let mut gray = Mat::new_rows_cols_with_default(
+        surface.height() as i32,
+        surface.width() as i32,
+        core::CV_8UC1,
+        Scalar::all(0.0),
+    )?;
+    for (destination, source) in gray
+        .data_bytes_mut()?
+        .iter_mut()
+        .zip(surface.pixels().chunks_exact(4))
+    {
+        *destination = ((u32::from(source[0]) * 54
+            + u32::from(source[1]) * 183
+            + u32::from(source[2]) * 19
+            + 128)
+            / 256) as u8;
+    }
+    Ok(gray)
+}
+
+fn apply_byte_exclusion(
+    mask: &mut Mat,
+    exclusion: Option<&[u8]>,
+    width: i32,
+    height: i32,
+) -> Result<()> {
+    let Some(exclusion) = exclusion else {
+        return Ok(());
+    };
+    if exclusion.is_empty() {
+        return Ok(());
+    }
+    if exclusion.len() != width as usize * height as usize {
+        bail!("source-flow exclusion dimensions do not match the frame");
+    }
+    for (allowed, &hidden) in mask.data_bytes_mut()?.iter_mut().zip(exclusion) {
+        if hidden >= 16 {
+            *allowed = 0;
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SourceFlowConstraintSummary {
+    before_p95: f64,
+    before_p99: f64,
+    after_p95: f64,
+    after_p99: f64,
+    confidence: Option<f64>,
+}
+
+impl SourceFlowConstraintSummary {
+    fn not_evaluated() -> Self {
+        Self {
+            before_p95: 0.0,
+            before_p99: 0.0,
+            after_p95: 0.0,
+            after_p99: 0.0,
+            confidence: None,
+        }
+    }
+}
+
+/// Constrains the absolute four-corner track with fresh adjacent-frame material
+/// motion. The persistent tracker supplies globally rooted poses; this independent
+/// pass supplies the relative motion that those poses must obey. Solving the whole
+/// clip in both temporal directions prevents a foreground crossing from producing
+/// a one-frame impulse and prevents a causal "notice, then catch up" fallback.
+#[allow(clippy::too_many_arguments)]
+fn constrain_trajectory_to_source_flow(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    reference_frame: usize,
+    loop_closed: bool,
+    samples: &mut [MotionSample],
+    exclusion_root: Option<&Path>,
+    progress: &mut ProgressReporter,
+) -> Result<SourceFlowConstraintSummary> {
+    if samples.len() < 2 {
+        return Ok(SourceFlowConstraintSummary {
+            before_p95: 0.0,
+            before_p99: 0.0,
+            after_p95: 0.0,
+            after_p99: 0.0,
+            confidence: Some(1.0),
+        });
+    }
+
+    let mut decoder = crate::video::Decoder::spawn(&args.ffmpeg, &args.input, info)?;
+    let first = decoder
+        .next_frame()?
+        .context("source-flow solver could not decode frame 0")?;
+    let first_exclusion =
+        load_exclusion_bytes(exclusion_root, 0, info.width as usize, info.height as usize)?;
+    let mut history = VecDeque::from([(0usize, first, first_exclusion)]);
+    let mut observations = vec![Vec::<(usize, SourceFlowConsistency)>::new(); samples.len()];
+    for frame in 1..samples.len() {
+        let Some(current) = decoder.next_frame()? else {
+            bail!("source-flow solver ended before frame {frame}");
+        };
+        let current_exclusion = load_exclusion_bytes(
+            exclusion_root,
+            frame,
+            info.width as usize,
+            info.height as usize,
+        )?;
+        for lag in [1usize, 6, 12] {
+            let Some(previous_frame) = frame.checked_sub(lag) else {
+                continue;
+            };
+            let Some((_, previous, previous_exclusion)) = history
+                .iter()
+                .find(|(index, _, _)| *index == previous_frame)
+            else {
+                continue;
+            };
+            if samples[previous_frame].plaque_visibility < 0.5
+                || samples[frame].plaque_visibility < 0.5
+                || surface_visible_fraction(
+                    plaque,
+                    samples[previous_frame].transform,
+                    info.width,
+                    info.height,
+                ) < 0.30
+                || surface_visible_fraction(
+                    plaque,
+                    samples[frame].transform,
+                    info.width,
+                    info.height,
+                ) < 0.30
+            {
+                continue;
+            }
+            if let Some(observation) = measure_source_flow_consistency(
+                previous,
+                &current,
+                plaque,
+                samples[previous_frame].transform,
+                samples[frame].transform,
+                previous_exclusion.as_deref(),
+                current_exclusion.as_deref(),
+            )?
+            .filter(source_flow_observation_is_usable)
+            {
+                observations[frame].push((previous_frame, observation));
+            }
+        }
+        history.push_back((frame, current, current_exclusion));
+        while history
+            .front()
+            .is_some_and(|(index, _, _)| frame.saturating_sub(*index) > 12)
+        {
+            history.pop_front();
+        }
+        progress.update(
+            samples.len() + frame,
+            format!(
+                "independent source-flow constraint {frame}/{}",
+                samples.len() - 1
+            ),
+        );
+    }
+    decoder.finish()?;
+
+    let mut before = source_flow_errors_for_trajectory(&observations, samples, plaque);
+    let before_p95 = percentile(&mut before, 0.95);
+    let before_p99 = percentile(&mut before, 0.99);
+    let original = samples.to_vec();
+    let source = GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
+    let original_quads = original
+        .iter()
+        .map(|sample| transformed_plaque(plaque, sample.transform))
+        .collect::<Vec<_>>();
+    let corrected = solve_global_source_flow_quads(
+        &observations,
+        &original,
+        &original_quads,
+        reference_frame,
+        plaque,
+    );
+    assign_quads(samples, source, &corrected)?;
+    let soft_errors = source_flow_errors_for_trajectory(&observations, samples, plaque);
+    let soft_quality = source_flow_candidate_quality(soft_errors);
+
+    let integrated = solve_source_flow_by_reference_integration(
+        &observations,
+        &original_quads,
+        reference_frame,
+        plaque,
+    );
+    assign_quads(samples, source, &integrated)?;
+    let integrated_errors = source_flow_errors_for_trajectory(&observations, samples, plaque);
+    let integrated_quality = source_flow_candidate_quality(integrated_errors);
+
+    let before_quality = (before_p95, before_p99);
+    eprintln!(
+        "source-flow candidates: baseline p95 {:.2}px p99 {:.2}px; global p95 {:.2}px p99 {:.2}px; exact integration p95 {:.2}px p99 {:.2}px",
+        before_quality.0,
+        before_quality.1,
+        soft_quality.0,
+        soft_quality.1,
+        integrated_quality.0,
+        integrated_quality.1,
+    );
+    let (after_p95, after_p99) = if source_flow_quality_is_better(integrated_quality, soft_quality)
+        && source_flow_quality_is_better(integrated_quality, before_quality)
+    {
+        eprintln!("source-flow candidate selected: exact integration");
+        integrated_quality
+    } else if source_flow_quality_is_better(soft_quality, before_quality) {
+        assign_quads(samples, source, &corrected)?;
+        eprintln!("source-flow candidate selected: global pose/flow graph");
+        soft_quality
+    } else {
+        samples.clone_from_slice(&original);
+        eprintln!("source-flow candidate selected: baseline absolute trajectory");
+        before_quality
+    };
+    // The first graph changes where the plaque material is sampled. Re-observe
+    // every scale in that aligned geometry, then solve once more. This is the
+    // standard coarse-to-fine step that prevents an initially displaced track
+    // from measuring a coherent background patch instead of the plaque.
+    if (after_p95, after_p99) != before_quality {
+        observations = collect_source_flow_observations(
+            args,
+            info,
+            plaque,
+            samples,
+            exclusion_root,
+            progress,
+        )?;
+        let aligned_quads = samples
+            .iter()
+            .map(|sample| transformed_plaque(plaque, sample.transform))
+            .collect::<Vec<_>>();
+        let polished = solve_global_source_flow_quads(
+            &observations,
+            samples,
+            &aligned_quads,
+            reference_frame,
+            plaque,
+        );
+        let current = samples.to_vec();
+        assign_quads(samples, source, &polished)?;
+        let polished_quality = source_flow_candidate_quality(source_flow_errors_for_trajectory(
+            &observations,
+            samples,
+            plaque,
+        ));
+        eprintln!(
+            "source-flow coarse-to-fine candidate: p95 {:.2}px p99 {:.2}px",
+            polished_quality.0, polished_quality.1
+        );
+        if !source_flow_quality_is_better(polished_quality, (after_p95, after_p99)) {
+            samples.clone_from_slice(&current);
+        }
+    }
+    let graph_anchors = samples
+        .iter()
+        .map(|sample| transformed_plaque(plaque, sample.transform))
+        .collect::<Vec<_>>();
+    let mut best = samples.to_vec();
+    let mut best_quality = source_flow_candidate_quality(source_flow_errors_for_trajectory(
+        &observations,
+        &best,
+        plaque,
+    ));
+    let flow_ceiling = (best_quality.0 * 1.20 + 0.08, best_quality.1 * 1.20 + 0.15);
+    let mut best_dynamics = trajectory_dynamics(&best, plaque, loop_closed);
+    let mut best_objective = trajectory_candidate_objective(best_quality, best_dynamics);
+    for acceleration_weight in [0.30, 0.75, 1.50, 3.0, 6.0, 12.0, 24.0, 48.0, 96.0, 192.0] {
+        let quads = solve_global_source_flow_quads_with_inertia(
+            &observations,
+            samples,
+            &graph_anchors,
+            reference_frame,
+            plaque,
+            acceleration_weight,
+        );
+        let mut candidate = samples.to_vec();
+        assign_quads(&mut candidate, source, &quads)?;
+        let quality = source_flow_candidate_quality(source_flow_errors_for_trajectory(
+            &observations,
+            &candidate,
+            plaque,
+        ));
+        let dynamics = trajectory_dynamics(&candidate, plaque, loop_closed);
+        let objective = trajectory_candidate_objective(quality, dynamics);
+        eprintln!(
+            "source-flow inertia candidate {:.2}: flow p95 {:.2}px p99 {:.2}px; dynamics {:.5}, p95 {:.2}px, max {:.2}px; objective {:.2}",
+            acceleration_weight,
+            quality.0,
+            quality.1,
+            dynamics.temporal_score,
+            dynamics.p95_residual,
+            dynamics.maximum_residual,
+            objective
+        );
+        if quality.0 <= flow_ceiling.0
+            && quality.1 <= flow_ceiling.1
+            && trajectory_candidate_is_better(dynamics, objective, best_dynamics, best_objective)
+        {
+            best = candidate;
+            best_quality = quality;
+            best_dynamics = dynamics;
+            best_objective = objective;
+        }
+    }
+    eprintln!(
+        "source-flow physical solution selected: temporal {:.5}, dynamics p95 {:.2}px, max {:.2}px at frame {}",
+        best_dynamics.temporal_score,
+        best_dynamics.p95_residual,
+        best_dynamics.maximum_residual,
+        best_dynamics.worst_frame,
+    );
+    samples.clone_from_slice(&best);
+    let (after_p95, after_p99) = best_quality;
+    let confidence = source_flow_confidence(after_p95, after_p99);
+    Ok(SourceFlowConstraintSummary {
+        before_p95,
+        before_p99,
+        after_p95,
+        after_p99,
+        confidence: Some(confidence),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_source_flow_observations(
+    args: &AnalyzeArgs,
+    info: &VideoInfo,
+    plaque: RectF,
+    samples: &[MotionSample],
+    exclusion_root: Option<&Path>,
+    progress: &mut ProgressReporter,
+) -> Result<Vec<Vec<(usize, SourceFlowConsistency)>>> {
+    let mut decoder = crate::video::Decoder::spawn(&args.ffmpeg, &args.input, info)?;
+    let first = decoder
+        .next_frame()?
+        .context("source-flow solver could not decode frame 0")?;
+    let first_exclusion =
+        load_exclusion_bytes(exclusion_root, 0, info.width as usize, info.height as usize)?;
+    let mut history = VecDeque::from([(0usize, first, first_exclusion)]);
+    let mut observations = vec![Vec::new(); samples.len()];
+    for frame in 1..samples.len() {
+        let Some(current) = decoder.next_frame()? else {
+            bail!("source-flow solver ended before frame {frame}");
+        };
+        let current_exclusion = load_exclusion_bytes(
+            exclusion_root,
+            frame,
+            info.width as usize,
+            info.height as usize,
+        )?;
+        for lag in [1usize, 6, 12] {
+            let Some(previous_frame) = frame.checked_sub(lag) else {
+                continue;
+            };
+            let Some((_, previous, previous_exclusion)) = history
+                .iter()
+                .find(|(index, _, _)| *index == previous_frame)
+            else {
+                continue;
+            };
+            if samples[previous_frame].plaque_visibility < 0.5
+                || samples[frame].plaque_visibility < 0.5
+                || surface_visible_fraction(
+                    plaque,
+                    samples[previous_frame].transform,
+                    info.width,
+                    info.height,
+                ) < 0.30
+                || surface_visible_fraction(
+                    plaque,
+                    samples[frame].transform,
+                    info.width,
+                    info.height,
+                ) < 0.30
+            {
+                continue;
+            }
+            if let Some(observation) = measure_source_flow_consistency(
+                previous,
+                &current,
+                plaque,
+                samples[previous_frame].transform,
+                samples[frame].transform,
+                previous_exclusion.as_deref(),
+                current_exclusion.as_deref(),
+            )?
+            .filter(source_flow_observation_is_usable)
+            {
+                observations[frame].push((previous_frame, observation));
+            }
+        }
+        history.push_back((frame, current, current_exclusion));
+        while history
+            .front()
+            .is_some_and(|(index, _, _)| frame.saturating_sub(*index) > 12)
+        {
+            history.pop_front();
+        }
+        progress.update(
+            samples.len() + frame,
+            format!(
+                "coarse-to-fine source-flow pass {frame}/{}",
+                samples.len() - 1
+            ),
+        );
+    }
+    decoder.finish()?;
+    Ok(observations)
+}
+
+fn source_flow_candidate_quality(mut errors: Vec<f64>) -> (f64, f64) {
+    let mut tail = errors.clone();
+    (percentile(&mut errors, 0.95), percentile(&mut tail, 0.99))
+}
+
+fn source_flow_quality_is_better(candidate: (f64, f64), current: (f64, f64)) -> bool {
+    candidate.0.is_finite()
+        && candidate.1.is_finite()
+        && (candidate.1 + 0.05 < current.1 || candidate.0 + 0.05 < current.0)
+        && candidate.0 <= current.0 * 1.05 + 0.05
+        && candidate.1 <= current.1 * 1.05 + 0.05
+}
+
+const MINIMUM_PHYSICAL_TEMPORAL_SCORE: f64 = 0.95;
+const MAXIMUM_PHYSICAL_FRAME_RESIDUAL: f64 = 4.0;
+
+fn trajectory_candidate_objective(
+    source_flow_quality: (f64, f64),
+    dynamics: TrajectoryDynamics,
+) -> f64 {
+    source_flow_quality.0
+        + 0.60 * source_flow_quality.1
+        + 0.20 * dynamics.p95_residual
+        + 0.05 * dynamics.maximum_residual
+        + 25.0 * (MINIMUM_PHYSICAL_TEMPORAL_SCORE - dynamics.temporal_score).max(0.0)
+        + 2.0 * (dynamics.maximum_residual - MAXIMUM_PHYSICAL_FRAME_RESIDUAL).max(0.0)
+}
+
+fn trajectory_candidate_is_better(
+    candidate: TrajectoryDynamics,
+    candidate_objective: f64,
+    current: TrajectoryDynamics,
+    current_objective: f64,
+) -> bool {
+    let candidate_is_physical = candidate.is_physical();
+    let current_is_physical = current.is_physical();
+    (candidate_is_physical && !current_is_physical)
+        || (candidate_is_physical == current_is_physical
+            && candidate_objective + 1.0e-6 < current_objective)
+}
+
+fn assign_quads(samples: &mut [MotionSample], source: GeoQuad, quads: &[GeoQuad]) -> Result<()> {
+    for (sample, quad) in samples.iter_mut().zip(quads) {
+        sample.transform = Mat3 {
+            values: homography(source, *quad)?.m,
+        };
+    }
+    Ok(())
+}
+
+/// Exact relative integration is the fallback when the two-ended soft solve
+/// cannot improve the independent residual. It is rooted at the strongest global
+/// pose and propagates toward both past and future. This preserves every measured
+/// inter-frame projective motion; drift remains bounded by later absolute review
+/// diagnostics rather than being hidden by a locally smooth but detached title.
+fn solve_source_flow_by_reference_integration(
+    observations: &[Vec<(usize, SourceFlowConsistency)>],
+    anchors: &[GeoQuad],
+    reference_frame: usize,
+    plaque: RectF,
+) -> Vec<GeoQuad> {
+    let mut solved = anchors.to_vec();
+    for frame in reference_frame + 1..solved.len() {
+        if let Some(observation) = adjacent_source_flow(observations, frame - 1, frame) {
+            let candidate = transform_quad(solved[frame - 1], observation.material_transform);
+            if inferred_quad_is_physical(candidate, plaque) {
+                solved[frame] = candidate;
+            }
+        }
+    }
+    for frame in (0..reference_frame).rev() {
+        if let Some(inverse) = adjacent_source_flow(observations, frame, frame + 1)
+            .and_then(|observation| observation.material_transform.inverse())
+        {
+            let candidate = transform_quad(solved[frame + 1], inverse);
+            if inferred_quad_is_physical(candidate, plaque) {
+                solved[frame] = candidate;
+            }
+        }
+    }
+    solved
+}
+
+fn source_flow_observation_is_usable(observation: &SourceFlowConsistency) -> bool {
+    observation.tracked_points >= 24
+        && observation.spatial_coverage >= 0.42
+        && observation.flow_model_inlier_fraction >= 0.68
+        && observation.flow_model_error_pixels <= 1.5
+}
+
+fn load_exclusion_bytes(
+    root: Option<&Path>,
+    frame: usize,
+    width: usize,
+    height: usize,
+) -> Result<Option<Vec<u8>>> {
+    let Some(root) = root else {
+        return Ok(None);
+    };
+    let path = root.join(format!("{frame:06}.png"));
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let mask = image::open(&path)
+        .with_context(|| format!("failed to read source-flow exclusion {}", path.display()))?
+        .into_luma8();
+    if mask.width() as usize != width || mask.height() as usize != height {
+        bail!("source-flow exclusion dimensions differ from source video");
+    }
+    Ok(Some(mask.into_raw()))
+}
+
+fn source_flow_errors_for_trajectory(
+    observations: &[Vec<(usize, SourceFlowConsistency)>],
+    samples: &[MotionSample],
+    plaque: RectF,
+) -> Vec<f64> {
+    observations
+        .iter()
+        .enumerate()
+        .flat_map(|(frame, observations)| {
+            observations.iter().map(move |(previous, observation)| {
+                observation.error_for_poses(
+                    plaque,
+                    samples[*previous].transform,
+                    samples[frame].transform,
+                )
+            })
+        })
+        .filter(|error| error.is_finite())
+        .collect()
+}
+
+fn solve_global_source_flow_quads(
+    observations: &[Vec<(usize, SourceFlowConsistency)>],
+    samples: &[MotionSample],
+    anchors: &[GeoQuad],
+    reference_frame: usize,
+    plaque: RectF,
+) -> Vec<GeoQuad> {
+    solve_global_source_flow_quads_with_inertia(
+        observations,
+        samples,
+        anchors,
+        reference_frame,
+        plaque,
+        0.12,
+    )
+}
+
+fn solve_global_source_flow_quads_with_inertia(
+    observations: &[Vec<(usize, SourceFlowConsistency)>],
+    samples: &[MotionSample],
+    anchors: &[GeoQuad],
+    reference_frame: usize,
+    plaque: RectF,
+    acceleration_weight: f64,
+) -> Vec<GeoQuad> {
+    let mut solved = anchors.to_vec();
+    for _ in 0..72 {
+        let previous = solved.clone();
+        for frame in 0..solved.len() {
+            let mut accumulator = WeightedQuad::default();
+            let absolute_weight = if frame == reference_frame {
+                8.0
+            } else {
+                absolute_pose_weight(&samples[frame])
+            };
+            accumulator.add(anchors[frame], absolute_weight);
+
+            for (source_frame, observation) in &observations[frame] {
+                let proposal =
+                    transform_quad(previous[*source_frame], observation.material_transform);
+                accumulator.add(
+                    proposal,
+                    source_flow_edge_weight(frame - *source_frame, observation),
+                );
+            }
+            for (future_frame, future_observations) in
+                observations.iter().enumerate().skip(frame + 1)
+            {
+                for (_, observation) in future_observations
+                    .iter()
+                    .filter(|(source_frame, _)| *source_frame == frame)
+                {
+                    if let Some(inverse) = observation.material_transform.inverse() {
+                        let proposal = transform_quad(previous[future_frame], inverse);
+                        accumulator.add(
+                            proposal,
+                            source_flow_edge_weight(future_frame - frame, observation),
+                        );
+                    }
+                }
+            }
+            if frame > 0 && frame + 1 < solved.len() {
+                // Low-weight acceleration prior, evaluated non-causally.
+                accumulator.add(
+                    previous[frame - 1].lerp(previous[frame + 1], 0.5),
+                    acceleration_weight,
+                );
+            }
+            if let Some(candidate) = accumulator.finish()
+                && inferred_quad_is_physical(candidate, plaque)
+            {
+                solved[frame] = candidate;
+            }
+        }
+    }
+    solved
+}
+
+#[derive(Default)]
+struct WeightedQuad {
+    coordinates: [[f64; 2]; 4],
+    total: f64,
+}
+
+impl WeightedQuad {
+    fn add(&mut self, quad: GeoQuad, weight: f64) {
+        if !weight.is_finite() || weight <= 0.0 {
+            return;
+        }
+        for (corner, point) in quad.points().into_iter().enumerate() {
+            self.coordinates[corner][0] += point.x * weight;
+            self.coordinates[corner][1] += point.y * weight;
+        }
+        self.total += weight;
+    }
+
+    fn finish(self) -> Option<GeoQuad> {
+        if self.total <= f64::EPSILON {
+            return None;
+        }
+        let points: [GeoPoint; 4] = std::array::from_fn(|corner| {
+            GeoPoint::new(
+                self.coordinates[corner][0] / self.total,
+                self.coordinates[corner][1] / self.total,
+            )
+        });
+        Some(GeoQuad::new(points[0], points[1], points[2], points[3]))
+    }
+}
+
+fn absolute_pose_weight(sample: &MotionSample) -> f64 {
+    if !sample.measurement_valid {
+        return 0.0;
+    }
+    let source_weight = match sample.measurement_source.as_str() {
+        "reference-frame" | "reverse-root" => 8.0,
+        "root" | "root-static" => 2.5,
+        "reverse-persistent" | "bidirectional-fused" => 1.5,
+        "adaptive" => 0.60,
+        "persistent-flow" => 0.12,
+        _ => 0.08,
+    };
+    source_weight * (0.25 + 0.75 * sample_confidence(sample))
+}
+
+fn source_flow_edge_weight(lag: usize, observation: &SourceFlowConsistency) -> f64 {
+    let base = match lag {
+        1 => 18.0,
+        6 => 10.0,
+        12 => 7.0,
+        _ => 2.0,
+    };
+    let support =
+        (observation.flow_model_inlier_fraction * observation.spatial_coverage).clamp(0.45, 1.0);
+    let residual = (-observation.flow_model_error_pixels.min(4.0) / 2.0).exp();
+    base * support * (0.60 + 0.40 * residual)
+}
+
+fn adjacent_source_flow(
+    observations: &[Vec<(usize, SourceFlowConsistency)>],
+    previous: usize,
+    current: usize,
+) -> Option<&SourceFlowConsistency> {
+    observations
+        .get(current)?
+        .iter()
+        .find_map(|(source, observation)| (*source == previous).then_some(observation))
+}
+
+fn transform_quad(quad: GeoQuad, transform: Mat3) -> GeoQuad {
+    let points = quad.points().map(|point| {
+        let mapped = transform.transform(PointF {
+            x: point.x,
+            y: point.y,
+        });
+        GeoPoint::new(mapped.x, mapped.y)
+    });
+    GeoQuad::new(points[0], points[1], points[2], points[3])
+}
+
+fn percentile(values: &mut [f64], quantile: f64) -> f64 {
+    values.sort_by(f64::total_cmp);
+    if values.is_empty() {
+        return f64::INFINITY;
+    }
+    let index = ((values.len() - 1) as f64 * quantile.clamp(0.0, 1.0)).round() as usize;
+    values[index]
+}
+
+fn source_flow_confidence(p95: f64, p99: f64) -> f64 {
+    if !p95.is_finite() || !p99.is_finite() {
+        return 0.0;
+    }
+    let p95_excess = (p95 - 0.85).max(0.0);
+    let p99_excess = (p99 - 1.50).max(0.0);
+    (-((p95_excess / 1.6).powi(2) + (p99_excess / 2.4).powi(2)))
+        .exp()
+        .clamp(0.0, 0.99)
+}
+
+fn byte_point_is_excluded(
+    exclusion: Option<&[u8]>,
+    width: i32,
+    height: i32,
+    point: Point2f,
+) -> bool {
+    let Some(exclusion) = exclusion.filter(|mask| !mask.is_empty()) else {
+        return false;
+    };
+    let x = point.x.round() as i32;
+    let y = point.y.round() as i32;
+    x < 0
+        || y < 0
+        || x >= width
+        || y >= height
+        || exclusion
+            .get(y as usize * width as usize + x as usize)
+            .is_none_or(|&alpha| alpha >= 16)
+}
+
+fn estimate_persistent_transform(
+    canonical: &Vector<Point2f>,
+    observed: &Vector<Point2f>,
+    plaque: RectF,
+) -> Result<Estimate> {
+    if canonical.len() < 8 || canonical.len() != observed.len() {
+        bail!("insufficient persistent surface points");
+    }
+    let coverage = plaque_point_coverage(plaque, canonical);
+    let model = if canonical.len() >= 16 && coverage >= 0.42 {
+        MotionModel::Projective
+    } else {
+        MotionModel::Affine
+    };
+    let mut estimate = estimate_model(canonical, observed, model, coverage)?;
+    estimate.source = "persistent-flow";
+    estimate.static_model = false;
+    Ok(estimate)
+}
+
+fn plaque_point_coverage(plaque: RectF, points: &Vector<Point2f>) -> f64 {
+    if points.is_empty() || plaque.width <= 0.0 || plaque.height <= 0.0 {
+        return 0.0;
+    }
+    let mut occupied = [false; 12];
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for point in points {
+        let x = ((f64::from(point.x) - plaque.x) / plaque.width).clamp(0.0, 1.0);
+        let y = ((f64::from(point.y) - plaque.y) / plaque.height).clamp(0.0, 1.0);
+        let column = (x * 4.0).floor().clamp(0.0, 3.0) as usize;
+        let row = (y * 3.0).floor().clamp(0.0, 2.0) as usize;
+        occupied[row * 4 + column] = true;
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    let sectors = occupied.into_iter().filter(|value| *value).count() as f64 / 12.0;
+    let horizontal = (max_x - min_x).clamp(0.0, 1.0);
+    let vertical = (max_y - min_y).clamp(0.0, 1.0);
+    (0.65 * sectors + 0.175 * horizontal + 0.175 * vertical).clamp(0.0, 1.0)
+}
+
+fn measurement_is_credible(estimate: &Estimate) -> bool {
+    if estimate.source == "persistent-flow" {
+        // Persistent points already carry canonical material identities and pass
+        // a forward/backward flow check. During a crossing, requiring the same
+        // whole-plaque coverage as descriptor reacquisition needlessly discards
+        // trustworthy one-sided support. `estimate_persistent_transform` falls
+        // back to affine before coverage becomes too narrow for a homography.
+        estimate.tracked_points >= 12
+            && estimate.spatial_coverage >= 0.26
+            && estimate.inlier_ratio >= 0.32
+            && estimate.error.is_finite()
+            && estimate.error <= 3.0
+    } else {
+        // A rolling adaptive anchor is useful for bridging appearance change, but
+        // eight matches are not enough to establish a new four-corner plane. A
+        // coherent foreground web/branch can easily supply that many matches and
+        // then become a false root for every subsequent frame. Root descriptors
+        // are globally anchored and geometry has four explicit boundary points;
+        // adaptive reacquisition therefore has a deliberately stronger floor.
+        let support_is_sufficient = if estimate.source == "adaptive" {
+            estimate.tracked_points >= 20
+                && estimate.spatial_coverage >= 0.55
+                && estimate.inlier_ratio >= 0.38
+                && estimate.error <= 2.5
+        } else {
+            estimate.tracked_points >= 8 || estimate.source == "geometry"
+        };
+        support_is_sufficient
+            && estimate.spatial_coverage >= 0.42
+            && estimate.inlier_ratio >= 0.24
+            && estimate.error.is_finite()
+            && estimate.error <= 4.0
+    }
+}
+
+fn measurement_uncertainty(estimate: &Estimate) -> f64 {
+    if !estimate.error.is_finite() {
+        return f64::INFINITY;
+    }
+    let support_penalty = (12.0 / estimate.tracked_points.max(1) as f64)
+        .sqrt()
+        .max(1.0);
+    let coverage_penalty = 1.0 / estimate.spatial_coverage.max(0.10).sqrt();
+    (estimate.error.max(0.20) * support_penalty * coverage_penalty).clamp(0.20, 24.0)
+}
+
+#[derive(Clone, Copy)]
 struct Estimate {
     matrix: Mat3,
     inlier_ratio: f64,
     error: f64,
+    tracked_points: usize,
+    spatial_coverage: f64,
     ecc: Option<f64>,
     source: &'static str,
     static_model: bool,
 }
 
+fn reacquisition_can_reseed_points(estimate: &Estimate) -> bool {
+    measurement_is_credible(estimate)
+        && estimate.tracked_points >= 24
+        && estimate.spatial_coverage >= 0.60
+        && estimate.inlier_ratio >= 0.45
+        && estimate.error <= 2.0
+        && matches!(estimate.source, "root" | "root-static")
+}
+
 impl Estimate {
     fn anchored(mut self, anchor: Mat3, source: &'static str) -> Self {
         self.matrix = self.matrix.multiply(anchor);
-        self.source = source;
-        self
-    }
-
-    fn named(mut self, source: &'static str) -> Self {
         self.source = source;
         self
     }
@@ -858,14 +2456,21 @@ fn choose_estimate(
     let direct = direct.filter(|estimate| plaque_transform_is_valid(estimate.matrix, plaque));
     match (local, direct) {
         (Some(local), Some(direct)) => {
+            // A fixed-reference match closes the drift loop. Prefer it whenever
+            // it is independently credible; rolling anchors exist only to bridge
+            // appearance changes where the fixed reference has insufficient
+            // support. Comparing two small residuals and choosing the rolling one
+            // allowed subpixel errors to accumulate into a visibly detached plane.
+            if measurement_is_credible(&direct) {
+                return Some(direct);
+            }
             let local_score = local.error
                 + (1.0 - local.inlier_ratio) * 3.0
                 + continuity_penalty(local.matrix, predicted, plaque);
             let direct_score = direct.error
                 + (1.0 - direct.inlier_ratio) * 3.0
                 + continuity_penalty(direct.matrix, predicted, plaque);
-            let direct_is_credible = direct.inlier_ratio >= 0.20 && direct.error <= 5.0;
-            if direct_is_credible && direct_score <= local_score + 0.75 {
+            if direct_score <= local_score + 0.75 {
                 Some(direct)
             } else {
                 Some(local)
@@ -873,6 +2478,50 @@ fn choose_estimate(
         }
         (Some(local), None) => Some(local),
         (None, Some(direct)) => Some(direct),
+        (None, None) => None,
+    }
+}
+
+fn choose_persistent_estimate(
+    persistent: Option<Estimate>,
+    reacquired: Option<Estimate>,
+    plaque: RectF,
+    predicted: Mat3,
+) -> Option<Estimate> {
+    let persistent = persistent.filter(|estimate| {
+        plaque_transform_is_valid(estimate.matrix, plaque) && measurement_is_credible(estimate)
+    });
+    let reacquired = reacquired.filter(|estimate| {
+        plaque_transform_is_valid(estimate.matrix, plaque) && measurement_is_credible(estimate)
+    });
+    match (persistent, reacquired) {
+        (Some(persistent), Some(reacquired)) => {
+            let disagreement = mean_corner_distance(persistent.matrix, reacquired.matrix, plaque);
+            // Optical flow preserves point identity from one frame to the next.
+            // An independent detector is useful as a loop closure only when it
+            // agrees with that identity-preserving path; otherwise a foreground
+            // object's sharper texture must not be allowed to steal the plane.
+            let reacquisition_score = reacquired.error
+                + (1.0 - reacquired.inlier_ratio) * 3.0
+                + continuity_penalty(reacquired.matrix, predicted, plaque);
+            let persistent_score = persistent.error
+                + (1.0 - persistent.inlier_ratio) * 3.0
+                + continuity_penalty(persistent.matrix, predicted, plaque);
+            let strong_root_loop_closure = matches!(reacquired.source, "root" | "root-static")
+                && reacquired.tracked_points >= 32
+                && reacquired.spatial_coverage >= 0.65
+                && reacquired.inlier_ratio >= 0.55
+                && reacquired.error <= 1.25;
+            if strong_root_loop_closure
+                || (disagreement <= 3.0 && reacquisition_score + 0.20 < persistent_score)
+            {
+                Some(reacquired)
+            } else {
+                Some(persistent)
+            }
+        }
+        (Some(persistent), None) => Some(persistent),
+        (None, Some(reacquired)) => Some(reacquired),
         (None, None) => None,
     }
 }
@@ -1071,19 +2720,25 @@ fn plaque_transform_is_valid(transform: Mat3, plaque: RectF) -> bool {
     }
     let source_area = plaque.width * plaque.height;
     let area_ratio = quad.orientation() / source_area.max(1.0);
-    (0.15..=6.0).contains(&area_ratio)
+    if !(0.15..=6.0).contains(&area_ratio) {
+        return false;
+    }
+    // A planar projective transform may taper opposite edges, but a near-frontal
+    // title plaque cannot collapse one edge while expanding its opposite edge by
+    // several times. Such bow-ties are sparse-match degeneracies, not perspective.
+    let top = edge_length(quad.tl, quad.tr);
+    let bottom = edge_length(quad.bl, quad.br);
+    let left = edge_length(quad.tl, quad.bl);
+    let right = edge_length(quad.tr, quad.br);
+    edge_ratio(top, bottom) <= 1.55 && edge_ratio(left, right) <= 1.55
 }
 
-fn extrapolate_matrix(previous: Mat3, current: Mat3) -> Mat3 {
-    let mut values = current.values;
-    for (row, cells) in values.iter_mut().enumerate() {
-        for (column, cell) in cells.iter_mut().enumerate() {
-            *cell = current.values[row][column]
-                + (current.values[row][column] - previous.values[row][column]);
-        }
-    }
-    values[2][2] = 1.0;
-    Mat3 { values }
+fn edge_length(a: GeoPoint, b: GeoPoint) -> f64 {
+    (a.x - b.x).hypot(a.y - b.y)
+}
+
+fn edge_ratio(a: f64, b: f64) -> f64 {
+    a.max(b) / a.min(b).max(1.0)
 }
 
 fn make_anchor(
@@ -1185,18 +2840,15 @@ fn plaque_feature_mask_for_transform(
     transform: Mat3,
 ) -> Result<Mat> {
     let mut mask = Mat::new_rows_cols_with_default(height, width, core::CV_8UC1, Scalar::all(0.0))?;
-    let margin = 12.0;
-    let outer = RectF {
-        x: plaque.x - margin,
-        y: plaque.y - margin,
-        width: plaque.width + margin * 2.0,
-        height: plaque.height + margin * 2.0,
-    };
-    let inner = RectF {
-        x: plaque.x + plaque.width * 0.14,
-        y: plaque.y + plaque.height * 0.22,
-        width: plaque.width * 0.72,
-        height: plaque.height * 0.56,
+    // The material face is the tracked plane.  Restricting evidence to a thin
+    // border discarded the richest stable texture and made foliage or background
+    // just outside the plaque dominate the homography.
+    let inset = (plaque.width.min(plaque.height) * 0.008).clamp(1.0, 4.0);
+    let face = RectF {
+        x: plaque.x + inset,
+        y: plaque.y + inset,
+        width: (plaque.width - inset * 2.0).max(1.0),
+        height: (plaque.height - inset * 2.0).max(1.0),
     };
     let polygon = |rect: RectF| {
         plaque_corners(rect)
@@ -1209,15 +2861,8 @@ fn plaque_feature_mask_for_transform(
     };
     imgproc::fill_convex_poly(
         &mut mask,
-        &polygon(outer),
+        &polygon(face),
         Scalar::all(255.0),
-        imgproc::LINE_8,
-        0,
-    )?;
-    imgproc::fill_convex_poly(
-        &mut mask,
-        &polygon(inner),
-        Scalar::all(0.0),
         imgproc::LINE_8,
         0,
     )?;
@@ -1337,13 +2982,416 @@ pub(crate) fn optimize_trajectory(
     Ok(())
 }
 
-fn mean_quad_distance(left: GeoQuad, right: GeoQuad) -> f64 {
+/// Solves every interval without visual support from observations on both sides.
+///
+/// Internal gaps use cubic Hermite boundary conditions estimated from observations
+/// before *and* after the gap. Consequently an approaching turn starts changing
+/// velocity before the turn rather than waiting for a causal detector to notice it.
+/// Short unsupported clip tails use a robust velocity from the nearest measured
+/// poses. Longer tails are accepted only when the same four-corner velocity carries
+/// the surface monotonically out of the viewport; an unsupported on-screen tail is
+/// rejected instead of freezing or inventing motion.
+fn solve_unobserved_intervals(
+    samples: &mut [MotionSample],
+    plaque: RectF,
+    frame_width: u32,
+    frame_height: u32,
+) -> Result<usize> {
+    let valid = samples
+        .iter()
+        .enumerate()
+        .filter_map(|(frame, sample)| sample.measurement_valid.then_some(frame))
+        .collect::<Vec<_>>();
+    if valid.is_empty() {
+        bail!("surface trajectory has no visual measurements");
+    }
+
+    let source = GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
+    let measured = samples
+        .iter()
+        .map(|sample| transformed_plaque(plaque, sample.transform))
+        .collect::<Vec<_>>();
+    let mut inferred = 0usize;
+
+    for frame in 0..samples.len() {
+        if samples[frame].measurement_valid {
+            continue;
+        }
+        let left_position = valid.partition_point(|candidate| *candidate < frame);
+        let left = left_position.checked_sub(1).map(|index| valid[index]);
+        let right = valid.get(left_position).copied();
+        let (candidate, source_name) = match (left, right) {
+            (Some(left), Some(right)) if left < right => {
+                let previous = valid
+                    .get(left_position.saturating_sub(2))
+                    .copied()
+                    .unwrap_or(left);
+                let following = valid.get(left_position + 1).copied().unwrap_or(right);
+                let t = (frame - left) as f64 / (right - left) as f64;
+                let duration = (right - left) as f64;
+                let hermite = hermite_quad(
+                    measured[left],
+                    measured[right],
+                    quad_velocity(measured[previous], measured[left], previous, left),
+                    quad_velocity(measured[right], measured[following], right, following),
+                    t,
+                    duration,
+                );
+                let candidate = if inferred_quad_is_physical(hermite, plaque) {
+                    hermite
+                } else {
+                    // Boundary velocities can be contaminated immediately beside a
+                    // long occlusion. The two measured endpoint poses are still
+                    // authoritative; smoothstep interpolation keeps zero endpoint
+                    // acceleration without allowing a concave four-corner path.
+                    measured[left].lerp(measured[right], t * t * (3.0 - 2.0 * t))
+                };
+                (candidate, "bidirectional-temporal-solve")
+            }
+            (Some(left), None) => {
+                let gap = frame - left;
+                let previous = valid
+                    .get(left_position.saturating_sub(2))
+                    .copied()
+                    .unwrap_or(left);
+                let velocity = quad_velocity(measured[previous], measured[left], previous, left);
+                let tail = samples.len() - 1 - left;
+                if tail > 12
+                    && !offscreen_tail_is_physical(
+                        measured[left],
+                        velocity,
+                        tail as f64,
+                        plaque,
+                        frame_width,
+                        frame_height,
+                    )
+                {
+                    bail!(
+                        "surface tracking loses all visual support after frame {left}; \
+                         the unsupported {tail}-frame tail does not carry the surface out of view"
+                    );
+                }
+                (
+                    translate_quad(measured[left], velocity, gap as f64),
+                    if tail > 12 {
+                        "offscreen-trajectory-solve"
+                    } else {
+                        "one-sided-temporal-solve"
+                    },
+                )
+            }
+            (None, Some(right)) => {
+                let gap = right - frame;
+                let following = valid.get(1).copied().unwrap_or(right);
+                let velocity =
+                    quad_velocity(measured[right], measured[following], right, following);
+                if right > 12
+                    && !offscreen_tail_is_physical(
+                        measured[right],
+                        velocity,
+                        -(right as f64),
+                        plaque,
+                        frame_width,
+                        frame_height,
+                    )
+                {
+                    bail!(
+                        "surface tracking has no visual support before frame {right}; \
+                         the unsupported {right}-frame lead-in does not originate out of view"
+                    );
+                }
+                (
+                    translate_quad(measured[right], velocity, -(gap as f64)),
+                    if right > 12 {
+                        "offscreen-trajectory-solve"
+                    } else {
+                        "one-sided-temporal-solve"
+                    },
+                )
+            }
+            _ => (measured[frame], "unobserved"),
+        };
+        candidate.validate("physically inferred surface pose")?;
+        if candidate.orientation() <= 0.0 {
+            bail!("physically inferred surface pose is mirrored at frame {frame}");
+        }
+        samples[frame].transform = Mat3 {
+            values: homography(source, candidate)?.m,
+        };
+        samples[frame].measurement_valid = false;
+        samples[frame].tracked_points = 0;
+        samples[frame].spatial_coverage = 0.0;
+        samples[frame].measurement_source = source_name.into();
+        let support_distance = nearest_measurement_distance(frame, left, right) as f64;
+        samples[frame].uncertainty_px = support_distance;
+        // JSON has no representation for infinity. Keep the absence of evidence in
+        // `measurement_valid`; use a finite conservative residual so every freshly
+        // written trajectory can be reopened byte-for-byte.
+        samples[frame].reprojection_error = support_distance.clamp(4.0, 24.0);
+        samples[frame].ecc = None;
+        inferred += 1;
+    }
+    Ok(inferred)
+}
+
+fn inferred_quad_is_physical(candidate: GeoQuad, plaque: RectF) -> bool {
+    if candidate
+        .validate("physically inferred surface pose")
+        .is_err()
+        || candidate.orientation() <= 0.0
+    {
+        return false;
+    }
+    let area_ratio = candidate.orientation() / (plaque.width * plaque.height).max(1.0);
+    let top = edge_length(candidate.tl, candidate.tr);
+    let bottom = edge_length(candidate.bl, candidate.br);
+    let left = edge_length(candidate.tl, candidate.bl);
+    let right = edge_length(candidate.tr, candidate.br);
+    (0.15..=6.0).contains(&area_ratio)
+        && edge_ratio(top, bottom) <= 1.55
+        && edge_ratio(left, right) <= 1.55
+}
+
+fn offscreen_tail_is_physical(
+    measured: GeoQuad,
+    velocity: [[f64; 2]; 4],
+    duration: f64,
+    plaque: RectF,
+    frame_width: u32,
+    frame_height: u32,
+) -> bool {
+    let steps = duration.abs().round().max(1.0) as usize;
+    let mut previous_fraction = surface_quad_visible_fraction(measured, frame_width, frame_height);
+    for step in 1..=steps {
+        let t = duration * step as f64 / steps as f64;
+        let candidate = translate_quad(measured, velocity, t);
+        let area_ratio = candidate.orientation() / (plaque.width * plaque.height).max(1.0);
+        if candidate.validate("off-screen trajectory").is_err()
+            || candidate.orientation() <= 0.0
+            || !(0.15..=6.0).contains(&area_ratio)
+        {
+            return false;
+        }
+        let visible = surface_quad_visible_fraction(candidate, frame_width, frame_height);
+        if visible > previous_fraction + 0.08 {
+            return false;
+        }
+        previous_fraction = visible;
+    }
+    previous_fraction <= 0.06
+}
+
+pub(crate) fn surface_visible_fraction(
+    plaque: RectF,
+    transform: Mat3,
+    frame_width: u32,
+    frame_height: u32,
+) -> f64 {
+    surface_quad_visible_fraction(
+        transformed_plaque(plaque, transform),
+        frame_width,
+        frame_height,
+    )
+}
+
+fn surface_quad_visible_fraction(quad: GeoQuad, width: u32, height: u32) -> f64 {
+    let (min_x, min_y, max_x, max_y) = quad.bounds();
+    let full_width = (max_x - min_x).max(0.0);
+    let full_height = (max_y - min_y).max(0.0);
+    let full_area = full_width * full_height;
+    if !full_area.is_finite() || full_area <= f64::EPSILON {
+        return 0.0;
+    }
+    let visible_width = (max_x.min(width as f64) - min_x.max(0.0)).max(0.0);
+    let visible_height = (max_y.min(height as f64) - min_y.max(0.0)).max(0.0);
+    (visible_width * visible_height / full_area).clamp(0.0, 1.0)
+}
+
+fn nearest_measurement_distance(frame: usize, left: Option<usize>, right: Option<usize>) -> usize {
+    left.map(|value| frame - value)
+        .into_iter()
+        .chain(right.map(|value| value - frame))
+        .min()
+        .unwrap_or(usize::MAX)
+}
+
+fn quad_velocity(a: GeoQuad, b: GeoQuad, a_frame: usize, b_frame: usize) -> [[f64; 2]; 4] {
+    let duration = b_frame.abs_diff(a_frame).max(1) as f64;
+    let a = a.points();
+    let b = b.points();
+    std::array::from_fn(|corner| {
+        [
+            (b[corner].x - a[corner].x) / duration,
+            (b[corner].y - a[corner].y) / duration,
+        ]
+    })
+}
+
+fn hermite_quad(
+    left: GeoQuad,
+    right: GeoQuad,
+    left_velocity: [[f64; 2]; 4],
+    right_velocity: [[f64; 2]; 4],
+    t: f64,
+    duration: f64,
+) -> GeoQuad {
+    let left = left.points();
+    let right = right.points();
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+    let h10 = t3 - 2.0 * t2 + t;
+    let h01 = -2.0 * t3 + 3.0 * t2;
+    let h11 = t3 - t2;
+    let points: [GeoPoint; 4] = std::array::from_fn(|corner| {
+        GeoPoint::new(
+            h00 * left[corner].x
+                + h10 * duration * left_velocity[corner][0]
+                + h01 * right[corner].x
+                + h11 * duration * right_velocity[corner][0],
+            h00 * left[corner].y
+                + h10 * duration * left_velocity[corner][1]
+                + h01 * right[corner].y
+                + h11 * duration * right_velocity[corner][1],
+        )
+    });
+    GeoQuad::new(points[0], points[1], points[2], points[3])
+}
+
+fn translate_quad(quad: GeoQuad, velocity: [[f64; 2]; 4], duration: f64) -> GeoQuad {
+    let points = quad.points();
+    let moved: [GeoPoint; 4] = std::array::from_fn(|corner| {
+        GeoPoint::new(
+            points[corner].x + velocity[corner][0] * duration,
+            points[corner].y + velocity[corner][1] * duration,
+        )
+    });
+    GeoQuad::new(moved[0], moved[1], moved[2], moved[3])
+}
+
+pub(crate) fn mean_quad_distance(left: GeoQuad, right: GeoQuad) -> f64 {
     left.points()
         .into_iter()
         .zip(right.points())
         .map(|(a, b)| (a.x - b.x).hypot(a.y - b.y))
         .sum::<f64>()
         / 4.0
+}
+
+/// A four-corner, image-space dynamics measurement shared by analysis and
+/// verification. Each residual is the distance between the observed pose and
+/// the constant-velocity pose predicted from both neighboring frames. Looking
+/// at all four corners detects perspective/rotation impulses that a center-only
+/// test cannot see.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TrajectoryDynamics {
+    pub(crate) temporal_score: f64,
+    pub(crate) p95_residual: f64,
+    pub(crate) maximum_residual: f64,
+    pub(crate) worst_frame: usize,
+    pub(crate) loop_score: f64,
+    pub(crate) loop_residual: f64,
+}
+
+impl TrajectoryDynamics {
+    fn is_physical(self) -> bool {
+        self.temporal_score >= MINIMUM_PHYSICAL_TEMPORAL_SCORE
+            && self.maximum_residual <= MAXIMUM_PHYSICAL_FRAME_RESIDUAL
+    }
+}
+
+pub(crate) fn trajectory_dynamics(
+    samples: &[MotionSample],
+    plaque: RectF,
+    loop_closed: bool,
+) -> TrajectoryDynamics {
+    if samples.len() < 3 {
+        return TrajectoryDynamics {
+            temporal_score: 0.0,
+            p95_residual: f64::INFINITY,
+            maximum_residual: f64::INFINITY,
+            worst_frame: 0,
+            loop_score: if loop_closed { 0.0 } else { 1.0 },
+            loop_residual: if loop_closed { f64::INFINITY } else { 0.0 },
+        };
+    }
+
+    let quads = samples
+        .iter()
+        .map(|sample| transformed_plaque(plaque, sample.transform))
+        .collect::<Vec<_>>();
+    let mut residuals = Vec::with_capacity(samples.len());
+    let mut maximum_residual = 0.0_f64;
+    let mut worst_frame = 0usize;
+    let first = if loop_closed { 0 } else { 1 };
+    let end = if loop_closed {
+        samples.len()
+    } else {
+        samples.len() - 1
+    };
+    for frame in first..end {
+        let previous = if frame == 0 {
+            samples.len() - 1
+        } else {
+            frame - 1
+        };
+        let next = if frame + 1 == samples.len() {
+            0
+        } else {
+            frame + 1
+        };
+        let mut residual = mean_quad_distance(quads[frame], quads[previous].lerp(quads[next], 0.5));
+
+        // Visibility is part of the rendered title trajectory. Express abrupt
+        // opacity curvature as a small pixel-equivalent penalty while leaving a
+        // smooth authored fade unpenalized.
+        let expected_visibility =
+            (samples[previous].plaque_visibility + samples[next].plaque_visibility) * 0.5;
+        residual =
+            residual.hypot((samples[frame].plaque_visibility - expected_visibility).abs() * 8.0);
+        if residual > maximum_residual {
+            maximum_residual = residual;
+            worst_frame = frame;
+        }
+        residuals.push((frame, residual));
+    }
+
+    let score_for = |residual: f64| {
+        let excess = (residual - 0.35).max(0.0);
+        (-(excess / 1.5).powi(2)).exp().clamp(0.0, 1.0)
+    };
+    let temporal_score = residuals
+        .iter()
+        .map(|(_, residual)| score_for(*residual))
+        .sum::<f64>()
+        / residuals.len().max(1) as f64;
+    let mut residual_values = residuals
+        .iter()
+        .map(|(_, residual)| *residual)
+        .collect::<Vec<_>>();
+    let p95_residual = percentile(&mut residual_values, 0.95);
+    let loop_residual = if loop_closed {
+        residuals
+            .iter()
+            .filter(|(frame, _)| *frame == 0 || *frame + 1 == samples.len())
+            .map(|(_, residual)| *residual)
+            .fold(0.0, f64::max)
+    } else {
+        0.0
+    };
+
+    TrajectoryDynamics {
+        temporal_score,
+        p95_residual,
+        maximum_residual,
+        worst_frame,
+        loop_score: if loop_closed {
+            score_for(loop_residual)
+        } else {
+            1.0
+        },
+        loop_residual,
+    }
 }
 
 fn sample_confidence(sample: &MotionSample) -> f64 {
@@ -1391,7 +3439,7 @@ fn write_tracking_diagnostics(
             frames.push(draw_diagnostic(frame, plaque, samples[index].transform)?);
         }
     }
-    write_contact_sheet(&frames, &diagnostics.join("tracking-contact-sheet.jpg"))?;
+    write_contact_sheet(&frames, &diagnostics.join("tracking-contact-sheet.png"))?;
     Ok(())
 }
 
@@ -1403,7 +3451,11 @@ fn estimate_reference_transform(
     requested_model: MotionModel,
     allow_static: bool,
 ) -> Result<Estimate> {
-    if descriptors.empty() || keypoints.len() < 12 {
+    if reference_descriptors.empty()
+        || reference_keypoints.len() < 8
+        || descriptors.empty()
+        || keypoints.len() < 8
+    {
         bail!("insufficient frame descriptors");
     }
 
@@ -1434,12 +3486,12 @@ fn estimate_reference_transform(
         None
     };
     for model in models {
-        let mut estimate = estimate_model(&source, &destination, model)?;
+        let mut estimate = estimate_model(&source, &destination, model, coverage)?;
         estimate.inlier_ratio *= 0.55 + 0.45 * coverage;
         let complexity_penalty = match model {
             MotionModel::Similarity => 0.0,
-            MotionModel::Affine => 0.15,
-            MotionModel::Projective => 0.35,
+            MotionModel::Affine => 0.08,
+            MotionModel::Projective => 0.12,
             MotionModel::Adaptive => unreachable!(),
         };
         let objective = estimate_objective(&estimate, complexity_penalty);
@@ -1519,25 +3571,27 @@ fn match_coverage(reference: &Vector<KeyPoint>, matched: &Vector<Point2f>) -> Re
         max_x = max_x.max(point.x);
         max_y = max_y.max(point.y);
     }
-    let center_x = (min_x + max_x) * 0.5;
-    let center_y = (min_y + max_y) * 0.5;
-    let mut occupied = [false; 4];
+    let width = (max_x - min_x).max(1.0);
+    let height = (max_y - min_y).max(1.0);
+    let mut occupied = [false; 9];
     let mut matched_min_x = f32::INFINITY;
     let mut matched_min_y = f32::INFINITY;
     let mut matched_max_x = f32::NEG_INFINITY;
     let mut matched_max_y = f32::NEG_INFINITY;
     for point in matched {
-        let index = usize::from(point.x >= center_x) + 2 * usize::from(point.y >= center_y);
+        let column = (((point.x - min_x) / width) * 3.0).floor().clamp(0.0, 2.0) as usize;
+        let row = (((point.y - min_y) / height) * 3.0).floor().clamp(0.0, 2.0) as usize;
+        let index = row * 3 + column;
         occupied[index] = true;
         matched_min_x = matched_min_x.min(point.x);
         matched_min_y = matched_min_y.min(point.y);
         matched_max_x = matched_max_x.max(point.x);
         matched_max_y = matched_max_y.max(point.y);
     }
-    let quadrants = occupied.into_iter().filter(|value| *value).count() as f64 / 4.0;
-    let horizontal = f64::from((matched_max_x - matched_min_x) / (max_x - min_x).max(1.0));
-    let vertical = f64::from((matched_max_y - matched_min_y) / (max_y - min_y).max(1.0));
-    Ok((0.6 * quadrants + 0.2 * horizontal.min(1.0) + 0.2 * vertical.min(1.0)).clamp(0.0, 1.0))
+    let sectors = occupied.into_iter().filter(|value| *value).count() as f64 / 9.0;
+    let horizontal = f64::from((matched_max_x - matched_min_x) / width);
+    let vertical = f64::from((matched_max_y - matched_min_y) / height);
+    Ok((0.65 * sectors + 0.175 * horizontal.min(1.0) + 0.175 * vertical.min(1.0)).clamp(0.0, 1.0))
 }
 
 fn static_estimate(
@@ -1556,6 +3610,8 @@ fn static_estimate(
         matrix: Mat3::IDENTITY,
         inlier_ratio: inliers * (0.55 + 0.45 * coverage),
         error,
+        tracked_points: source.len(),
+        spatial_coverage: coverage,
         ecc: None,
         source: "static",
         static_model: true,
@@ -1566,6 +3622,7 @@ fn estimate_model(
     source: &Vector<Point2f>,
     destination: &Vector<Point2f>,
     model: MotionModel,
+    coverage: f64,
 ) -> Result<Estimate> {
     let mut inliers = Mat::default();
     let initial = match model {
@@ -1592,11 +3649,11 @@ fn estimate_model(
         MotionModel::Projective => geometry::find_homography(
             source,
             destination,
-            geometry::RANSAC,
-            3.0,
+            geometry::USAC_MAGSAC,
+            2.25,
             &mut inliers,
-            4000,
-            0.995,
+            10_000,
+            0.999,
         )?,
         MotionModel::Adaptive => unreachable!(),
     };
@@ -1612,15 +3669,74 @@ fn estimate_model(
     } else {
         core::count_non_zero(&inliers)? as f64 / source.len().max(1) as f64
     };
+    let inlier_coverage = correspondence_inlier_coverage(source, &inliers)?;
 
     Ok(Estimate {
         matrix,
         inlier_ratio,
         error,
+        tracked_points: core::count_non_zero(&inliers).unwrap_or(0).max(0) as usize,
+        // Coverage of all tentative matches is not evidence for the selected
+        // robust model. A small foreground cluster can win MAGSAC while rejected
+        // plaque matches make the tentative set look spatially excellent. Report
+        // only the selected model's inlier distribution.
+        spatial_coverage: coverage.min(inlier_coverage),
         ecc: None,
         source: "feature",
         static_model: false,
     })
+}
+
+fn correspondence_inlier_coverage(source: &Vector<Point2f>, inliers: &Mat) -> Result<f64> {
+    if source.is_empty() || inliers.empty() {
+        return Ok(0.0);
+    }
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for point in source {
+        min_x = min_x.min(point.x);
+        min_y = min_y.min(point.y);
+        max_x = max_x.max(point.x);
+        max_y = max_y.max(point.y);
+    }
+    let width = (max_x - min_x).max(1.0);
+    let height = (max_y - min_y).max(1.0);
+    let mut occupied = [false; 12];
+    let mut selected_min_x = f32::INFINITY;
+    let mut selected_min_y = f32::INFINITY;
+    let mut selected_max_x = f32::NEG_INFINITY;
+    let mut selected_max_y = f32::NEG_INFINITY;
+    let mut selected_count = 0usize;
+    for index in 0..source.len() {
+        let is_inlier = if inliers.rows() as usize == source.len() {
+            *inliers.at_2d::<u8>(index as i32, 0)? != 0
+        } else if inliers.cols() as usize == source.len() {
+            *inliers.at_2d::<u8>(0, index as i32)? != 0
+        } else {
+            false
+        };
+        if !is_inlier {
+            continue;
+        }
+        let point = source.get(index)?;
+        let column = (((point.x - min_x) / width) * 4.0).floor().clamp(0.0, 3.0) as usize;
+        let row = (((point.y - min_y) / height) * 3.0).floor().clamp(0.0, 2.0) as usize;
+        occupied[row * 4 + column] = true;
+        selected_min_x = selected_min_x.min(point.x);
+        selected_min_y = selected_min_y.min(point.y);
+        selected_max_x = selected_max_x.max(point.x);
+        selected_max_y = selected_max_y.max(point.y);
+        selected_count += 1;
+    }
+    if selected_count == 0 {
+        return Ok(0.0);
+    }
+    let sectors = occupied.into_iter().filter(|value| *value).count() as f64 / 12.0;
+    let horizontal = f64::from((selected_max_x - selected_min_x) / width).clamp(0.0, 1.0);
+    let vertical = f64::from((selected_max_y - selected_min_y) / height).clamp(0.0, 1.0);
+    Ok((0.65 * sectors + 0.175 * horizontal + 0.175 * vertical).clamp(0.0, 1.0))
 }
 
 fn grayscale(frame: &Mat) -> Result<Mat> {
@@ -1640,7 +3756,12 @@ fn plaque_feature_mask(width: i32, height: i32, plaque: RectF) -> Result<Mat> {
     plaque_feature_mask_for_transform(width, height, plaque, Mat3::IDENTITY)
 }
 
-/// Interpolates low-confidence temporal impulses without altering valid motion.
+/// Rejects physically impossible one-frame pose impulses before the noncausal
+/// interpolation pass.
+///
+/// Feature estimates with strong, spatially distributed inliers may legitimately
+/// disagree with a short-window median during fast motion. Low-support estimates
+/// do not get that exemption and are bridged from evidence on both sides.
 pub(crate) fn repair_outliers(samples: &mut [MotionSample], plaque: RectF) -> usize {
     if samples.len() < 5 {
         return 0;
@@ -1697,16 +3818,11 @@ pub(crate) fn repair_outliers(samples: &mut [MotionSample], plaque: RectF) -> us
         let first = bad[group_start].0;
         let last = bad[cursor].0;
         if first > 0 && last + 1 < samples.len() {
-            let left = samples[first - 1].transform;
-            let right = samples[last + 1].transform;
-            let span = (last - first + 2) as f64;
             for (offset, sample) in samples[first..=last].iter_mut().enumerate() {
-                let t = (offset + 1) as f64 / span;
-                sample.transform =
-                    interpolate_plaque_transform(plaque, left, right, t).unwrap_or(left);
+                sample.measurement_valid = false;
+                sample.measurement_source = "rejected-outlier".into();
+                sample.uncertainty_px = sample.uncertainty_px.max(bad[group_start + offset].1);
                 sample.inlier_ratio = 0.0;
-                sample.reprojection_error =
-                    sample.reprojection_error.max(bad[group_start + offset].1);
                 sample.ecc = None;
             }
         }
@@ -1714,102 +3830,6 @@ pub(crate) fn repair_outliers(samples: &mut [MotionSample], plaque: RectF) -> us
     }
 
     bad.len()
-}
-
-/// Bridges intervals where a foreground crossing can dominate plaque evidence.
-pub(crate) fn stabilize_occluded_intervals(
-    samples: &mut [MotionSample],
-    plaque: RectF,
-    reference_frame: usize,
-) -> usize {
-    if samples.len() < 5 {
-        return 0;
-    }
-    let peak = samples
-        .iter()
-        .map(|sample| sample.occluder_coverage)
-        .fold(0.0_f64, f64::max);
-    if peak < 0.04 {
-        return 0;
-    }
-    let threshold = (peak * 0.18).max(0.015);
-    let active = samples
-        .iter()
-        .enumerate()
-        .filter_map(|(frame, sample)| (sample.occluder_coverage >= threshold).then_some(frame))
-        .collect::<Vec<_>>();
-    let mut repaired = 0;
-    let mut cursor = 0;
-    while cursor < active.len() {
-        let start = cursor;
-        while cursor + 1 < active.len() && active[cursor + 1] <= active[cursor] + 2 {
-            cursor += 1;
-        }
-        let active_frames = &active[start..=cursor];
-        let integrated_coverage = active_frames
-            .iter()
-            .map(|&frame| samples[frame].occluder_coverage)
-            .sum::<f64>();
-        if active_frames.len() < 5 || integrated_coverage < 0.75 {
-            cursor += 1;
-            continue;
-        }
-        let first_active = active[start];
-        let last_active = active[cursor];
-        let first = first_active.saturating_sub(4);
-        let last = (last_active + 18).min(samples.len() - 1);
-        let mut anchors = Vec::with_capacity(3);
-        if first > 0 {
-            anchors.push((first - 1, samples[first - 1].transform));
-        }
-        if (first..=last).contains(&reference_frame) {
-            anchors.push((reference_frame, samples[reference_frame].transform));
-        }
-        if last + 1 < samples.len() {
-            anchors.push((last + 1, samples[last + 1].transform));
-        }
-        // A one-sided bridge freezes pose indefinitely and can leave typography on
-        // screen after its plaque exits. Without observations on both sides, retain
-        // the tracked trajectory and let visibility/off-screen geometry suppress it.
-        let has_left = anchors.iter().any(|anchor| anchor.0 < first_active);
-        let has_right = anchors.iter().any(|anchor| anchor.0 > last_active);
-        if !has_left || !has_right {
-            cursor += 1;
-            continue;
-        }
-        anchors.sort_by_key(|anchor| anchor.0);
-        anchors.dedup_by_key(|anchor| anchor.0);
-        for (frame, sample) in samples.iter_mut().enumerate().take(last + 1).skip(first) {
-            if anchors.iter().any(|anchor| anchor.0 == frame) {
-                continue;
-            }
-            let left = anchors.iter().rev().find(|anchor| anchor.0 < frame);
-            let right = anchors.iter().find(|anchor| anchor.0 > frame);
-            let transform = match (left, right) {
-                (Some(&(left_frame, left)), Some(&(right_frame, right))) => {
-                    let t = (frame - left_frame) as f64 / (right_frame - left_frame) as f64;
-                    interpolate_plaque_transform(plaque, left, right, t)
-                }
-                (Some(&(_, _)), None) | (None, Some(&(_, _))) => None,
-                (None, None) => None,
-            };
-            if let Some(transform) = transform {
-                sample.transform = transform;
-                sample.ecc = None;
-                repaired += 1;
-            }
-        }
-        cursor += 1;
-    }
-    repaired
-}
-
-fn interpolate_plaque_transform(plaque: RectF, left: Mat3, right: Mat3, t: f64) -> Option<Mat3> {
-    let source = GeoQuad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
-    let target = transformed_plaque(plaque, left).lerp(transformed_plaque(plaque, right), t);
-    target.validate("interpolated plaque").ok()?;
-    let matrix = homography(source, target).ok()?;
-    Some(Mat3 { values: matrix.m })
 }
 
 fn should_close_loop(capture: &mut VideoCapture, frame_count: usize) -> Result<bool> {
@@ -1975,15 +3995,18 @@ pub fn median(mut values: Vec<f64>) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        TrackingResult, apply_motion_refinement, apply_visibility_refinements, optimize_trajectory,
-        oriented_rect_quad, plaque_feature_mask, plaque_transform_is_valid,
-        reapply_locked_refinements, refined_loop_closed, select_masked_refinement,
-        stabilize_occluded_intervals, static_estimate, transformed_quad,
+        SourceFlowConsistency, TrackingResult, apply_motion_scene, apply_visibility_scenes,
+        measure_source_flow_consistency, optimize_trajectory, oriented_rect_quad,
+        plaque_feature_mask, plaque_transform_is_valid, reapply_locked_scenes, select_masked_scene,
+        solve_unobserved_intervals, static_estimate, surface_visible_fraction, trajectory_dynamics,
+        trajectory_loop_closed, transformed_quad,
     };
     use crate::{
+        color::Rgba,
         geometry::Quad,
-        model::{Mat3, MotionSample, RectF},
-        refinement::{CoordinateSystem, MotionKeyframe, MotionRefinement},
+        model::{Mat3, MotionSample, PointF, RectF},
+        scene::{CoordinateSystem, MotionKeyframe, SurfaceTrajectory, TRAJECTORY_FORMAT},
+        surface::Surface,
     };
     use opencv::{
         core::{Point2f, Vector},
@@ -1992,7 +4015,7 @@ mod tests {
 
     #[test]
     fn masked_retracking_cannot_replace_a_more_confident_track() {
-        let result = select_masked_refinement(
+        let result = select_masked_scene(
             tracking_result("baseline", 0.82, 1.0),
             tracking_result("masked", 0.48, 9.0),
         );
@@ -2004,7 +4027,7 @@ mod tests {
 
     #[test]
     fn masked_retracking_replaces_a_weaker_track() {
-        let result = select_masked_refinement(
+        let result = select_masked_scene(
             tracking_result("baseline", 0.48, 1.0),
             tracking_result("masked", 0.82, 9.0),
         );
@@ -2014,6 +4037,31 @@ mod tests {
         assert_eq!(result.model_name, "masked");
     }
 
+    #[test]
+    fn four_corner_dynamics_exposes_a_projective_impulse() {
+        let plaque = RectF {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let mut samples = (0..9)
+            .map(|frame| MotionSample {
+                frame,
+                transform: Mat3::translation(frame as f64, 0.0),
+                measurement_valid: true,
+                plaque_visibility: 1.0,
+                ..MotionSample::default()
+            })
+            .collect::<Vec<_>>();
+        samples[4].transform.values[0][1] = 0.12;
+
+        let dynamics = trajectory_dynamics(&samples, plaque, false);
+        assert_eq!(dynamics.worst_frame, 4);
+        assert!(dynamics.maximum_residual > 5.0);
+        assert!(dynamics.temporal_score < 0.90);
+    }
+
     fn tracking_result(model: &str, confidence: f64, translation: f64) -> TrackingResult {
         TrackingResult {
             samples: vec![MotionSample {
@@ -2021,6 +4069,11 @@ mod tests {
                 transform: Mat3 {
                     values: [[1.0, 0.0, translation], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
                 },
+                measurement_valid: true,
+                tracked_points: 20,
+                spatial_coverage: 1.0,
+                uncertainty_px: 0.25,
+                measurement_source: "test".into(),
                 inlier_ratio: confidence,
                 reprojection_error: 0.0,
                 ecc: Some(1.0),
@@ -2035,7 +4088,7 @@ mod tests {
     }
 
     #[test]
-    fn plaque_feature_mask_uses_border_not_background_or_cavity() {
+    fn plaque_feature_mask_uses_the_material_face_not_background() {
         let mask = plaque_feature_mask(
             400,
             300,
@@ -2049,8 +4102,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(*mask.at_2d::<u8>(10, 10).unwrap(), 0);
-        assert_eq!(*mask.at_2d::<u8>(80, 100).unwrap(), 255);
-        assert_eq!(*mask.at_2d::<u8>(130, 200).unwrap(), 0);
+        assert_eq!(*mask.at_2d::<u8>(82, 102).unwrap(), 255);
+        assert_eq!(*mask.at_2d::<u8>(130, 200).unwrap(), 255);
     }
 
     #[test]
@@ -2105,6 +4158,118 @@ mod tests {
     }
 
     #[test]
+    fn independent_source_flow_rejects_a_screen_fixed_trajectory() {
+        let width = 192;
+        let height = 128;
+        let plaque = RectF {
+            x: 32.0,
+            y: 24.0,
+            width: 112.0,
+            height: 72.0,
+        };
+        let mut previous = Surface::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                let checker = ((x / 13 + y / 11) % 2) as u8;
+                let detail = ((x * 19 + y * 31 + x * y * 3) % 61) as u8;
+                let value = 45 + checker * 120 + detail;
+                previous.set_pixel(x, y, Rgba::new(value, 255 - value / 2, value / 2, 255));
+            }
+        }
+        let dx = 4_u32;
+        let dy = 3_u32;
+        let shift = Mat3::translation(f64::from(dx), f64::from(dy));
+        let mut current = Surface::new(width, height);
+        for y in 0..height - dy {
+            for x in 0..width - dx {
+                current.set_pixel(x + dx, y + dy, previous.pixel(x, y));
+            }
+        }
+
+        let correct = measure_source_flow_consistency(
+            &previous,
+            &current,
+            plaque,
+            Mat3::IDENTITY,
+            shift,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let screen_fixed = measure_source_flow_consistency(
+            &previous,
+            &current,
+            plaque,
+            Mat3::IDENTITY,
+            Mat3::IDENTITY,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(
+            correct.median_error_pixels < 0.75,
+            "correct trajectory error was {}px",
+            correct.median_error_pixels
+        );
+        assert!(correct.inlier_fraction > 0.80);
+        assert!(
+            screen_fixed.median_error_pixels > correct.median_error_pixels + 3.5,
+            "screen-fixed error {}px did not separate from correct error {}px",
+            screen_fixed.median_error_pixels,
+            correct.median_error_pixels
+        );
+    }
+
+    #[test]
+    fn source_flow_scores_the_fitted_plane_not_nonrigid_endpoint_scatter() {
+        let plaque = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        let shift = Mat3::translation(5.0, -2.0);
+        let correspondences = (0_u32..32)
+            .map(|index| {
+                let source = PointF {
+                    x: 10.0 + f64::from(index % 8) * 10.0,
+                    y: 8.0 + f64::from(index / 8) * 10.0,
+                };
+                let expected = shift.transform(source);
+                let endpoint_noise = if index.is_multiple_of(2) { 1.25 } else { -1.25 };
+                (
+                    source,
+                    PointF {
+                        x: expected.x + endpoint_noise,
+                        y: expected.y - endpoint_noise * 0.5,
+                    },
+                )
+            })
+            .collect();
+        let observation = SourceFlowConsistency {
+            median_error_pixels: 0.0,
+            inlier_fraction: 1.0,
+            tracked_points: 32,
+            spatial_coverage: 1.0,
+            flow_model_inlier_fraction: 1.0,
+            material_transform: shift,
+            flow_model_error_pixels: 1.4,
+            correspondences,
+        };
+
+        let correct = observation.error_for_poses(plaque, Mat3::IDENTITY, shift);
+        let screen_fixed = observation.error_for_poses(plaque, Mat3::IDENTITY, Mat3::IDENTITY);
+        assert!(correct < 1.0e-9, "fitted plane residual was {correct}px");
+        assert!(
+            screen_fixed > 5.0,
+            "screen-fixed residual was {screen_fixed}px"
+        );
+    }
+
+    #[test]
     fn trajectory_optimizer_reduces_an_isolated_jump() {
         let plaque = RectF {
             x: 0.0,
@@ -2116,11 +4281,11 @@ mod tests {
             .map(|frame| MotionSample {
                 frame,
                 transform: Mat3::translation(if frame == 4 { 8.0 } else { 0.0 }, 0.0),
+                measurement_valid: frame != 4,
                 inlier_ratio: if frame == 4 { 0.0 } else { 1.0 },
                 reprojection_error: if frame == 4 { 12.0 } else { 0.0 },
-                ecc: None,
-                plaque_visibility: 1.0,
-                occluder_coverage: 0.0,
+                measurement_source: "test".into(),
+                ..MotionSample::default()
             })
             .collect::<Vec<_>>();
 
@@ -2131,141 +4296,102 @@ mod tests {
     }
 
     #[test]
-    fn foreground_interval_is_bridged_from_clean_endpoints() {
+    fn bidirectional_solver_uses_future_motion_without_relabelling_it_as_evidence() {
         let plaque = RectF {
             x: 0.0,
             y: 0.0,
             width: 100.0,
             height: 50.0,
         };
-        let mut samples = (0..50)
-            .map(|frame| MotionSample {
-                frame,
-                transform: Mat3::translation(
-                    if (10..=25).contains(&frame) {
-                        40.0
-                    } else {
-                        0.0
-                    },
-                    0.0,
-                ),
-                inlier_ratio: 0.8,
-                reprojection_error: 0.5,
-                ecc: Some(1.0),
-                plaque_visibility: 1.0,
-                occluder_coverage: if (10..=15).contains(&frame) {
-                    0.20
-                } else {
-                    0.0
-                },
-            })
-            .collect::<Vec<_>>();
+        let measured = |frame, x| MotionSample {
+            frame,
+            transform: Mat3::translation(x, 0.0),
+            measurement_valid: true,
+            tracked_points: 24,
+            spatial_coverage: 0.9,
+            uncertainty_px: 0.5,
+            measurement_source: "test-measurement".into(),
+            inlier_ratio: 0.9,
+            reprojection_error: 0.5,
+            ..MotionSample::default()
+        };
+        let mut samples = vec![
+            measured(0, 0.0),
+            measured(1, 0.0),
+            MotionSample {
+                frame: 2,
+                ..MotionSample::default()
+            },
+            MotionSample {
+                frame: 3,
+                ..MotionSample::default()
+            },
+            measured(4, 8.0),
+            measured(5, 14.0),
+        ];
 
-        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 0);
+        assert_eq!(
+            solve_unobserved_intervals(&mut samples, plaque, 1920, 1080).unwrap(),
+            2
+        );
 
-        assert!(repaired >= 20);
-        assert!(samples[15].transform.values[0][2].abs() < 1.0e-9);
-        assert!(samples[25].transform.values[0][2].abs() < 1.0e-9);
+        assert!(samples[2].transform.values[0][2] > 0.0);
+        assert!(samples[3].transform.values[0][2] > samples[2].transform.values[0][2]);
+        assert!(!samples[2].measurement_valid);
+        assert_eq!(
+            samples[2].measurement_source,
+            "bidirectional-temporal-solve"
+        );
     }
 
     #[test]
-    fn brief_residual_does_not_replace_valid_motion() {
+    fn long_unsupported_tail_is_allowed_only_when_motion_carries_surface_offscreen() {
         let plaque = RectF {
-            x: 10.0,
-            y: 20.0,
+            x: 80.0,
+            y: 40.0,
             width: 100.0,
             height: 50.0,
         };
-        let mut samples = (0..50)
-            .map(|frame| MotionSample {
-                frame,
-                transform: Mat3::translation(frame as f64, 0.0),
-                inlier_ratio: 0.8,
-                reprojection_error: 0.5,
-                ecc: Some(1.0),
-                plaque_visibility: 1.0,
-                occluder_coverage: if (20..=21).contains(&frame) {
-                    0.15
-                } else {
-                    0.0
-                },
-            })
-            .collect::<Vec<_>>();
-
-        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 0);
-
-        assert_eq!(repaired, 0);
-        assert_eq!(samples[20].transform.values[0][2], 20.0);
-    }
-
-    #[test]
-    fn reference_inside_foreground_interval_remains_an_anchor() {
-        let plaque = RectF {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 50.0,
+        let measured = |frame, x| MotionSample {
+            frame,
+            transform: Mat3::translation(x, 0.0),
+            measurement_valid: true,
+            tracked_points: 24,
+            spatial_coverage: 0.9,
+            uncertainty_px: 0.5,
+            measurement_source: "test-measurement".into(),
+            inlier_ratio: 0.9,
+            reprojection_error: 0.5,
+            ..MotionSample::default()
         };
-        let mut samples = (0..50)
+        let mut exiting = (0..30)
             .map(|frame| MotionSample {
                 frame,
-                transform: Mat3::translation(
-                    if (10..=35).contains(&frame) {
-                        40.0
-                    } else {
-                        0.0
-                    },
-                    0.0,
-                ),
-                inlier_ratio: 0.8,
-                reprojection_error: 0.5,
-                ecc: Some(1.0),
-                plaque_visibility: 1.0,
-                occluder_coverage: if (10..=20).contains(&frame) {
-                    0.20
-                } else {
-                    0.0
-                },
+                ..MotionSample::default()
             })
             .collect::<Vec<_>>();
-        samples[25].transform = Mat3::IDENTITY;
+        exiting[0] = measured(0, 0.0);
+        exiting[1] = measured(1, 12.0);
+        assert_eq!(
+            solve_unobserved_intervals(&mut exiting, plaque, 240, 160).unwrap(),
+            28
+        );
+        assert_eq!(exiting[29].measurement_source, "offscreen-trajectory-solve");
+        assert!(surface_visible_fraction(plaque, exiting[29].transform, 240, 160) <= 0.06);
 
-        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 25);
-
-        assert!(repaired >= 30);
-        assert_eq!(samples[25].transform.values, Mat3::IDENTITY.values);
-        assert!(samples[20].transform.values[0][2].abs() < 1.0e-9);
-        assert!(samples[35].transform.values[0][2].abs() < 1.0e-9);
+        let mut frozen = (0..30)
+            .map(|frame| MotionSample {
+                frame,
+                ..MotionSample::default()
+            })
+            .collect::<Vec<_>>();
+        frozen[0] = measured(0, 0.0);
+        frozen[1] = measured(1, 0.0);
+        assert!(solve_unobserved_intervals(&mut frozen, plaque, 240, 160).is_err());
     }
 
     #[test]
-    fn trailing_foreground_interval_preserves_tracked_offscreen_motion() {
-        let plaque = RectF {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 50.0,
-        };
-        let mut samples = (0..40)
-            .map(|frame| MotionSample {
-                frame,
-                transform: Mat3::translation(if frame >= 30 { 40.0 } else { 0.0 }, 0.0),
-                inlier_ratio: 0.8,
-                reprojection_error: 0.5,
-                ecc: Some(1.0),
-                plaque_visibility: 1.0,
-                occluder_coverage: if frame >= 30 { 0.20 } else { 0.0 },
-            })
-            .collect::<Vec<_>>();
-
-        let repaired = stabilize_occluded_intervals(&mut samples, plaque, 0);
-
-        assert_eq!(repaired, 0);
-        assert_eq!(samples[39].transform.values[0][2], 40.0);
-    }
-
-    #[test]
-    fn sparse_refined_keyframe_constrains_an_all_frame_track() {
+    fn sparse_reviewed_keyframe_constrains_an_all_frame_track() {
         let plaque = RectF {
             x: 10.0,
             y: 20.0,
@@ -2275,11 +4401,10 @@ mod tests {
         let sample = |frame| MotionSample {
             frame,
             transform: Mat3::IDENTITY,
+            measurement_valid: true,
             inlier_ratio: 0.8,
             reprojection_error: 0.5,
-            ecc: None,
-            plaque_visibility: 1.0,
-            occluder_coverage: 0.0,
+            ..MotionSample::default()
         };
         let mut result = TrackingResult {
             samples: (0..3).map(sample).collect(),
@@ -2288,9 +4413,9 @@ mod tests {
             confidence: 0.8,
             loop_closed: false,
         };
-        let track = MotionRefinement {
-            schema_version: 1,
-            plaque: "main".into(),
+        let track = SurfaceTrajectory {
+            format: TRAJECTORY_FORMAT.into(),
+            surface: "main".into(),
             coordinates: CoordinateSystem::SourcePixels,
             source_sha256: None,
             keyframes: vec![MotionKeyframe {
@@ -2301,7 +4426,7 @@ mod tests {
             }],
         };
 
-        apply_motion_refinement(&mut result, &track, plaque).unwrap();
+        apply_motion_scene(&mut result, &track, plaque).unwrap();
 
         assert_eq!(result.samples.len(), 3);
         let source = Quad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
@@ -2310,7 +4435,7 @@ mod tests {
         assert!(
             result
                 .model_name
-                .starts_with("refined-constrained-quad-track-")
+                .starts_with("reviewed-constrained-quad-track-")
         );
     }
 
@@ -2327,11 +4452,10 @@ mod tests {
                 .map(|frame| MotionSample {
                     frame,
                     transform: Mat3::IDENTITY,
+                    measurement_valid: true,
                     inlier_ratio: 0.5,
                     reprojection_error: 1.0,
-                    ecc: None,
-                    plaque_visibility: 1.0,
-                    occluder_coverage: 0.0,
+                    ..MotionSample::default()
                 })
                 .collect(),
             model_name: "automatic-inertia-0.35".into(),
@@ -2345,26 +4469,22 @@ mod tests {
             locked: true,
             visibility: Some(1.0),
         };
-        let track = MotionRefinement {
-            schema_version: 1,
-            plaque: "main".into(),
+        let track = SurfaceTrajectory {
+            format: TRAJECTORY_FORMAT.into(),
+            surface: "main".into(),
             coordinates: CoordinateSystem::SourcePixels,
             source_sha256: None,
             keyframes: vec![keyframe(0), keyframe(1)],
         };
 
-        apply_motion_refinement(&mut result, &track, plaque).unwrap();
+        apply_motion_scene(&mut result, &track, plaque).unwrap();
 
-        assert!(
-            result
-                .model_name
-                .starts_with("authoritative-refined-quad-track-")
-        );
+        assert!(result.model_name.starts_with("reviewed-dense-quad-track-"));
         assert_eq!(result.confidence, 0.99);
     }
 
     #[test]
-    fn mixed_track_reapplies_only_locked_samples_after_refinement() {
+    fn mixed_track_reapplies_only_locked_samples_after_scene() {
         let plaque = RectF {
             x: 0.0,
             y: 0.0,
@@ -2374,15 +4494,14 @@ mod tests {
         let sample = |frame| MotionSample {
             frame,
             transform: Mat3::IDENTITY,
+            measurement_valid: true,
             inlier_ratio: 0.8,
             reprojection_error: 0.5,
-            ecc: None,
-            plaque_visibility: 1.0,
-            occluder_coverage: 0.0,
+            ..MotionSample::default()
         };
-        let track = MotionRefinement {
-            schema_version: 1,
-            plaque: "main".into(),
+        let track = SurfaceTrajectory {
+            format: TRAJECTORY_FORMAT.into(),
+            surface: "main".into(),
             coordinates: CoordinateSystem::SourcePixels,
             source_sha256: None,
             keyframes: vec![
@@ -2408,12 +4527,12 @@ mod tests {
             loop_closed: false,
         };
 
-        apply_motion_refinement(&mut result, &track, plaque).unwrap();
-        assert!(result.model_name.starts_with("refined-mixed-quad-track-"));
+        apply_motion_scene(&mut result, &track, plaque).unwrap();
+        assert!(result.model_name.starts_with("reviewed-mixed-quad-track-"));
         result.samples.iter_mut().for_each(|sample| {
             sample.transform = Mat3::IDENTITY;
         });
-        reapply_locked_refinements(&mut result.samples, &track, plaque).unwrap();
+        reapply_locked_scenes(&mut result.samples, &track, plaque).unwrap();
 
         let source = Quad::from_rect(plaque.x, plaque.y, plaque.width, plaque.height);
         let guided = transformed_quad(source, result.samples[0].transform);
@@ -2427,11 +4546,11 @@ mod tests {
         let sample = |frame, plaque_visibility| MotionSample {
             frame,
             transform: Mat3::IDENTITY,
+            measurement_valid: true,
             inlier_ratio: 0.8,
             reprojection_error: 0.5,
-            ecc: None,
             plaque_visibility,
-            occluder_coverage: 0.0,
+            ..MotionSample::default()
         };
         let mut samples = vec![
             sample(0, 0.2),
@@ -2446,9 +4565,9 @@ mod tests {
             locked: false,
             visibility,
         };
-        let track = MotionRefinement {
-            schema_version: 1,
-            plaque: "main".into(),
+        let track = SurfaceTrajectory {
+            format: TRAJECTORY_FORMAT.into(),
+            surface: "main".into(),
             coordinates: CoordinateSystem::SourcePixels,
             source_sha256: None,
             keyframes: vec![
@@ -2458,7 +4577,7 @@ mod tests {
             ],
         };
 
-        apply_visibility_refinements(&mut samples, &track).unwrap();
+        apply_visibility_scenes(&mut samples, &track).unwrap();
 
         let expected = [0.1, 0.3, 0.6, 0.4, 0.6];
         for (sample, expected) in samples.iter().zip(expected) {
@@ -2479,16 +4598,15 @@ mod tests {
             transform: Mat3 {
                 values: [[1.0, 0.0, translation], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             },
+            measurement_valid: true,
             inlier_ratio: 1.0,
             reprojection_error: 0.0,
-            ecc: Some(1.0),
-            plaque_visibility: 1.0,
-            occluder_coverage: 0.0,
+            ..MotionSample::default()
         };
         let open_samples = vec![sample(0, 0.0), sample(1, 10.0)];
         let closed_samples = vec![sample(0, 0.0), sample(1, 0.0)];
 
-        assert!(!refined_loop_closed(&open_samples, plaque));
-        assert!(refined_loop_closed(&closed_samples, plaque));
+        assert!(!trajectory_loop_closed(&open_samples, plaque));
+        assert!(trajectory_loop_closed(&closed_samples, plaque));
     }
 }

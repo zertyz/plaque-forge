@@ -135,9 +135,15 @@ fn project_asset_text_does_not_contain_workstation_paths() {
                 pending.push(path);
                 continue;
             }
+            assert_ne!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("owner"),
+                "private transaction owner marker was published: {}",
+                path.display()
+            );
             if !matches!(
                 path.extension().and_then(|extension| extension.to_str()),
-                Some("toml" | "json" | "html" | "txt")
+                Some("toml" | "json" | "html" | "txt" | "md") | None
             ) {
                 continue;
             }
@@ -147,6 +153,38 @@ fn project_asset_text_does_not_contain_workstation_paths() {
                     !text.contains(forbidden),
                     "{} contains workstation path marker {forbidden:?}",
                     path.display()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_video_has_a_valid_scene_with_the_matching_relative_source() {
+    let assets = repository_root().join("assets");
+    for entry in fs::read_dir(&assets).unwrap() {
+        let video = entry.unwrap().path();
+        if video.extension().and_then(|value| value.to_str()) != Some("mp4") {
+            continue;
+        }
+        let stem = video.file_stem().unwrap();
+        let scene_path = assets.join("scenes").join(stem).join("scene.toml");
+        let scene = plaque_forge::scene::Scene::load(&scene_path)
+            .unwrap_or_else(|error| panic!("{} is invalid: {error:#}", scene_path.display()));
+        let source = plaque_forge::scene::resolve_relative(&scene_path, &scene.source);
+        assert_eq!(
+            fs::canonicalize(&source).unwrap(),
+            fs::canonicalize(&video).unwrap(),
+            "{} names the wrong source",
+            scene_path.display()
+        );
+        for surface in &scene.surfaces {
+            if surface.space == plaque_forge::scene::SurfaceSpace::ScenePlane {
+                assert!(
+                    surface.tracking_bounds().is_some(),
+                    "physical surface {:?} in {} has no tracking bounds",
+                    surface.id,
+                    scene_path.display()
                 );
             }
         }

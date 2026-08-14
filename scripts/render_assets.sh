@@ -25,7 +25,7 @@ Common options:
   --fit MODE                  maximize, balanced, artistic, or fixed.
 
 All typography options accepted by this script are also available through the
-matching environment variables used by earlier versions.
+matching environment variables documented in scripts/render_common.sh.
 USAGE
 }
 

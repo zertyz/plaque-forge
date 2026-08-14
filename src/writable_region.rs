@@ -106,7 +106,7 @@ impl WritableRegion {
             Self::Mask { bounds, path } => {
                 validate_rect(*bounds, description)?;
                 if path.is_absolute() {
-                    bail!("{description} mask path must be relative to refinement.toml");
+                    bail!("{description} mask path must be relative to scene.toml");
                 }
                 Ok(())
             }
@@ -137,7 +137,7 @@ impl WritableRegion {
         }
     }
 
-    pub fn resolve(&self, refinement_path: &Path) -> ResolvedWritableRegion {
+    pub fn resolve(&self, scene_path: &Path) -> ResolvedWritableRegion {
         match self {
             Self::Rect { bounds } => ResolvedWritableRegion::Rect { bounds: *bounds },
             Self::RoundedRect { bounds, radius } => ResolvedWritableRegion::RoundedRect {
@@ -158,7 +158,7 @@ impl WritableRegion {
             },
             Self::Mask { bounds, path } => ResolvedWritableRegion::Mask {
                 bounds: *bounds,
-                path: refinement_path
+                path: scene_path
                     .parent()
                     .unwrap_or_else(|| Path::new("."))
                     .join(path),

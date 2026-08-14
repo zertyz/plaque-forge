@@ -3,21 +3,27 @@
 //! Verification measures scene preservation, tracking, typography validity, temporal
 //! stability, occlusion restoration, and loop continuity.
 
-use std::{fs, path::Path};
+use std::{collections::VecDeque, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    analysis::{Analysis, OCCLUDER_DIR, STRUCTURAL_MASK_FILE, STRUCTURAL_TEMPLATE_FILE},
-    analyze::extraction::{StructuralMatcher, StructuralRegistration, rectify, transformed_rect},
+    analysis::{
+        Analysis, OCCLUDER_DIR, REGISTRATION_MASK_FILE, REGISTRATION_TEMPLATE_FILE,
+        STRUCTURAL_MASK_FILE, STRUCTURAL_TEMPLATE_FILE,
+    },
+    analyze::{
+        extraction::{StructuralMatcher, StructuralRegistration, rectify, transformed_rect},
+        tracking::trajectory_dynamics,
+    },
     cli::VerifyArgs,
     color::Rgba,
     image_io::{load_luma, load_rgba},
     layers::{ForegroundReader, merge_mask},
-    model::{MotionSample, RectF},
     progress::ProgressReporter,
     render::{RENDER_MANIFEST_SCHEMA_VERSION, RenderManifest},
+    scene::SurfaceSpace,
     surface::Surface,
     video::{self, Decoder},
 };
@@ -26,15 +32,18 @@ use crate::{
 pub struct VerificationThresholds {
     pub overall: f64,
     pub tracking_lock: f64,
+    pub rendered_title_plane_lock: f64,
+    pub rendered_title_maximum_drift_pixels: f64,
     pub scene_integrity: f64,
     pub typography_fit: f64,
     pub typography_validity: f64,
     pub temporal_stability: f64,
+    pub maximum_trajectory_residual_pixels: f64,
     pub occlusion_restore: f64,
     pub loop_seam: f64,
 }
 
-pub const VERIFICATION_REPORT_SCHEMA_VERSION: u32 = 2;
+pub const VERIFICATION_REPORT_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,6 +58,11 @@ pub struct VerificationReport {
     pub overall: f64,
     pub tracking_lock: f64,
     pub tracking_lock_basis: String,
+    pub rendered_title_plane_lock: f64,
+    pub rendered_title_plane_lock_basis: String,
+    pub rendered_title_observed_frames: usize,
+    pub rendered_title_maximum_drift_pixels: f64,
+    pub rendered_title_worst_frame: usize,
     pub scene_integrity: f64,
     pub typography_fit: f64,
     pub typography_validity: f64,
@@ -60,8 +74,40 @@ pub struct VerificationReport {
     pub loop_seam_mean_error: f64,
     pub title_effect_frame_mean_error: f64,
     pub structural_edge_alignment: f64,
+    pub source_flow_observed_pairs: usize,
+    pub source_flow_median_error_pixels: f64,
+    pub source_flow_p95_error_pixels: f64,
+    pub source_flow_p99_error_pixels: f64,
+    /// Independent flow errors split by temporal baseline. Lag 1 is the hard
+    /// single-frame-slip signal; longer lags expose slow screen-fixed drift but can
+    /// become unobservable during large perspective changes or foreground crossings.
+    pub source_flow_lag_1_observed_pairs: usize,
+    pub source_flow_lag_1_p95_error_pixels: f64,
+    pub source_flow_lag_1_p99_error_pixels: f64,
+    pub source_flow_lag_6_observed_pairs: usize,
+    pub source_flow_lag_6_p95_error_pixels: f64,
+    pub source_flow_lag_6_p99_error_pixels: f64,
+    pub source_flow_lag_12_observed_pairs: usize,
+    pub source_flow_lag_12_p95_error_pixels: f64,
+    pub source_flow_lag_12_p99_error_pixels: f64,
+    pub source_flow_median_inlier_fraction: f64,
+    pub source_flow_median_spatial_coverage: f64,
+    pub source_flow_worst_frame: usize,
+    /// True when source-flow feature selection was intersected with a complete
+    /// source-pixel writing-surface sequence. The matte supplies membership/depth;
+    /// material points inside it supply the independently measured rigid pose.
+    pub source_flow_uses_writing_surface_support: bool,
+    pub source_flow_writing_surface_supported_frames: usize,
+    pub source_flow_writing_surface_fallback_frames: usize,
     pub tracking_measurement_valid: bool,
-    pub maximum_tracking_correction_pixels: Option<f64>,
+    pub tracking_observable_frames: usize,
+    pub tracking_evidence_fraction: f64,
+    pub tracking_median_spatial_coverage: f64,
+    pub tracking_p95_uncertainty_pixels: f64,
+    /// Diagnostic from appearance/template registration only. This is not an
+    /// acceptance metric; animated lighting can make that optimizer suggest a
+    /// spurious correction even when independent material flow is subpixel.
+    pub template_registration_maximum_suggested_correction_pixels: Option<f64>,
     pub maximum_trajectory_residual_pixels: f64,
     pub worst_trajectory_frame: usize,
     pub loop_trajectory_residual_pixels: f64,
@@ -168,6 +214,12 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         "canonical text mask dimensions do not match analysis"
     );
     let canonical_text_mask = text_mask_image.into_raw();
+    let title_plane_support = dilate_binary_mask(
+        &canonical_text_mask,
+        pack.manifest.canonical_width as usize,
+        pack.manifest.canonical_height as usize,
+        6,
+    );
     let mut canonical_allowed_mask = canonical_text_mask.clone();
     if let Some(surface) = &pack.manifest.injected_surface {
         let path = pack.require_asset_path(surface.path.as_path())?;
@@ -189,25 +241,32 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         &canonical_allowed_mask,
         Rgba::new(255, 255, 255, 255),
     )?;
-    let screen_fixed_surface = pack.manifest.motion_model.contains("screen-fixed");
+    let screen_canvas = pack.manifest.surface_space == SurfaceSpace::ScreenCanvas;
     let structural_mask = load_luma(
         &pack.require_asset(STRUCTURAL_MASK_FILE)?,
         pack.manifest.canonical_width,
         pack.manifest.canonical_height,
     )?;
     let structural_template = load_rgba(&pack.require_asset(STRUCTURAL_TEMPLATE_FILE)?)?;
-    let structural_matcher = StructuralMatcher::new(&structural_template, &structural_mask);
+    let registration_mask = load_luma(
+        &pack.require_asset(REGISTRATION_MASK_FILE)?,
+        pack.manifest.canonical_width,
+        pack.manifest.canonical_height,
+    )?;
+    let registration_template = load_rgba(&pack.require_asset(REGISTRATION_TEMPLATE_FILE)?)?;
+    let structural_matcher = StructuralMatcher::new(&registration_template, &registration_mask);
     let foregrounds = ForegroundReader::open(&pack)?;
     let has_any_occluder = pack.manifest.has_occluder || !foregrounds.is_empty();
-    // Some excellent title surfaces (clouds, fog, projected light) are deliberately
-    // low-texture. Their sparse structural template is useful as a diagnostic, but
-    // not strong enough to be the sole pass/fail authority for motion. In that case
-    // measure the stable rendered title placement against the same source frames.
-    let use_title_registration = should_use_title_registration(
-        structural_matcher.is_some(),
-        pack.manifest.confidence.extraction,
-        pack.manifest.source_plaque_rect,
-    );
+    let writing_surface_layer = pack.manifest.layers.iter().find(|layer| {
+        layer.role == crate::scene::LayerRole::WritingSurface
+            && layer.coordinates == crate::scene::LayerCoordinates::SourcePixels
+            && layer.kind == crate::scene::LayerArtifactKind::AlphaSequence
+            && layer.first_frame == Some(0)
+            && layer.last_frame == Some(original_info.frames.saturating_sub(1))
+    });
+    // Verification never registers the rendered title: that would let a title
+    // certify its own screen-fixed error. Low-texture physical surfaces are an
+    // explicit unmeasurable/failing result until independent source evidence exists.
     progress.finish("dimensions, timing, manifest and masks are valid");
 
     progress.start(2, 2, "Verify every frame", Some(original_info.frames));
@@ -219,12 +278,23 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let mut structural_count = 0_u64;
     let mut structural_alignment_sum = 0.0_f64;
     let mut structural_alignment_count = 0_u64;
-    let mut tracking_score_sum = 0.0_f64;
-    let mut maximum_tracking_correction = 0.0_f64;
+    let mut template_registration_maximum_suggested_correction = 0.0_f64;
+    let mut source_flow_errors = Vec::new();
+    let mut source_flow_errors_by_lag = [Vec::new(), Vec::new(), Vec::new()];
+    let mut source_flow_inliers = Vec::new();
+    let mut source_flow_coverages = Vec::new();
+    let mut source_flow_history: VecDeque<(usize, Surface, Vec<u8>)> = VecDeque::new();
+    let mut source_flow_writing_surface_supported_frames = 0usize;
+    let mut source_flow_writing_surface_fallback_frames = 0usize;
     let mut occlusion_error = 0_u64;
     let mut occlusion_count = 0_u64;
     let mut temporal_error = 0_u64;
     let mut temporal_count = 0_u64;
+    let mut title_plane_lock_sum = 0.0_f64;
+    let mut title_plane_lock_count = 0usize;
+    let mut title_plane_maximum_drift = 0.0_f64;
+    let mut title_plane_worst_frame = 0usize;
+    let mut title_plane_matcher: Option<StructuralMatcher> = None;
     let mut previous_delta: Option<Vec<i16>> = None;
     let mut previous_occluder: Option<Vec<u8>> = None;
     let mut first_delta: Option<Vec<i16>> = None;
@@ -233,7 +303,6 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let mut last_seam_occluder = Vec::new();
     let mut worst_tracking = (0usize, 1.0f64);
     let mut worst_tracking_preview = None;
-    let mut title_reference: Option<Surface> = None;
     let mut worst_scene = (0usize, 0.0f64);
     let mut frame_index = 0usize;
 
@@ -300,83 +369,6 @@ pub fn run(args: VerifyArgs) -> Result<()> {
                 structural_count += 3;
             }
         }
-        let mut rendered_canonical_for_tracking = None;
-        let frame_tracking_score = if sample.plaque_visibility >= 0.5
-            && sample.occluder_coverage < 0.04
-        {
-            let alignment = structural_edge_alignment(
-                &original_canonical,
-                &structural_template,
-                &structural_mask,
-            );
-            structural_alignment_sum += alignment;
-            structural_alignment_count += 1;
-            let structural_correction = match &structural_matcher {
-                Some(matcher) => matcher
-                    .measure(&original_canonical, 4)
-                    .map(|registration| {
-                        if registration.after + 0.25 < registration.before {
-                            registration_correction_pixels(
-                                &registration,
-                                original_canonical.width(),
-                                original_canonical.height(),
-                            )
-                        } else {
-                            0.0
-                        }
-                    })
-                    .unwrap_or(0.0),
-                None => f64::INFINITY,
-            };
-            let correction = if use_title_registration {
-                let rendered_canonical = rectify(
-                    &rendered_frame,
-                    pack.manifest.source_plaque_rect,
-                    sample.transform,
-                )?;
-                let title_template =
-                    title_reference.get_or_insert_with(|| rendered_canonical.clone());
-                let title_matcher = StructuralMatcher::new(title_template, &canonical_text_mask);
-                rendered_canonical_for_tracking = Some(rendered_canonical);
-                title_matcher
-                    .and_then(|matcher| {
-                        matcher.measure(
-                            rendered_canonical_for_tracking
-                                .as_ref()
-                                .expect("tracking canonical was just created"),
-                            4,
-                        )
-                    })
-                    .map(|registration| {
-                        registration_correction_pixels(
-                            &registration,
-                            pack.manifest.canonical_width,
-                            pack.manifest.canonical_height,
-                        )
-                    })
-                    .unwrap_or(f64::INFINITY)
-            } else {
-                structural_correction
-            };
-            maximum_tracking_correction = maximum_tracking_correction.max(correction);
-            let score = if use_title_registration {
-                registration_lock_score(correction)
-            } else {
-                tracking_lock_score(correction, alignment)
-            };
-            tracking_score_sum += score;
-            if score < worst_tracking.1 {
-                worst_tracking = (frame_index, score);
-                worst_tracking_preview = Some((
-                    original_frame.clone(),
-                    transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
-                ));
-            }
-            score
-        } else {
-            1.0
-        };
-
         let mut source_occluder = foregrounds
             .frame_mask(frame_index, sample.transform)?
             .unwrap_or_default();
@@ -394,6 +386,43 @@ pub fn run(args: VerifyArgs) -> Result<()> {
                 merge_mask(&mut source_occluder, mask.as_raw());
             }
         }
+        let source_flow_exclusion = if let Some(layer) = writing_surface_layer {
+            let path = pack.require_asset_path(&crate::analysis::sequence_path(
+                layer.path.as_path(),
+                frame_index,
+            ))?;
+            let support = image::open(&path)
+                .with_context(|| {
+                    format!("failed to load writing-surface support {}", path.display())
+                })?
+                .to_luma8();
+            anyhow::ensure!(
+                support.width() == original_info.width && support.height() == original_info.height,
+                "writing-surface support dimensions differ from source at frame {frame_index}"
+            );
+            let mut exclusion = source_occluder.clone();
+            if exclusion.is_empty() {
+                exclusion.resize(
+                    original_info.width as usize * original_info.height as usize,
+                    0,
+                );
+            }
+            if crate::layers::writing_surface_support_is_plausible(
+                support.as_raw(),
+                original_info.width,
+                original_info.height,
+                pack.manifest.source_plaque_rect,
+                sample.transform,
+            ) {
+                crate::layers::exclude_outside_surface_support(&mut exclusion, support.as_raw());
+                source_flow_writing_surface_supported_frames += 1;
+            } else {
+                source_flow_writing_surface_fallback_frames += 1;
+            }
+            exclusion
+        } else {
+            source_occluder.clone()
+        };
         for ((&alpha, source), rendered) in source_occluder
             .iter()
             .zip(original_frame.pixels().chunks_exact(4))
@@ -427,11 +456,141 @@ pub fn run(args: VerifyArgs) -> Result<()> {
             )
         };
 
-        let rendered_canonical = rendered_canonical_for_tracking.unwrap_or(rectify(
+        let frame_tracking_score = if sample.plaque_visibility >= 0.5
+            && crate::analyze::tracking::surface_visible_fraction(
+                pack.manifest.source_plaque_rect,
+                sample.transform,
+                original_info.width,
+                original_info.height,
+            ) >= 0.60
+        {
+            let visible_registration_mask =
+                mask_excluding_foreground(&registration_mask, canonical_occluder.as_deref(), 16);
+            let alignment = structural_edge_alignment(
+                &original_canonical,
+                &registration_template,
+                &visible_registration_mask,
+            );
+            let usable_fraction = visible_registration_mask
+                .iter()
+                .filter(|&&value| value > 64)
+                .count() as f64
+                / registration_mask
+                    .iter()
+                    .filter(|&&value| value > 64)
+                    .count()
+                    .max(1) as f64;
+            if usable_fraction < 0.30 {
+                1.0
+            } else {
+                structural_alignment_sum += alignment;
+                structural_alignment_count += 1;
+                let structural_correction = match &structural_matcher {
+                    Some(matcher) => matcher
+                        .measure_excluding(&original_canonical, 4, canonical_occluder.as_deref())
+                        .map(|registration| {
+                            let relative_improvement = (registration.before - registration.after)
+                                / registration.before.max(1.0);
+                            // A moving light or fine foreground line can produce a
+                            // slightly cheaper transform even when the surface is
+                            // already aligned. Demand a material improvement before
+                            // interpreting the optimizer's displacement as geometry.
+                            if registration.after + 1.0 < registration.before
+                                && relative_improvement >= 0.12
+                                && registration.ecc.unwrap_or(1.0) >= 0.72
+                            {
+                                registration_correction_pixels(
+                                    &registration,
+                                    original_canonical.width(),
+                                    original_canonical.height(),
+                                )
+                            } else {
+                                0.0
+                            }
+                        })
+                        .unwrap_or(f64::INFINITY),
+                    None => f64::INFINITY,
+                };
+                let correction = structural_correction;
+                template_registration_maximum_suggested_correction =
+                    template_registration_maximum_suggested_correction.max(correction);
+                tracking_lock_score(correction, alignment)
+            }
+        } else {
+            1.0
+        };
+
+        if !screen_canvas {
+            for (lag_index, lag) in [1usize, 6, 12].into_iter().enumerate() {
+                // Consecutive evidence catches a single-frame slip. Longer baselines
+                // make slow screen-fixed drift observable without tripling runtime.
+                if lag > 1 && !frame_index.is_multiple_of(3) {
+                    continue;
+                }
+                let Some(previous_index) = frame_index.checked_sub(lag) else {
+                    continue;
+                };
+                let Some((_, previous_frame, previous_source_flow_exclusion)) = source_flow_history
+                    .iter()
+                    .find(|(index, _, _)| *index == previous_index)
+                else {
+                    continue;
+                };
+                let previous_sample = &pack.motion[previous_index];
+                if sample.plaque_visibility < 0.5
+                    || previous_sample.plaque_visibility < 0.5
+                    || crate::analyze::tracking::surface_visible_fraction(
+                        pack.manifest.source_plaque_rect,
+                        sample.transform,
+                        original_info.width,
+                        original_info.height,
+                    ) < 0.35
+                    || crate::analyze::tracking::surface_visible_fraction(
+                        pack.manifest.source_plaque_rect,
+                        previous_sample.transform,
+                        original_info.width,
+                        original_info.height,
+                    ) < 0.35
+                {
+                    continue;
+                }
+                let observation = crate::analyze::tracking::measure_source_flow_consistency(
+                    previous_frame,
+                    &original_frame,
+                    pack.manifest.source_plaque_rect,
+                    previous_sample.transform,
+                    sample.transform,
+                    Some(previous_source_flow_exclusion),
+                    Some(&source_flow_exclusion),
+                )?;
+                let Some(observation) = observation.filter(|observation| {
+                    observation.tracked_points >= 24
+                        && observation.spatial_coverage >= 0.42
+                        && observation.flow_model_inlier_fraction >= 0.68
+                        && observation.flow_model_error_pixels <= 1.5
+                }) else {
+                    continue;
+                };
+                source_flow_errors.push(observation.median_error_pixels);
+                source_flow_errors_by_lag[lag_index].push(observation.median_error_pixels);
+                source_flow_inliers.push(observation.inlier_fraction);
+                source_flow_coverages.push(observation.spatial_coverage);
+                let score = source_flow_observation_score(observation.median_error_pixels);
+                if score < worst_tracking.1 {
+                    worst_tracking = (frame_index, score);
+                    worst_tracking_preview = Some((
+                        original_frame.clone(),
+                        transformed_rect(pack.manifest.source_plaque_rect, sample.transform),
+                    ));
+                }
+            }
+        }
+
+        let rendered_canonical = rectify(
             &rendered_frame,
             pack.manifest.source_plaque_rect,
             sample.transform,
-        )?);
+        )?;
         let delta: Vec<i16> = rendered_canonical
             .pixels()
             .chunks_exact(4)
@@ -440,6 +599,36 @@ pub fn run(args: VerifyArgs) -> Result<()> {
                 (0..3).map(move |channel| rendered[channel] as i16 - source[channel] as i16)
             })
             .collect();
+        if sample.plaque_visibility >= 0.85 && sample.occluder_coverage < 0.04 {
+            let signature = title_difference_signature(
+                &delta,
+                &title_plane_support,
+                canonical_occluder.as_deref(),
+                pack.manifest.canonical_width,
+                pack.manifest.canonical_height,
+            )?;
+            if let Some(matcher) = &title_plane_matcher {
+                title_plane_lock_count += 1;
+                if let Some(registration) = matcher.measure(&signature, 6) {
+                    let drift = registration_correction_pixels(
+                        &registration,
+                        signature.width(),
+                        signature.height(),
+                    );
+                    let score = (-drift / 1.75).exp().clamp(0.0, 1.0);
+                    title_plane_lock_sum += score;
+                    if drift > title_plane_maximum_drift {
+                        title_plane_maximum_drift = drift;
+                        title_plane_worst_frame = frame_index;
+                    }
+                } else {
+                    title_plane_maximum_drift = title_plane_maximum_drift.max(12.0);
+                    title_plane_worst_frame = frame_index;
+                }
+            } else {
+                title_plane_matcher = StructuralMatcher::new(&signature, &title_plane_support);
+            }
+        }
         if let Some(previous) = &previous_delta {
             for (pixel_index, (&text_alpha, (current, prior))) in canonical_text_mask
                 .iter()
@@ -468,6 +657,13 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         last_seam_occluder = canonical_occluder.clone().unwrap_or_default();
         previous_delta = Some(delta);
         previous_occluder = canonical_occluder;
+        source_flow_history.push_back((frame_index, original_frame.clone(), source_flow_exclusion));
+        while source_flow_history
+            .front()
+            .is_some_and(|(index, _, _)| frame_index.saturating_sub(*index) >= 12)
+        {
+            source_flow_history.pop_front();
+        }
         frame_index += 1;
         progress.update(
             frame_index,
@@ -492,43 +688,147 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     } else {
         (structural_alignment_sum / structural_alignment_count as f64).clamp(0.0, 1.0)
     };
-    let measured_tracking_lock = if structural_alignment_count == 0 {
-        0.0
+    let source_flow_observed_pairs = source_flow_errors.len();
+    let mut sorted_source_flow_errors = source_flow_errors;
+    let source_flow_median_error_pixels = percentile(&mut sorted_source_flow_errors, 0.50);
+    let source_flow_p95_error_pixels = percentile(&mut sorted_source_flow_errors, 0.95);
+    let source_flow_p99_error_pixels = percentile(&mut sorted_source_flow_errors, 0.99);
+    let source_flow_lag_observed_pairs = source_flow_errors_by_lag.each_ref().map(Vec::len);
+    let source_flow_lag_p95_error_pixels = source_flow_errors_by_lag
+        .each_mut()
+        .map(|values| percentile(values, 0.95));
+    let source_flow_lag_p99_error_pixels = source_flow_errors_by_lag
+        .each_mut()
+        .map(|values| percentile(values, 0.99));
+    let source_flow_median_inlier_fraction = percentile(&mut source_flow_inliers, 0.50);
+    let source_flow_median_spatial_coverage = percentile(&mut source_flow_coverages, 0.50);
+    let (
+        source_flow_median_error_pixels,
+        source_flow_p95_error_pixels,
+        source_flow_p99_error_pixels,
+        source_flow_median_inlier_fraction,
+        source_flow_median_spatial_coverage,
+    ) = if screen_canvas {
+        (0.0, 0.0, 0.0, 1.0, 1.0)
     } else {
-        (tracking_score_sum / structural_alignment_count as f64).clamp(0.0, 1.0)
+        (
+            source_flow_median_error_pixels,
+            source_flow_p95_error_pixels,
+            source_flow_p99_error_pixels,
+            source_flow_median_inlier_fraction,
+            source_flow_median_spatial_coverage,
+        )
     };
-    let authoritative_refinement = pack
-        .manifest
-        .motion_model
-        .starts_with("authoritative-refined-quad-track-");
-    let authoritative_motion = authoritative_refinement || screen_fixed_surface;
-    let tracking_measurement_valid =
-        authoritative_motion || maximum_tracking_correction.is_finite();
-    let tracking_lock = if authoritative_motion {
+    let source_flow_uses_writing_surface_support = source_flow_writing_surface_supported_frames > 0;
+    let measured_tracking_lock =
+        source_flow_lock_score(source_flow_p95_error_pixels, source_flow_p99_error_pixels);
+    let tracking_observable_frames = pack
+        .motion
+        .iter()
+        .filter(|sample| {
+            crate::analyze::tracking::surface_visible_fraction(
+                pack.manifest.source_plaque_rect,
+                sample.transform,
+                original_info.width,
+                original_info.height,
+            ) >= 0.15
+        })
+        .count();
+    let evidence_frames = pack
+        .motion
+        .iter()
+        .filter(|sample| {
+            sample.measurement_valid
+                && crate::analyze::tracking::surface_visible_fraction(
+                    pack.manifest.source_plaque_rect,
+                    sample.transform,
+                    original_info.width,
+                    original_info.height,
+                ) >= 0.15
+        })
+        .count();
+    let evidence_fraction = evidence_frames as f64 / tracking_observable_frames.max(1) as f64;
+    let mut evidence_coverages = pack
+        .motion
+        .iter()
+        .filter(|sample| {
+            sample.measurement_valid
+                && crate::analyze::tracking::surface_visible_fraction(
+                    pack.manifest.source_plaque_rect,
+                    sample.transform,
+                    original_info.width,
+                    original_info.height,
+                ) >= 0.15
+        })
+        .map(|sample| sample.spatial_coverage)
+        .collect::<Vec<_>>();
+    let tracking_median_spatial_coverage = percentile(&mut evidence_coverages, 0.50);
+    let mut evidence_uncertainties = pack
+        .motion
+        .iter()
+        .filter(|sample| {
+            sample.measurement_valid
+                && sample.uncertainty_px.is_finite()
+                && crate::analyze::tracking::surface_visible_fraction(
+                    pack.manifest.source_plaque_rect,
+                    sample.transform,
+                    original_info.width,
+                    original_info.height,
+                ) >= 0.15
+        })
+        .map(|sample| sample.uncertainty_px)
+        .collect::<Vec<_>>();
+    let tracking_p95_uncertainty_pixels = percentile(&mut evidence_uncertainties, 0.95);
+    let (evidence_fraction, tracking_median_spatial_coverage, tracking_p95_uncertainty_pixels) =
+        if screen_canvas {
+            (1.0, 1.0, 0.0)
+        } else {
+            (
+                evidence_fraction,
+                tracking_median_spatial_coverage,
+                tracking_p95_uncertainty_pixels,
+            )
+        };
+    let tracking_measurement_valid = screen_canvas
+        || (source_flow_observed_pairs >= tracking_observable_frames.max(1) / 2
+            && evidence_fraction >= 0.60
+            && tracking_median_spatial_coverage >= 0.42
+            && source_flow_median_spatial_coverage >= 0.42
+            && source_flow_median_inlier_fraction >= 0.65
+            && source_flow_p99_error_pixels.is_finite());
+    let tracking_lock = if screen_canvas {
         1.0
+    } else if !tracking_measurement_valid {
+        0.0
     } else {
         measured_tracking_lock
     };
-    let tracking_lock_basis = if authoritative_refinement {
-        "authoritative-refined-quad-track"
-    } else if screen_fixed_surface {
-        "declared-or-validated-screen-fixed-surface"
-    } else if use_title_registration {
-        "rendered-title-registration-on-low-texture-surface"
+    let tracking_lock_basis = if screen_canvas {
+        "not-applicable-screen-canvas"
+    } else if source_flow_uses_writing_surface_support {
+        "independent-source-material-flow-with-writing-surface-support-versus-four-corner-trajectory"
+    } else if !tracking_measurement_valid {
+        "unmeasurable-independent-source-evidence"
     } else {
-        "automatic-structural-registration-and-edge-alignment"
+        "independent-consecutive-and-multiscale-source-material-flow-versus-four-corner-trajectory"
+    };
+    let (rendered_title_plane_lock, rendered_title_plane_lock_basis) = if screen_canvas {
+        (1.0, "not-applicable-screen-canvas")
+    } else if title_plane_lock_count < 12 {
+        (0.0, "insufficient-rendered-title-difference-evidence")
+    } else {
+        (
+            (title_plane_lock_sum / title_plane_lock_count as f64).clamp(0.0, 1.0),
+            "source-subtracted-title-registration-in-expected-surface-coordinates",
+        )
     };
     let scene_integrity = (-untouched_error / 1.5).exp().clamp(0.0, 1.0);
-    let trajectory = trajectory_quality(
+    let trajectory = trajectory_dynamics(
         &pack.motion,
         pack.manifest.source_plaque_rect,
         pack.manifest.loop_closed,
     );
-    let temporal_stability = if use_title_registration {
-        tracking_lock
-    } else {
-        trajectory.temporal_score
-    };
+    let temporal_stability = trajectory.temporal_score;
     let occlusion_restore = if occlusion_count == 0 {
         if has_any_occluder { 0.40 } else { 1.0 }
     } else {
@@ -555,8 +855,9 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let (typography_fit, typography_validity) = typography_scores(&manifest);
 
     let overall = weighted_geometric_mean(&[
-        (tracking_lock, 0.24),
-        (scene_integrity, 0.22),
+        (tracking_lock, 0.16),
+        (rendered_title_plane_lock, 0.14),
+        (scene_integrity, 0.20),
         (typography_fit, 0.14),
         (typography_validity, 0.10),
         (temporal_stability, 0.12),
@@ -566,16 +867,19 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     let thresholds = VerificationThresholds {
         overall: args.minimum_score,
         tracking_lock: 0.95,
+        rendered_title_plane_lock: 0.96,
+        rendered_title_maximum_drift_pixels: 1.5,
         scene_integrity: 0.995,
         typography_fit: 0.98,
         typography_validity: 1.0,
         temporal_stability: 0.95,
+        maximum_trajectory_residual_pixels: 4.0,
         occlusion_restore: 0.95,
         loop_seam: 0.98,
     };
     let mut failures = Vec::new();
     let mut remedies = Vec::new();
-    let worst_tracking_diagnostic = if authoritative_motion {
+    let worst_tracking_diagnostic = if screen_canvas {
         None
     } else if let (Some(directory), Some((mut frame, quad))) =
         (&args.diagnostics, worst_tracking_preview)
@@ -600,18 +904,23 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     };
     let rect = pack.manifest.source_plaque_rect;
     let frame_seconds = worst_tracking.0 as f64 / original_info.fps;
-    let tracking_remedy = if screen_fixed_surface {
-        "screen-fixed injected/structureless surface uses an authoritative identity trajectory"
-            .to_string()
+    let tracking_remedy = if screen_canvas {
+        "tracking is not applicable to an intentional screen-canvas surface".to_string()
     } else if tracking_measurement_valid {
         format!(
-            "automatic registration needs up to {:.2}px correction; worst frame {} ({frame_seconds:.3}s){}. The analyzed rectangle is {:.0},{:.0},{:.0},{:.0}. Correct refinement bounds or export and lock motion frames before reanalysis",
-            maximum_tracking_correction,
+            "independent material flow{} disagrees with the four-corner trajectory most at frame {} ({frame_seconds:.3}s){}; p95 error {:.2}px and p99 error {:.2}px. The analyzed rectangle is {:.0},{:.0},{:.0},{:.0}. Correct scene bounds, surface support, or tracking before reanalysis",
+            if source_flow_uses_writing_surface_support {
+                " inside the writing-surface matte"
+            } else {
+                ""
+            },
             worst_tracking.0,
             worst_tracking_diagnostic
                 .as_ref()
                 .map(|path| format!(", saved as {path}"))
                 .unwrap_or_default(),
+            source_flow_p95_error_pixels,
+            source_flow_p99_error_pixels,
             rect.x,
             rect.y,
             rect.width,
@@ -619,8 +928,15 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         )
     } else {
         format!(
-            "tracking could not be measured because the analyzed rectangle {:.0},{:.0},{:.0},{:.0} has no usable structural template; inspect canonical-reference.png and candidate.png, then correct the refinement bounds",
-            rect.x, rect.y, rect.width, rect.height
+            "tracking could not be independently measured: {} source-flow pairs, {:.1}% median flow inliers, {:.1}% median flow coverage, and {:.1}% analyzed-frame evidence. Inspect the tracked rectangle {:.0},{:.0},{:.0},{:.0}, its foreground masks, and tracking-contact-sheet.png",
+            source_flow_observed_pairs,
+            source_flow_median_inlier_fraction * 100.0,
+            source_flow_median_spatial_coverage * 100.0,
+            evidence_fraction * 100.0,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height
         )
     };
     check_score(
@@ -631,6 +947,32 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         &mut remedies,
         tracking_remedy,
     );
+    check_score(
+        "rendered_title_plane_lock",
+        rendered_title_plane_lock,
+        thresholds.rendered_title_plane_lock,
+        &mut failures,
+        &mut remedies,
+        format!(
+            "the rendered title drifts by up to {:.2}px in expected plaque coordinates at frame {} ({:.3}s); inspect the trajectory, compositing transform, and foreground mask timing",
+            title_plane_maximum_drift,
+            title_plane_worst_frame,
+            title_plane_worst_frame as f64 / original_info.fps
+        ),
+    );
+    if !screen_canvas
+        && title_plane_maximum_drift > thresholds.rendered_title_maximum_drift_pixels + f64::EPSILON
+    {
+        failures.push(format!(
+            "rendered_title_maximum_drift_pixels {:.4} exceeds {:.4}",
+            title_plane_maximum_drift, thresholds.rendered_title_maximum_drift_pixels
+        ));
+        remedies.push(format!(
+            "inspect frame {} ({:.3}s); even a one-frame title/plaque slip is an acceptance failure",
+            title_plane_worst_frame,
+            title_plane_worst_frame as f64 / original_info.fps
+        ));
+    }
     check_score(
         "scene_integrity",
         scene_integrity,
@@ -669,16 +1011,27 @@ pub fn run(args: VerifyArgs) -> Result<()> {
             "trajectory changes abruptly at frame {} ({:.3}s), with analysis inertia {:.2}; export the motion and lock incorrect frames before reanalysis",
             trajectory.worst_frame,
             trajectory.worst_frame as f64 / original_info.fps,
-            tracking_inertia(&pack.manifest.motion_model).unwrap_or(0.35)
+            tracking_inertia(&pack.manifest.trajectory_model).unwrap_or(0.35)
         ),
     );
+    if trajectory.maximum_residual > thresholds.maximum_trajectory_residual_pixels + f64::EPSILON {
+        failures.push(format!(
+            "maximum_trajectory_residual_pixels {:.4} exceeds {:.4}",
+            trajectory.maximum_residual, thresholds.maximum_trajectory_residual_pixels
+        ));
+        remedies.push(format!(
+            "trajectory has a localized four-corner motion impulse at frame {} ({:.3}s); repair that pose even if the clip-average temporal score passes",
+            trajectory.worst_frame,
+            trajectory.worst_frame as f64 / original_info.fps,
+        ));
+    }
     check_score(
         "occlusion_restore",
         occlusion_restore,
         thresholds.occlusion_restore,
         &mut failures,
         &mut remedies,
-        "add or correct a foreground refinement where automatic separation is wrong".into(),
+        "add or correct a foreground scene where automatic separation is wrong".into(),
     );
     check_score(
         "loop_seam",
@@ -706,35 +1059,55 @@ pub fn run(args: VerifyArgs) -> Result<()> {
         overall,
         tracking_lock,
         tracking_lock_basis: tracking_lock_basis.to_string(),
+        rendered_title_plane_lock,
+        rendered_title_plane_lock_basis: rendered_title_plane_lock_basis.to_string(),
+        rendered_title_observed_frames: title_plane_lock_count,
+        rendered_title_maximum_drift_pixels: title_plane_maximum_drift,
+        rendered_title_worst_frame: title_plane_worst_frame,
         scene_integrity,
         typography_fit,
         typography_validity,
         temporal_stability,
-        temporal_stability_basis: if use_title_registration {
-            "rendered-title-registration-on-low-texture-surface"
-        } else {
-            "quad-and-visibility-trajectory-curvature"
-        }
-        .to_string(),
+        temporal_stability_basis: "quad-and-visibility-trajectory-curvature".to_string(),
         occlusion_restore,
         loop_seam,
         loop_seam_basis: "circular-trajectory-curvature".to_string(),
         loop_seam_mean_error: seam_error,
         title_effect_frame_mean_error: temporal_mean,
         structural_edge_alignment,
+        source_flow_observed_pairs,
+        source_flow_median_error_pixels,
+        source_flow_p95_error_pixels,
+        source_flow_p99_error_pixels,
+        source_flow_lag_1_observed_pairs: source_flow_lag_observed_pairs[0],
+        source_flow_lag_1_p95_error_pixels: source_flow_lag_p95_error_pixels[0],
+        source_flow_lag_1_p99_error_pixels: source_flow_lag_p99_error_pixels[0],
+        source_flow_lag_6_observed_pairs: source_flow_lag_observed_pairs[1],
+        source_flow_lag_6_p95_error_pixels: source_flow_lag_p95_error_pixels[1],
+        source_flow_lag_6_p99_error_pixels: source_flow_lag_p99_error_pixels[1],
+        source_flow_lag_12_observed_pairs: source_flow_lag_observed_pairs[2],
+        source_flow_lag_12_p95_error_pixels: source_flow_lag_p95_error_pixels[2],
+        source_flow_lag_12_p99_error_pixels: source_flow_lag_p99_error_pixels[2],
+        source_flow_median_inlier_fraction,
+        source_flow_median_spatial_coverage,
+        source_flow_worst_frame: if screen_canvas { 0 } else { worst_tracking.0 },
+        source_flow_uses_writing_surface_support,
+        source_flow_writing_surface_supported_frames,
+        source_flow_writing_surface_fallback_frames,
         tracking_measurement_valid,
-        maximum_tracking_correction_pixels: tracking_measurement_valid
-            .then_some(maximum_tracking_correction),
+        tracking_observable_frames,
+        tracking_evidence_fraction: evidence_fraction,
+        tracking_median_spatial_coverage,
+        tracking_p95_uncertainty_pixels,
+        template_registration_maximum_suggested_correction_pixels: structural_matcher
+            .is_some()
+            .then_some(template_registration_maximum_suggested_correction),
         maximum_trajectory_residual_pixels: trajectory.maximum_residual,
         worst_trajectory_frame: trajectory.worst_frame,
         loop_trajectory_residual_pixels: trajectory.loop_residual,
         untouched_region_mean_error: untouched_error,
         structural_mean_error: structure_mean,
-        worst_tracking_frame: if authoritative_refinement {
-            0
-        } else {
-            worst_tracking.0
-        },
+        worst_tracking_frame: if screen_canvas { 0 } else { worst_tracking.0 },
         worst_tracking_diagnostic,
         worst_scene_frame: worst_scene.0,
         thresholds,
@@ -833,6 +1206,79 @@ fn source_over_alpha(bottom: u8, top: u8) -> u8 {
     255 - remaining as u8
 }
 
+fn title_difference_signature(
+    delta: &[i16],
+    support: &[u8],
+    occluder: Option<&[u8]>,
+    width: u32,
+    height: u32,
+) -> Result<Surface> {
+    anyhow::ensure!(
+        delta.len() == support.len() * 3,
+        "title-difference dimensions are inconsistent"
+    );
+    let mut pixels = vec![0u8; support.len() * 4];
+    for (pixel, (&allowed, channels)) in support.iter().zip(delta.chunks_exact(3)).enumerate() {
+        let hidden = occluder.is_some_and(|mask| mask.get(pixel).is_some_and(|&alpha| alpha >= 32));
+        if allowed <= 16 || hidden {
+            continue;
+        }
+        let magnitude = channels
+            .iter()
+            .map(|value| value.unsigned_abs() as u32)
+            .sum::<u32>()
+            / 3;
+        // The verifier measures the geometry of the rendered mark, not its paint.
+        // A binary difference signature is invariant to a moving shine, gradient,
+        // pulse, or other color-only title animation.
+        let value = if magnitude >= 6 { 255 } else { 0 };
+        let base = pixel * 4;
+        pixels[base..base + 4].copy_from_slice(&[value, value, value, 255]);
+    }
+    Surface::from_rgba(width, height, pixels)
+}
+
+fn dilate_binary_mask(source: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
+    if source.len() != width * height || width == 0 || height == 0 {
+        return Vec::new();
+    }
+    let mut horizontal = vec![0u8; source.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let start = x.saturating_sub(radius);
+            let end = (x + radius).min(width - 1);
+            if source[y * width + start..=y * width + end]
+                .iter()
+                .any(|&alpha| alpha > 16)
+            {
+                horizontal[y * width + x] = 255;
+            }
+        }
+    }
+    let mut output = vec![0u8; source.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let start = y.saturating_sub(radius);
+            let end = (y + radius).min(height - 1);
+            if (start..=end).any(|yy| horizontal[yy * width + x] > 0) {
+                output[y * width + x] = 255;
+            }
+        }
+    }
+    output
+}
+
+fn mask_excluding_foreground(stable: &[u8], foreground: Option<&[u8]>, threshold: u8) -> Vec<u8> {
+    let Some(foreground) = foreground.filter(|mask| mask.len() == stable.len()) else {
+        return stable.to_vec();
+    };
+    stable
+        .iter()
+        .zip(foreground)
+        .map(|(&evidence, &occlusion)| if occlusion >= threshold { 0 } else { evidence })
+        .collect()
+}
+
 /// Error beyond the maximum residual left by restoring the source at `restore_alpha`.
 /// A one-level allowance covers integer rounding in the compositor.
 fn restoration_channel_error(source: u8, rendered: u8, restore_alpha: u8) -> u64 {
@@ -840,7 +1286,22 @@ fn restoration_channel_error(source: u8, rendered: u8, restore_alpha: u8) -> u64
 }
 
 fn tracking_inertia(model: &str) -> Option<f64> {
-    model.rsplit_once("inertia-")?.1.parse().ok()
+    model
+        .rsplit_once("regularization-")?
+        .1
+        .split(|character: char| !(character.is_ascii_digit() || character == '.'))
+        .next()?
+        .parse()
+        .ok()
+}
+
+fn percentile(values: &mut [f64], quantile: f64) -> f64 {
+    values.sort_by(f64::total_cmp);
+    if values.is_empty() {
+        return f64::INFINITY;
+    }
+    let index = ((values.len() - 1) as f64 * quantile.clamp(0.0, 1.0)).round() as usize;
+    values[index]
 }
 
 fn save_surface(surface: &Surface, path: &Path) -> Result<()> {
@@ -973,16 +1434,33 @@ fn registration_lock_score(correction_pixels: f64) -> f64 {
 }
 
 fn tracking_lock_score(correction_pixels: f64, edge_alignment: f64) -> f64 {
-    registration_lock_score(correction_pixels).max(edge_alignment.clamp(0.0, 1.0).sqrt())
+    // Edge alignment is a support/observability gate, not a direct quality
+    // multiplier: animated specular highlights naturally change gradient strength
+    // on a correctly rectified metal or glass plaque.
+    if edge_alignment < 0.18 {
+        0.0
+    } else {
+        registration_lock_score(correction_pixels)
+    }
 }
 
-fn should_use_title_registration(
-    has_structural_matcher: bool,
-    extraction_confidence: f64,
-    rect: RectF,
-) -> bool {
-    !has_structural_matcher
-        || extraction_confidence < 0.90 && rect.width / rect.height.max(1.0) >= 3.0
+fn source_flow_observation_score(error_pixels: f64) -> f64 {
+    if !error_pixels.is_finite() {
+        return 0.0;
+    }
+    let excess = (error_pixels - 0.75).max(0.0);
+    (-(excess / 1.5).powi(2)).exp().clamp(0.0, 1.0)
+}
+
+fn source_flow_lock_score(p95_error_pixels: f64, p99_error_pixels: f64) -> f64 {
+    if !p95_error_pixels.is_finite() || !p99_error_pixels.is_finite() {
+        return 0.0;
+    }
+    let p95_excess = (p95_error_pixels - 0.85).max(0.0);
+    let p99_excess = (p99_error_pixels - 1.50).max(0.0);
+    (-((p95_excess / 1.6).powi(2) + (p99_excess / 2.4).powi(2)))
+        .exp()
+        .clamp(0.0, 1.0)
 }
 
 fn canonical_seam_error(
@@ -1019,112 +1497,6 @@ fn canonical_seam_error(
     }
 }
 
-struct TrajectoryQuality {
-    temporal_score: f64,
-    loop_score: f64,
-    maximum_residual: f64,
-    worst_frame: usize,
-    loop_residual: f64,
-}
-
-fn trajectory_quality(
-    samples: &[MotionSample],
-    rect: RectF,
-    loop_closed: bool,
-) -> TrajectoryQuality {
-    if samples.len() < 3 {
-        return TrajectoryQuality {
-            temporal_score: 0.0,
-            loop_score: if loop_closed { 0.0 } else { 1.0 },
-            maximum_residual: f64::INFINITY,
-            worst_frame: 0,
-            loop_residual: if loop_closed { f64::INFINITY } else { 0.0 },
-        };
-    }
-
-    let quads: Vec<_> = samples
-        .iter()
-        .map(|sample| transformed_rect(rect, sample.transform))
-        .collect();
-    let mut residuals = Vec::with_capacity(samples.len());
-    let mut maximum_residual = 0.0_f64;
-    let mut worst_frame = 0usize;
-    let first = if loop_closed { 0 } else { 1 };
-    let end = if loop_closed {
-        samples.len()
-    } else {
-        samples.len() - 1
-    };
-    for index in first..end {
-        let previous = if index == 0 {
-            samples.len() - 1
-        } else {
-            index - 1
-        };
-        let next = if index + 1 == samples.len() {
-            0
-        } else {
-            index + 1
-        };
-        let mut residual = 0.0;
-        for ((point, before), after) in quads[index]
-            .points()
-            .into_iter()
-            .zip(quads[previous].points())
-            .zip(quads[next].points())
-        {
-            let expected_x = (before.x + after.x) * 0.5;
-            let expected_y = (before.y + after.y) * 0.5;
-            residual += (point.x - expected_x).hypot(point.y - expected_y);
-        }
-        residual /= 4.0;
-
-        // Visibility is part of the rendered title trajectory. Convert abrupt
-        // opacity curvature to a small pixel-equivalent penalty without
-        // penalizing a smooth intentional fade.
-        let expected_visibility =
-            (samples[previous].plaque_visibility + samples[next].plaque_visibility) * 0.5;
-        residual =
-            residual.hypot((samples[index].plaque_visibility - expected_visibility).abs() * 8.0);
-        if residual > maximum_residual {
-            maximum_residual = residual;
-            worst_frame = index;
-        }
-        residuals.push((index, residual));
-    }
-
-    let score_for = |residual: f64| {
-        let excess = (residual - 0.35).max(0.0);
-        (-(excess / 1.5).powi(2)).exp().clamp(0.0, 1.0)
-    };
-    let temporal_score = residuals
-        .iter()
-        .map(|(_, residual)| score_for(*residual))
-        .sum::<f64>()
-        / residuals.len().max(1) as f64;
-    let loop_residual = if loop_closed {
-        residuals
-            .iter()
-            .filter(|(index, _)| *index == 0 || *index + 1 == samples.len())
-            .map(|(_, residual)| *residual)
-            .fold(0.0, f64::max)
-    } else {
-        0.0
-    };
-
-    TrajectoryQuality {
-        temporal_score,
-        loop_score: if loop_closed {
-            score_for(loop_residual)
-        } else {
-            1.0
-        },
-        maximum_residual,
-        worst_frame,
-        loop_residual,
-    }
-}
-
 fn check_score(
     name: &str,
     value: f64,
@@ -1151,9 +1523,10 @@ fn weighted_geometric_mean(values: &[(f64, f64)]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_seam_error, registration_correction_pixels, registration_lock_score,
-        restoration_channel_error, scene_channel_error, should_use_title_registration,
-        source_over_alpha, structural_edge_alignment, tracking_lock_score, trajectory_quality,
+        canonical_seam_error, mask_excluding_foreground, registration_correction_pixels,
+        registration_lock_score, restoration_channel_error, scene_channel_error,
+        source_flow_lock_score, source_over_alpha, structural_edge_alignment, tracking_lock_score,
+        trajectory_dynamics,
     };
     use crate::{
         analyze::extraction::measure_structural_registration,
@@ -1167,6 +1540,11 @@ mod tests {
         MotionSample {
             frame,
             transform: Mat3::translation(x, 0.0),
+            measurement_valid: true,
+            tracked_points: 20,
+            spatial_coverage: 1.0,
+            uncertainty_px: 0.25,
+            measurement_source: "test".into(),
             inlier_ratio: 1.0,
             reprojection_error: 0.0,
             ecc: Some(1.0),
@@ -1233,6 +1611,16 @@ mod tests {
     }
 
     #[test]
+    fn foreground_exclusion_removes_only_hidden_registration_pixels() {
+        let stable = [255, 128, 64, 255];
+        let foreground = [0, 15, 16, 255];
+        assert_eq!(
+            mask_excluding_foreground(&stable, Some(&foreground), 16),
+            vec![255, 128, 0, 0]
+        );
+    }
+
+    #[test]
     fn trajectory_score_rejects_a_single_frame_jump() {
         let rect = RectF {
             x: 10.0,
@@ -1246,8 +1634,8 @@ mod tests {
         let mut jumped = smooth.clone();
         jumped[4].transform = Mat3::translation(8.0, 0.0);
 
-        assert!(trajectory_quality(&smooth, rect, false).temporal_score > 0.99);
-        assert!(trajectory_quality(&jumped, rect, false).temporal_score < 0.80);
+        assert!(trajectory_dynamics(&smooth, rect, false).temporal_score > 0.99);
+        assert!(trajectory_dynamics(&jumped, rect, false).temporal_score < 0.80);
     }
 
     #[test]
@@ -1274,27 +1662,14 @@ mod tests {
         assert!(correction > 2.0);
         assert!(registration_lock_score(correction) < 0.80);
         assert!(tracking_lock_score(correction, 0.20) < 0.80);
-        assert!(tracking_lock_score(correction, 0.98) > 0.95);
+        assert!(tracking_lock_score(correction, 0.98) < 0.80);
     }
 
     #[test]
-    fn low_texture_banner_uses_rendered_title_registration() {
-        let banner = RectF {
-            x: 0.0,
-            y: 0.0,
-            width: 1000.0,
-            height: 150.0,
-        };
-        let plaque = RectF {
-            x: 0.0,
-            y: 0.0,
-            width: 400.0,
-            height: 240.0,
-        };
-        assert!(should_use_title_registration(false, 0.99, plaque));
-        assert!(should_use_title_registration(true, 0.86, banner));
-        assert!(!should_use_title_registration(true, 0.96, banner));
-        assert!(!should_use_title_registration(true, 0.86, plaque));
+    fn source_flow_score_requires_subpixel_tail_accuracy() {
+        assert_eq!(source_flow_lock_score(0.40, 0.80), 1.0);
+        assert!(source_flow_lock_score(1.80, 3.50) < 0.50);
+        assert_eq!(source_flow_lock_score(f64::INFINITY, 0.5), 0.0);
     }
 
     #[test]

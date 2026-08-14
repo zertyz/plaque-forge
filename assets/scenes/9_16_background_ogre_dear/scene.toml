@@ -1,0 +1,17 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../9_16_background_ogre_dear.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "screen-canvas"
+depth = "flat"
+reference_frame = 10
+bounds = [20.0, 104.0, 494.0, 423.0]
+
+[surfaces.writable_region]
+shape = "ellipse"
+center = [267.0, 315.5]
+radii = [218.0, 178.0]
+rotation_degrees = 0.0

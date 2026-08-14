@@ -21,7 +21,7 @@ Prepare the ML foreground/object worker once:
 ./scripts/setup_segmentation.sh
 ```
 
-Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its synthetic `$HOME`, virtualenv, cloned ML repositories, and model caches. Nothing is installed into your real home directory. If `/tmp` is cleared, rerun setup.
+Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its virtualenv, cloned ML repositories, and model caches. Nothing is installed into your user Python environment or user caches. If `/tmp` is cleared, rerun setup.
 
 Plaque Forge requires Rust 1.89 or newer, FFmpeg/FFprobe, OpenCV, Clang, and fontconfig. The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
 
@@ -92,7 +92,7 @@ Open:
 output/review/index.html
 ```
 
-Each asset report prioritizes what matters, shows the visual evidence, states whether Python ML participated, points to the exact refinement file when one exists, and gives the commands to rerun. This is the preferred place for detailed quality/debug guidance.
+Each asset report prioritizes what matters, shows the visual evidence, states whether Python ML participated, points to the exact scene file when one exists, and gives the commands to rerun. This is the preferred place for detailed quality/debug guidance.
 
 ## Start analysis completely fresh
 
@@ -110,7 +110,7 @@ To also regenerate every Python ML layer while keeping the downloaded models/run
 ./scripts/analyze_assets.sh --force-ml
 ```
 
-This does not delete source videos, human/project refinement intent, plaque PNGs, rendered output, or `/tmp/plaque-forge-python`. Legacy refinement-owned non-ML assets such as hand-reviewed/deterministically derived moss/shadow masks are intentionally preserved.
+This does not delete source videos, human/project scene intent, plaque PNGs, rendered output, or `/tmp/plaque-forge-python`. Small reviewed scene masks such as moss/shadow geometry are intentionally preserved.
 
 To remove obsolete pre-0.8 partial directories and completed worker request files without touching complete caches:
 
@@ -118,12 +118,7 @@ To remove obsolete pre-0.8 partial directories and completed worker request file
 ./scripts/cleanup_work.sh --yes
 ```
 
-Generated manifests use only portable relative paths. To audit or migrate older analysis caches without rerunning ML:
-
-```bash
-cargo run -- migrate-analysis --root assets/analysis       # dry run
-cargo run -- migrate-analysis --root assets/analysis --apply
-```
+Generated manifests use only portable relative paths. Incompatible caches are rejected and must be regenerated; they are never silently relabelled.
 
 ## Repository map
 
@@ -134,10 +129,10 @@ tools/                       optional external-tool adapters
 styles/                      reusable typography/material/effect programs
 assets/*.mp4                 source videos
 assets/plaques/              reusable injected plaque images
-assets/refinements/<name>/   sparse human intent/corrections + generated layer artifacts
+assets/scenes/<name>/       sparse human intent + small reviewed source masks
 assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
 output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows
 ```
 
-The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Refinements](docs/REFINEMENTS.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md).
+The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md).

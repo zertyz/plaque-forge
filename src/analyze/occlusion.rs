@@ -12,7 +12,7 @@ use crate::{
     color::Rgba,
     model::{MotionSample, RectF},
     progress::ProgressReporter,
-    refinement::MotionRefinement,
+    scene::SurfaceTrajectory,
     surface::Surface,
     video::{Decoder, VideoInfo},
 };
@@ -29,6 +29,155 @@ pub struct OcclusionResult {
     pub mean_coverage: f64,
 }
 
+/// Recompute the public foreground diagnostics from the exact masks that the
+/// renderer will consume. This is deliberately separate from ML's own result:
+/// semantic confidence cannot certify optical opacity, and reports must never
+/// describe a pre-fusion intermediate while rendering a different artifact.
+#[allow(clippy::too_many_arguments)]
+pub fn summarize_installed_masks(
+    info: &VideoInfo,
+    rect: RectF,
+    motion: &mut [MotionSample],
+    extraction: &ExtractionResult,
+    output_root: &Path,
+    diagnostics: &Path,
+) -> Result<OcclusionResult> {
+    let masks_dir = output_root.join("occluder");
+    let mut coverages = Vec::with_capacity(info.frames);
+    let mut content_coverages = Vec::with_capacity(info.frames);
+    let mut canonical_masks = Vec::with_capacity(info.frames);
+    let content_weight = extraction
+        .content_mask
+        .iter()
+        .map(|&value| f64::from(value) / 255.0)
+        .sum::<f64>()
+        .max(1.0);
+
+    for (frame_index, sample) in motion.iter_mut().take(info.frames).enumerate() {
+        let path = masks_dir.join(format!("{frame_index:06}.png"));
+        let source = image::open(&path)
+            .with_context(|| {
+                format!(
+                    "failed to load installed foreground mask {}",
+                    path.display()
+                )
+            })?
+            .to_luma8();
+        if source.dimensions() != (info.width, info.height) {
+            anyhow::bail!(
+                "installed foreground mask {} is {}x{}, expected {}x{}",
+                path.display(),
+                source.width(),
+                source.height(),
+                info.width,
+                info.height
+            );
+        }
+        let full = Surface::from_alpha_mask(
+            info.width,
+            info.height,
+            source.as_raw(),
+            Rgba::new(255, 255, 255, 255),
+        )?;
+        let canonical = rectify(&full, rect, sample.transform)?;
+        let alpha = canonical.alpha_mask();
+        let coverage = alpha
+            .iter()
+            .map(|&value| f64::from(value) / 255.0)
+            .sum::<f64>()
+            / alpha.len().max(1) as f64;
+        let content_coverage = alpha
+            .iter()
+            .zip(&extraction.content_mask)
+            .map(|(&foreground, &content)| {
+                f64::from(foreground) / 255.0 * f64::from(content) / 255.0
+            })
+            .sum::<f64>()
+            / content_weight;
+        sample.occluder_coverage = content_coverage;
+        coverages.push(coverage);
+        content_coverages.push(content_coverage);
+        canonical_masks.push(alpha);
+    }
+
+    let mut temporal_agreement = Vec::new();
+    for pair in canonical_masks.windows(2) {
+        if let Some(iou) = mask_iou(&pair[0], &pair[1]) {
+            temporal_agreement.push(iou);
+        }
+    }
+    let max_coverage = coverages.iter().copied().fold(0.0, f64::max);
+    let mean_coverage = mean(&coverages);
+    let occupied_frames = coverages
+        .iter()
+        .filter(|&&coverage| coverage > 0.0025)
+        .count();
+    let occupied_ratio = occupied_frames as f64 / coverages.len().max(1) as f64;
+    let agreement = mean(&temporal_agreement);
+    let persistence = if max_coverage > 0.0 {
+        (mean_coverage / max_coverage).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let has_occluder = classify_occluder(max_coverage, occupied_ratio, agreement, persistence);
+    let confidence = occluder_confidence(
+        has_occluder,
+        max_coverage,
+        occupied_ratio,
+        agreement,
+        persistence,
+    );
+
+    let summary_path = diagnostics.join("occlusion-summary.json");
+    let mut summary: serde_json::Value = serde_json::from_slice(
+        &fs::read(&summary_path)
+            .with_context(|| format!("failed to read {}", summary_path.display()))?,
+    )?;
+    let object = summary
+        .as_object_mut()
+        .context("occlusion summary is not a JSON object")?;
+    let seed = serde_json::json!({
+        "mask_basis": object.get("mask_basis").cloned().unwrap_or(serde_json::Value::Null),
+        "confidence": object.get("confidence").cloned().unwrap_or(serde_json::Value::Null),
+        "mean_coverage": object.get("mean_coverage").cloned().unwrap_or(serde_json::Value::Null),
+        "max_coverage": object.get("max_coverage").cloned().unwrap_or(serde_json::Value::Null),
+        "occupied_frames": object.get("occupied_frames").cloned().unwrap_or(serde_json::Value::Null),
+        "occupied_ratio": object.get("occupied_ratio").cloned().unwrap_or(serde_json::Value::Null),
+        "mean_content_occlusion": object.get("mean_content_occlusion").cloned().unwrap_or(serde_json::Value::Null),
+    });
+    object.insert("has_occluder".into(), has_occluder.into());
+    object.insert("confidence".into(), confidence.into());
+    object.insert("mean_coverage".into(), mean_coverage.into());
+    object.insert("max_coverage".into(), max_coverage.into());
+    object.insert("occupied_frames".into(), occupied_frames.into());
+    object.insert("occupied_ratio".into(), occupied_ratio.into());
+    object.insert("coverage_persistence".into(), persistence.into());
+    object.insert("nonempty_adjacent_mask_iou".into(), agreement.into());
+    object.insert(
+        "mean_content_occlusion".into(),
+        mean(&content_coverages).into(),
+    );
+    object.insert(
+        "mask_basis".into(),
+        "lossless-photometric-material-intersected-with-semantic-two-pixel-object-support".into(),
+    );
+    object.insert("mask_coordinates".into(), "source-pixels".into());
+    object.insert(
+        "mask_frames_summarized".into(),
+        canonical_masks.len().into(),
+    );
+    object.insert("summary_matches_installed_masks".into(), true.into());
+    object.insert("photometric_seed_statistics".into(), seed);
+    fs::write(&summary_path, serde_json::to_vec_pretty(&summary)?)
+        .with_context(|| format!("failed to update {}", summary_path.display()))?;
+
+    Ok(OcclusionResult {
+        has_occluder,
+        confidence,
+        mean_coverage,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn extract(
     ffmpeg: &Path,
@@ -41,7 +190,7 @@ pub fn extract(
     diagnostics: &Path,
     sensitivity: f64,
     loop_closed: bool,
-    refinement_track: Option<&MotionRefinement>,
+    scene_track: Option<&SurfaceTrajectory>,
     progress: &mut ProgressReporter,
 ) -> Result<OcclusionResult> {
     let masks_dir = output_root.join("occluder");
@@ -75,12 +224,17 @@ pub fn extract(
             info.width,
             info.height,
         );
-        structural_scores.push(
+        // Viewport clipping already removes off-screen title pixels. It must not
+        // also fade every still-visible glyph merely because part of the plaque
+        // is outside the frame and therefore cannot contribute structural evidence.
+        structural_scores.push(if in_frame < 0.985 {
+            1.0
+        } else {
             structural_score.max(tracking_presence(
                 sample.inlier_ratio,
                 sample.reprojection_error,
-            )) * in_frame,
-        );
+            ))
+        });
         let mut residual = vec![0u8; width * height];
         for (pixel, residual_value) in residual.iter_mut().enumerate() {
             let base = pixel * 4;
@@ -187,16 +341,13 @@ pub fn extract(
         0.0
     };
     let has_occluder = classify_occluder(max_coverage, occupied_ratio, agreement, persistence);
-    let confidence = if has_occluder {
-        (0.42
-            + 0.25 * agreement
-            + 0.13 * (occupied_ratio / 0.25).clamp(0.0, 1.0)
-            + 0.10 * (persistence / 0.10).clamp(0.0, 1.0)
-            + 0.10 * (max_coverage / 0.08).clamp(0.0, 1.0))
-        .clamp(0.0, 0.96)
-    } else {
-        (0.72 + 0.18 * (1.0 - occupied_ratio).clamp(0.0, 1.0)).clamp(0.0, 0.90)
-    };
+    let confidence = occluder_confidence(
+        has_occluder,
+        max_coverage,
+        occupied_ratio,
+        agreement,
+        persistence,
+    );
     if !has_occluder {
         // Candidate masks remain visible in diagnostics, but are not allowed to
         // contaminate rendering when temporal evidence is weak.
@@ -211,8 +362,8 @@ pub fn extract(
         sample.plaque_visibility = value;
     }
     let automatic_mean_visibility = mean(&visibility);
-    if let Some(track) = refinement_track {
-        tracking::apply_visibility_refinements(motion, track)?;
+    if let Some(track) = scene_track {
+        tracking::apply_visibility_scenes(motion, track)?;
     }
     let final_visibility = motion
         .iter()
@@ -231,11 +382,15 @@ pub fn extract(
             "occupied_frames": occupied_frames,
             "occupied_ratio": occupied_ratio,
             "coverage_persistence": persistence,
-            "nonempty_adjacent_mask_iou": agreement
-            ,"mean_content_occlusion": mean(&content_coverages)
-            ,"automatic_mean_plaque_visibility": automatic_mean_visibility
-            ,"mean_plaque_visibility": mean_visibility
-            ,"minimum_plaque_visibility": minimum_visibility
+            "nonempty_adjacent_mask_iou": agreement,
+            "mean_content_occlusion": mean(&content_coverages),
+            "automatic_mean_plaque_visibility": automatic_mean_visibility,
+            "mean_plaque_visibility": mean_visibility,
+            "minimum_plaque_visibility": minimum_visibility,
+            "mask_basis": "lossless-photometric-material",
+            "mask_coordinates": "source-pixels",
+            "mask_frames_summarized": canonical_masks.len(),
+            "summary_matches_installed_masks": has_occluder,
         }))?,
     )?;
     Ok(OcclusionResult {
@@ -243,6 +398,25 @@ pub fn extract(
         confidence,
         mean_coverage,
     })
+}
+
+fn occluder_confidence(
+    has_occluder: bool,
+    max_coverage: f64,
+    occupied_ratio: f64,
+    agreement: f64,
+    persistence: f64,
+) -> f64 {
+    if has_occluder {
+        (0.42
+            + 0.25 * agreement
+            + 0.13 * (occupied_ratio / 0.25).clamp(0.0, 1.0)
+            + 0.10 * (persistence / 0.10).clamp(0.0, 1.0)
+            + 0.10 * (max_coverage / 0.08).clamp(0.0, 1.0))
+        .clamp(0.0, 0.96)
+    } else {
+        (0.72 + 0.18 * (1.0 - occupied_ratio).clamp(0.0, 1.0)).clamp(0.0, 0.90)
+    }
 }
 
 fn classify_occluder(

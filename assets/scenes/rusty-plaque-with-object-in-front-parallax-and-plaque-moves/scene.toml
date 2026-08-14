@@ -1,0 +1,61 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../rusty-plaque-with-object-in-front-parallax-and-plaque-moves.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "declared-only"
+reference_frame = 113
+bounds = [322.0, 46.0, 634.0, 133.0]
+
+[[layers]]
+id = "chains"
+role = "foreground"
+surface = "main"
+in_front_of = "main"
+active_frames = [60, 116]
+affects_layout = false
+
+[[layers.prompts]]
+frame = 76
+coordinates = "source-pixels"
+object = "chain-first"
+positive_points = [[180.0, 250.0], [240.0, 560.0]]
+negative_points = [[350.0, 105.0], [620.0, 350.0]]
+
+[[layers.prompts]]
+frame = 84
+coordinates = "source-pixels"
+object = "chain-first"
+positive_points = [[485.0, 70.0], [500.0, 290.0], [525.0, 545.0]]
+negative_points = [[350.0, 105.0], [660.0, 390.0]]
+
+[[layers.prompts]]
+frame = 92
+coordinates = "source-pixels"
+object = "chain-first"
+positive_points = [[790.0, 80.0], [815.0, 315.0], [875.0, 585.0]]
+negative_points = [[650.0, 105.0], [1080.0, 480.0]]
+
+[[layers.prompts]]
+frame = 76
+coordinates = "source-pixels"
+object = "chain-second"
+positive_points = [[470.0, 60.0], [500.0, 235.0]]
+negative_points = [[350.0, 105.0], [650.0, 270.0]]
+
+[[layers.prompts]]
+frame = 84
+coordinates = "source-pixels"
+object = "chain-second"
+positive_points = [[775.0, 65.0], [800.0, 235.0]]
+negative_points = [[650.0, 105.0], [950.0, 270.0]]
+
+[[layers.prompts]]
+frame = 92
+coordinates = "source-pixels"
+object = "chain-second"
+positive_points = [[1090.0, 65.0], [1130.0, 235.0]]
+negative_points = [[950.0, 105.0], [1240.0, 420.0]]

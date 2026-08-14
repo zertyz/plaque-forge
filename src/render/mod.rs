@@ -35,7 +35,7 @@ pub struct RenderManifest {
     pub typography: TypographyMetrics,
     pub frames: usize,
     pub used_occluder_masks: bool,
-    pub refinement_foreground_layers: usize,
+    pub scene_foreground_layers: usize,
     #[serde(default)]
     pub used_injected_surface: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -143,19 +143,19 @@ fn render_to(
             args.input.display()
         );
     }
-    let current_refinement = crate::refinement::current_refinement_provenance(
+    let current_scene = crate::scene::current_scene_provenance(
         &args.input,
-        args.refinement.as_deref(),
-        args.plaque.as_deref(),
+        args.scene.as_deref(),
+        args.surface.as_deref(),
     )?;
-    let refinements_match = match (&pack.manifest.refinements, &current_refinement) {
+    let scenes_match = match (&pack.manifest.scenes, &current_scene) {
         (None, None) => true,
         (Some(cached), Some(current)) => cached.content_matches(current),
         _ => false,
     };
-    if !refinements_match {
+    if !scenes_match {
         bail!(
-            "analysis cache does not include the current refinements\nhelp: rebuild it explicitly with `plaque-forge analyze --input {} --force`",
+            "analysis cache does not include the current scenes\nhelp: rebuild it explicitly with `plaque-forge analyze --input {} --force`",
             args.input.display()
         );
     }
@@ -276,15 +276,15 @@ fn render_to(
     let mut decoder = Decoder::spawn(&args.ffmpeg, &source, &info)?;
     let mut encoder = Encoder::spawn(&args.ffmpeg, &source, &args.output, &info, &encoder_args)?;
     let masks_dir = pack.root.join(OCCLUDER_DIR);
-    let use_masks = pack.manifest.occlusion_mode == crate::refinement::OcclusionMode::Automatic
+    let use_masks = pack.manifest.occlusion_mode == crate::scene::DepthMode::Automatic
         && pack.manifest.has_occluder
         && masks_dir.is_dir();
     let foregrounds = ForegroundReader::open(&pack)?;
-    let refinement_foreground_layers = pack
+    let scene_foreground_layers = pack
         .manifest
         .layers
         .iter()
-        .filter(|layer| layer.role == crate::refinement::LayerRole::Foreground)
+        .filter(|layer| layer.role == crate::scene::LayerRole::Foreground)
         .count();
     let mut frame_index = 0usize;
     let diagnostic_indices = evenly_spaced(info.frames, 12);
@@ -426,7 +426,7 @@ fn render_to(
         typography: text_render.metrics,
         frames: frame_index,
         used_occluder_masks: use_masks || !foregrounds.is_empty(),
-        refinement_foreground_layers,
+        scene_foreground_layers,
         used_injected_surface: injected_surface.is_some(),
         injected_surface_sha256: pack
             .manifest

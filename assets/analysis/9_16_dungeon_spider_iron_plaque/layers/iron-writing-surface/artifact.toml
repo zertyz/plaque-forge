@@ -1,0 +1,19 @@
+# Generated layer cache. Regenerate with analyze.
+format = "plaque-forge.layer/1"
+kind = "alpha-sequence"
+coordinates = "source-pixels"
+pattern = "%06d.png"
+first_frame = 0
+last_frame = 205
+affects_layout = false
+
+[generator]
+backend = "sam2-cutie-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0@xpu+cutie-1.0.0@cpu+selected-sam2+categorical-material-support-p50"
+requested_device = "auto"
+source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
+prompt_sha256 = "4cf1968dac35dba81853faa29b582171760d5c4e6b54605884ec48aad6014fb8"
+worker_sha256 = "8273acc0980dc69fcc40be7748d0854adaf65a38ca2e3660fdc1903f83a8adbd"
+runtime_sha256 = "41062f851c368a04e1bb98c4ed8b67a69aea3fa6de9964eb57a45a858fbb0efb"
+request_sha256 = "9528caae240e5bae83922ae7cba71cca639474819a89f5c5c69cb7146f87fbb7"

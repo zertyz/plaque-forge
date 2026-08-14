@@ -1,0 +1,10 @@
+format = "plaque-forge.layer/1"
+kind = "alpha-image"
+coordinates = "plaque-canonical"
+path = "attached.png"
+affects_layout = false
+
+[generator]
+backend = "sam2-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0@xpu+vitmatte-4.57.1@xpu"

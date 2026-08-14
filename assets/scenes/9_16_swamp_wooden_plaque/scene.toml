@@ -1,0 +1,74 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../9_16_swamp_wooden_plaque.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "automatic"
+reference_frame = 10
+bounds = [0.0, 64.0, 720.0, 380.0]
+
+[surfaces.writable_region]
+shape = "rounded-rect"
+bounds = [55.0, 105.0, 610.0, 290.0]
+radius = 30.0
+
+# The plaque-attached vegetation and independently moving lizard are foreground
+# material, not wood texture. The ML artifact is regenerated from these sparse cues.
+[[layers]]
+id = "plaque-foreground"
+role = "foreground"
+surface = "main"
+in_front_of = "main"
+affects_layout = false
+
+[[layers.prompts]]
+frame = 10
+coordinates = "source-pixels"
+object = "moss"
+positive_points = [[112.0, 104.0], [235.0, 112.0], [493.0, 99.0], [606.0, 110.0], [25.0, 365.0], [673.0, 348.0]]
+negative_points = [[355.0, 180.0], [470.0, 275.0]]
+
+[[layers.prompts]]
+frame = 10
+coordinates = "source-pixels"
+object = "left-vine"
+positive_points = [[76.0, 82.0], [43.0, 185.0]]
+negative_points = [[170.0, 165.0], [220.0, 245.0]]
+
+[[layers.prompts]]
+frame = 10
+coordinates = "source-pixels"
+object = "right-vine"
+positive_points = [[642.0, 84.0], [675.0, 225.0], [615.0, 417.0]]
+negative_points = [[555.0, 175.0], [510.0, 285.0]]
+
+[[layers.prompts]]
+frame = 10
+coordinates = "source-pixels"
+object = "lizard"
+positive_points = [[170.0, 347.0], [235.0, 344.0]]
+negative_points = [[345.0, 345.0], [175.0, 275.0]]
+
+[[layers.prompts]]
+frame = 80
+coordinates = "source-pixels"
+object = "lizard"
+positive_points = [[330.0, 335.0], [405.0, 330.0]]
+negative_points = [[515.0, 335.0], [315.0, 265.0]]
+
+[[layers.prompts]]
+frame = 160
+coordinates = "source-pixels"
+object = "lizard"
+positive_points = [[345.0, 326.0], [420.0, 322.0]]
+negative_points = [[525.0, 325.0], [330.0, 250.0]]
+
+[[layers.prompts]]
+frame = 230
+coordinates = "source-pixels"
+object = "lizard"
+positive_points = [[535.0, 298.0], [615.0, 291.0]]
+negative_points = [[695.0, 295.0], [520.0, 225.0]]

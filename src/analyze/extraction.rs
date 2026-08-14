@@ -17,7 +17,7 @@ use crate::{
     geometry::{Point, Quad},
     model::{Mat3, MotionSample, RectF},
     progress::ProgressReporter,
-    refinement::MotionRefinement,
+    scene::SurfaceTrajectory,
     surface::Surface,
     video::{Decoder, VideoInfo},
 };
@@ -32,6 +32,7 @@ pub struct ExtractionResult {
     pub content_mask: Vec<u8>,
     pub structural_mask: Vec<u8>,
     pub cavity_area: f64,
+    pub registration_area: f64,
     pub structural_area: f64,
     pub confidence: f64,
 }
@@ -46,9 +47,9 @@ pub fn recover(
     output_root: &Path,
     diagnostics: &Path,
     sample_count: usize,
-    local_refinement_radius: i32,
+    local_scene_radius: i32,
     refine_automatic_track: bool,
-    refinement_track: Option<&MotionRefinement>,
+    scene_track: Option<&SurfaceTrajectory>,
     reference_frame: usize,
     tracking_inertia: f64,
     loop_closed: bool,
@@ -59,22 +60,21 @@ pub fn recover(
     let mut samples =
         decode_rectified_samples(ffmpeg, input, info, rect, motion, &sample_indices, progress)?;
     let (mut median, initial_mad) = robust_median(&samples)?;
-    let mut content_mask = detect_content_cavity(&median);
-    let mut structural_mask = detect_structural_mask(&median, &content_mask, &initial_mad);
+    let mut registration_mask = detect_registration_mask(&median, &initial_mad);
     progress.finish("initial canonical model");
 
     progress.start(5, 7, "Plaque structural lock", Some(info.frames));
     if refine_automatic_track {
         for pass in 0..2 {
-            refine_motion_from_border(
+            refine_motion_from_surface(
                 ffmpeg,
                 input,
                 info,
                 rect,
                 motion,
                 &median,
-                &structural_mask,
-                local_refinement_radius.max(0),
+                &registration_mask,
+                local_scene_radius.max(0),
                 reference_frame,
                 progress,
             )?;
@@ -86,8 +86,8 @@ pub fn recover(
                 tracking_inertia,
                 loop_closed,
             )?;
-            if let Some(track) = refinement_track {
-                tracking::reapply_locked_refinements(motion, track, rect)?;
+            if let Some(track) = scene_track {
+                tracking::reapply_locked_scenes(motion, track, rect)?;
             }
             if pass == 0 {
                 samples = decode_rectified_samples(
@@ -101,11 +101,10 @@ pub fn recover(
                 )?;
                 let model = robust_median(&samples)?;
                 median = model.0;
-                content_mask = detect_content_cavity(&median);
-                structural_mask = detect_structural_mask(&median, &content_mask, &model.1);
+                registration_mask = detect_registration_mask(&median, &model.1);
             }
         }
-        progress.finish("two-pass structural refinement");
+        progress.finish("two-pass structural scene");
     } else {
         progress.update(info.frames, "structural correction skipped");
         progress.finish("current trajectory retained");
@@ -116,8 +115,9 @@ pub fn recover(
         decode_rectified_samples(ffmpeg, input, info, rect, motion, &sample_indices, progress)?;
     let (refined_median, mad) = robust_median(&samples)?;
     median = refined_median;
-    content_mask = detect_content_cavity(&median);
-    structural_mask = detect_structural_mask(&median, &content_mask, &mad);
+    let content_mask = detect_content_cavity(&median);
+    registration_mask = detect_registration_mask(&median, &mad);
+    let structural_mask = detect_structural_mask(&median, &content_mask, &mad);
 
     save_luma_png(
         median.width(),
@@ -136,6 +136,17 @@ pub fn recover(
         &structural_template,
         &output_root.join("structural-template.png"),
     )?;
+    save_luma_png(
+        median.width(),
+        median.height(),
+        &registration_mask,
+        &output_root.join("registration-mask.png"),
+    )?;
+    let registration_template = masked_template(&median, &registration_mask)?;
+    save_surface_png(
+        &registration_template,
+        &output_root.join("registration-template.png"),
+    )?;
     save_surface_png(&median, &diagnostics.join("canonical-reference.png"))?;
     save_luma_png(
         median.width(),
@@ -148,14 +159,17 @@ pub fn recover(
         content_mask.iter().filter(|&&v| v > 127).count() as f64 / content_mask.len().max(1) as f64;
     let structural_area = structural_mask.iter().filter(|&&v| v > 127).count() as f64
         / structural_mask.len().max(1) as f64;
+    let registration_area = registration_mask.iter().filter(|&&v| v > 127).count() as f64
+        / registration_mask.len().max(1) as f64;
     let stable = mad.iter().filter(|&&v| v < 18).count() as f64 / mad.len().max(1) as f64;
     let confidence = (0.45 * stable
         + 0.35 * cavity_area_score(cavity_area)
         + 0.20 * structural_area_score(structural_area))
     .clamp(0.0, 0.98);
     progress.finish(format!(
-        "cavity {:.1}%, structure {:.1}%",
+        "cavity {:.1}%, registration {:.1}%, structure {:.1}%",
         cavity_area * 100.0,
+        registration_area * 100.0,
         structural_area * 100.0
     ));
 
@@ -165,6 +179,7 @@ pub fn recover(
         content_mask,
         structural_mask,
         cavity_area,
+        registration_area,
         structural_area,
         confidence,
     })
@@ -328,6 +343,33 @@ fn detect_structural_mask(median: &Surface, content: &[u8], mad: &[u8]) -> Vec<u
     blur_luma(&mask, width, height, 1)
 }
 
+/// Select temporally stable texture across the whole source surface. This is a
+/// distinct contract from `structural_mask`: writable material is valid tracking
+/// evidence, but it must never become an occlusion-protection mask.
+fn detect_registration_mask(median: &Surface, mad: &[u8]) -> Vec<u8> {
+    let width = median.width() as usize;
+    let height = median.height() as usize;
+    let gray = grayscale(median);
+    let mut mask = vec![0u8; width * height];
+    for y in 2..height.saturating_sub(2) {
+        for x in 2..width.saturating_sub(2) {
+            let index = y * width + x;
+            if mad[index] > 24 {
+                continue;
+            }
+            let gx = gray[y * width + x + 1].abs_diff(gray[y * width + x - 1]) as u16;
+            let gy = gray[(y + 1) * width + x].abs_diff(gray[(y - 1) * width + x]) as u16;
+            if gx + gy >= 24 {
+                // Keep thin cracks, grain, and engraved edges crisp. Averaging this
+                // binary mask used to erase precisely the sparse evidence needed on
+                // narrow plaques.
+                mask[index] = 255;
+            }
+        }
+    }
+    mask
+}
+
 fn masked_template(median: &Surface, mask: &[u8]) -> Result<Surface> {
     let mut output = median.clone();
     output.apply_alpha_mask(mask)?;
@@ -335,7 +377,7 @@ fn masked_template(median: &Surface, mask: &[u8]) -> Result<Surface> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn refine_motion_from_border(
+fn refine_motion_from_surface(
     ffmpeg: &Path,
     input: &Path,
     info: &VideoInfo,
@@ -430,12 +472,27 @@ impl StructuralMatcher {
     }
 
     pub(crate) fn measure(&self, current: &Surface, radius: i32) -> Option<StructuralRegistration> {
+        self.measure_excluding(current, radius, None)
+    }
+
+    /// Measure residual surface motion while removing a known per-frame
+    /// foreground matte from the canonical registration support.
+    pub(crate) fn measure_excluding(
+        &self,
+        current: &Surface,
+        radius: i32,
+        exclusion: Option<&[u8]>,
+    ) -> Option<StructuralRegistration> {
         if current.width() as usize != self.width || current.height() as usize != self.height {
+            return None;
+        }
+        if exclusion.is_some_and(|mask| mask.len() != self.structural_mask.len()) {
             return None;
         }
         let current = grayscale(current);
         let current_mat = luma_mat(&current, self.width, self.height).ok()?;
-        let initial_points = select_structural_points(&self.structural_mask, self.width, 768);
+        let usable_mask = registration_mask_excluding(&self.structural_mask, exclusion);
+        let initial_points = select_structural_points(&usable_mask, self.width, 768);
         let initial = search_similarity(
             &self.template_gray,
             &current,
@@ -447,7 +504,7 @@ impl StructuralMatcher {
         let visible_mask = visible_structural_mask(
             &self.template_gray,
             &current,
-            &self.structural_mask,
+            &usable_mask,
             self.width,
             self.height,
             initial.transform,
@@ -541,6 +598,17 @@ impl StructuralMatcher {
         }
         best
     }
+}
+
+fn registration_mask_excluding(structural: &[u8], exclusion: Option<&[u8]>) -> Vec<u8> {
+    let Some(exclusion) = exclusion else {
+        return structural.to_vec();
+    };
+    structural
+        .iter()
+        .zip(exclusion)
+        .map(|(&stable, &hidden)| if hidden >= 16 { 0 } else { stable })
+        .collect()
 }
 
 impl StructuralRegistration {
@@ -923,7 +991,10 @@ fn save_luma_png(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::{spatially_balanced, structural_area_score, visible_structural_mask};
+    use super::{
+        registration_mask_excluding, spatially_balanced, structural_area_score,
+        visible_structural_mask,
+    };
     use crate::model::Mat3;
 
     #[test]
@@ -957,6 +1028,16 @@ mod tests {
 
         assert_eq!(visible[10 * width + 20], 0);
         assert_eq!(visible[10 * width + 3], 255);
+    }
+
+    #[test]
+    fn known_foreground_is_removed_before_registration() {
+        let stable = vec![255_u8; 8];
+        let exclusion = [0, 0, 15, 16, 64, 255, 0, 0];
+        assert_eq!(
+            registration_mask_excluding(&stable, Some(&exclusion)),
+            vec![255, 255, 255, 0, 0, 0, 255, 255]
+        );
     }
 
     #[test]

@@ -1984,32 +1984,89 @@ fn dilate_alpha_circular(source: &[u8], width: usize, height: usize, radius: usi
     if radius == 0 {
         return source.to_vec();
     }
-    let radius_squared = (radius * radius) as isize;
-    let offsets: Vec<(isize, isize)> = (-(radius as isize)..=radius as isize)
-        .flat_map(|dy| {
-            (-(radius as isize)..=radius as isize)
-                .filter_map(move |dx| (dx * dx + dy * dy <= radius_squared).then_some((dx, dy)))
+    let Some((x0, y0, x1, y1)) = alpha_bounds(source, width) else {
+        return vec![0; source.len()];
+    };
+    let (x0, y0, x1, y1) = (x0 as usize, y0 as usize, x1 as usize, y1 as usize);
+
+    // Exact grayscale disk dilation. For each vertical disk offset, compute the
+    // corresponding horizontal max-filter with a monotonic deque. This preserves
+    // every output byte while reducing O(width*height*radius²) to
+    // O(ink-bounds*radius).
+    let radius_squared = radius * radius;
+    let row_spans = (0..=radius)
+        .map(|dy| {
+            let dx = ((radius_squared - dy * dy) as f64).sqrt().floor() as usize;
+            (dy, dx)
         })
-        .collect();
+        .collect::<Vec<_>>();
     let mut output = vec![0u8; source.len()];
-    for y in 0..height {
-        for x in 0..width {
-            let mut value = 0u8;
-            for &(dx, dy) in &offsets {
-                let xx = x as isize + dx;
-                let yy = y as isize + dy;
-                if xx < 0 || yy < 0 || xx >= width as isize || yy >= height as isize {
-                    continue;
-                }
-                value = value.max(source[yy as usize * width + xx as usize]);
-                if value == u8::MAX {
-                    break;
-                }
+    for (dy, dx) in row_spans {
+        let left = x0.saturating_sub(dx);
+        let right = x1.saturating_add(dx).min(width - 1);
+        let mut filtered = vec![0_u8; right - left + 1];
+        for source_y in y0..=y1 {
+            horizontal_max_filter(
+                &source[source_y * width..(source_y + 1) * width],
+                x0,
+                x1,
+                dx,
+                left,
+                &mut filtered,
+            );
+            if let Some(target_y) = source_y.checked_sub(dy) {
+                merge_max(
+                    &mut output[target_y * width + left..=target_y * width + right],
+                    &filtered,
+                );
             }
-            output[y * width + x] = value;
+            if dy > 0 && source_y + dy < height {
+                let target_y = source_y + dy;
+                merge_max(
+                    &mut output[target_y * width + left..=target_y * width + right],
+                    &filtered,
+                );
+            }
         }
     }
     output
+}
+
+fn horizontal_max_filter(
+    source: &[u8],
+    source_left: usize,
+    source_right: usize,
+    radius: usize,
+    output_left: usize,
+    output: &mut [u8],
+) {
+    let mut deque = std::collections::VecDeque::<usize>::new();
+    let mut next = source_left;
+    for (offset, destination) in output.iter_mut().enumerate() {
+        let x = output_left + offset;
+        let window_right = x.saturating_add(radius).min(source_right);
+        while next <= window_right {
+            while deque
+                .back()
+                .is_some_and(|&index| source[index] <= source[next])
+            {
+                deque.pop_back();
+            }
+            deque.push_back(next);
+            next += 1;
+        }
+        let window_left = x.saturating_sub(radius).max(source_left);
+        while deque.front().is_some_and(|&index| index < window_left) {
+            deque.pop_front();
+        }
+        *destination = deque.front().map_or(0, |&index| source[index]);
+    }
+}
+
+fn merge_max(output: &mut [u8], input: &[u8]) {
+    for (output, &input) in output.iter_mut().zip(input) {
+        *output = (*output).max(input);
+    }
 }
 
 #[cfg(test)]
@@ -2024,6 +2081,48 @@ mod tests {
         assert_eq!(dilated[12], 255);
         assert_eq!(dilated[2], 255);
         assert_eq!(dilated[0], 0);
+    }
+
+    #[test]
+    fn optimized_disk_dilation_is_byte_exact() {
+        let width = 23;
+        let height = 17;
+        let mut source = vec![0_u8; width * height];
+        for (index, value) in source.iter_mut().enumerate() {
+            if index % 11 == 0 || index % 29 == 0 {
+                *value = ((index * 73) % 255 + 1) as u8;
+            }
+        }
+        for radius in 1..=6 {
+            let expected = slow_disk_dilation(&source, width, height, radius);
+            assert_eq!(
+                dilate_alpha_circular(&source, width, height, radius),
+                expected
+            );
+        }
+    }
+
+    fn slow_disk_dilation(source: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
+        let radius_squared = (radius * radius) as isize;
+        let mut output = vec![0; source.len()];
+        for y in 0..height {
+            for x in 0..width {
+                for dy in -(radius as isize)..=radius as isize {
+                    for dx in -(radius as isize)..=radius as isize {
+                        if dx * dx + dy * dy > radius_squared {
+                            continue;
+                        }
+                        let xx = x as isize + dx;
+                        let yy = y as isize + dy;
+                        if (0..width as isize).contains(&xx) && (0..height as isize).contains(&yy) {
+                            output[y * width + x] = output[y * width + x]
+                                .max(source[yy as usize * width + xx as usize]);
+                        }
+                    }
+                }
+            }
+        }
+        output
     }
 
     #[test]

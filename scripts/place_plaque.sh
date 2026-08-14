@@ -11,9 +11,9 @@ Usage:
 Examples:
   ./scripts/place_plaque.sh 16_9_plaqueless_swamp plaque.png
   ./scripts/place_plaque.sh 16_9_plaqueless_swamp plaque.png --bounds 180,70,900,220
-  ./scripts/place_plaque.sh 16_9_plaqueless_swamp plaque.png --motion screen
+  ./scripts/place_plaque.sh 16_9_plaqueless_swamp plaque.png --space screen-canvas
 
-The command copies/normalizes the plaque PNG into the asset's refinement directory,
+The command copies/normalizes the plaque PNG into the asset's scene directory,
 proposes a quiet placement when --bounds is omitted, and writes placement-preview.png.
 After reviewing the preview, run ./scripts/analyze_assets.sh <asset-stem>.
 USAGE

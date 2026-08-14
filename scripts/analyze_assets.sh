@@ -20,7 +20,7 @@ Do the expensive scene work once and cache everything reusable. The script:
   - runs automatic writing-surface detection and tracking;
   - builds canonical/writable masks and foreground occlusion;
   - automatically runs ML segmentation when Rust detects a useful foreground crossing;
-  - materializes any human-prompted ML refinement layers that are still missing;
+  - materializes any human-prompted ML scene layers that are still missing;
   - retains only compact, bounded failure diagnostics under /tmp when review is needed;
   - builds review.html + review.txt automatically for failed quality gates.
 
@@ -114,8 +114,8 @@ for name in "${cases[@]}"; do
     retained="$(ls -1dt "/tmp/plaque-forge/failures/$name/"* 2>/dev/null | head -n 1 || true)"
     if [[ -n "$retained" && -d "$retained" ]]; then
       review_args=(review --analysis "$retained")
-      refinement="assets/refinements/$name/refinement.toml"
-      [[ -f "$refinement" ]] && review_args+=(--refinement "$refinement")
+      scene="assets/scenes/$name/scene.toml"
+      [[ -f "$scene" ]] && review_args+=(--scene "$scene")
       printf '[review] building triage report from %s\n' "$retained" >&2
       target/release/plaque-forge "${review_args[@]}" || \
         printf '[review] could not build review report; compact diagnostics remain in %s\n' "$retained" >&2

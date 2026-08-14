@@ -8,7 +8,7 @@ The README is the normal path. This document contains lower-level and exceptiona
 ./scripts/analyze_assets.sh [asset-stem ...]
 ```
 
-It performs the complete automatic pass: surface proposal/selection, motion, canonical/writable reconstruction, Rust foreground discovery, and ML foreground refinement when useful. If Rust detects a persistent foreground crossing and no authoritative human foreground layer exists, the configured Python worker is automatically asked to sharpen the masks.
+It performs the complete automatic pass: surface proposal/selection, motion, canonical/writable reconstruction, Rust foreground discovery, and ML foreground scene when useful. If Rust detects a persistent foreground crossing and no authoritative human foreground layer exists, the configured Python worker is automatically asked to sharpen the masks.
 
 Useful controls:
 
@@ -35,9 +35,9 @@ The script asserts `--source-is-text-free` for this sample project. If your sour
 ./scripts/analyze_assets.sh
 ```
 
-Only `assets/analysis/*` is deleted. Source videos, refinements, injected plaque images, outputs and `/tmp/plaque-forge-python` are preserved. Use `./scripts/analyze_assets.sh --force-ml` after the reset when you also want to regenerate refinement-owned prompted Python artifacts; refinement-owned non-ML artifacts are preserved deliberately.
+Only `assets/analysis/*` is deleted. Source videos, scenes, injected plaque images, outputs and `/tmp/plaque-forge-python` are preserved. Prompted Python artifacts live inside analysis, so the reset removes them; `--force-ml` also bypasses a still-valid previous ML cache during an in-place rebuild.
 
-Failed work normally cleans itself. To remove debris from older versions:
+Failed work normally cleans itself. To remove stale debris explicitly:
 
 ```bash
 ./scripts/cleanup_work.sh --yes
@@ -56,25 +56,25 @@ For another video:
 ./scripts/analyze_assets.sh my-video
 ```
 
-`place_plaque.sh` proposes a quiet placement and writes a preview. `--bounds x,y,w,h` overrides it. `--motion screen|scene|auto` controls anchoring. Injection skips meaningless plaque detection/extraction, while foreground crossings still participate in analysis.
+`place_plaque.sh` proposes a quiet placement and writes a preview. `--bounds x,y,w,h` overrides it. `--space screen-canvas|scene-plane` controls anchoring. Injection skips meaningless plaque detection/extraction, while foreground crossings still participate in analysis.
 
-## Human refinement
+## Human scene
 
-Create a small refinement only when the quality report says automatic intent is wrong:
+Create a small scene only when the quality report says automatic intent is wrong:
 
 ```bash
-./target/release/plaque-forge refine --input assets/video.mp4
+./target/release/plaque-forge create-scene --input assets/video.mp4
 ```
 
-Schema 2 supports sparse normalized motion corrections and concise writable shapes. Dense generated tracks/masks belong under generated artifacts, not in the human editing loop. See [Refinements](REFINEMENTS.md).
+The strict scene format supports sparse normalized trajectory corrections and concise writable shapes. Dense generated tracks/masks belong under generated analysis, not in the human editing loop. See [Scenes](SCENES.md).
 
 ## Export motion only for exceptional review
 
 ```bash
-./target/release/plaque-forge export-motion --analysis assets/analysis/video
+./target/release/plaque-forge export-trajectory --analysis assets/analysis/video
 ```
 
-Prefer a few normalized `[[plaques.motion]]` anchors over editing dense generated motion.
+Prefer a few normalized `[[surfaces.anchors]]` entries over editing a dense generated trajectory.
 
 ## Manual segmentation debugging
 
@@ -111,18 +111,7 @@ Custom `--encoder-arg` values must be self-contained settings, not workstation p
 ./scripts/review_assets.sh
 ```
 
-This creates/rebuilds each asset's actionable `diagnostics/review.html`/`review.txt` and writes the browsable `output/review/index.html`. It uses a complete analysis when available, otherwise the newest compact retained failure. Reports include prioritized failure reasons, visual evidence, exact rerun/refinement guidance, ML/Python participation, typography provenance, and verification data when available. When the current lossless rendered-video verification passes, the report treats that outcome as authoritative instead of asking for unnecessary refinement solely because a low-texture surface has low raw feature confidence.
-
-## Portable cache migration
-
-Audit first, then apply if older generated manifests contain workstation paths or schema/build identities:
-
-```bash
-cargo run -- migrate-analysis --root assets/analysis
-cargo run -- migrate-analysis --root assets/analysis --apply
-```
-
-Migration does not rerun tracking or ML. It validates every upgraded cache and deterministically refreshes injected plaque derivatives when needed.
+This creates/rebuilds each asset's actionable `diagnostics/review.html`/`review.txt` and writes the browsable `output/review/index.html`. It uses a complete analysis when available, otherwise the newest compact retained failure. Reports include prioritized failure reasons, visual evidence, exact rerun/scene guidance, ML/Python participation, typography provenance, and verification data when available. When the current lossless rendered-video verification passes, the report treats that outcome as authoritative instead of asking for unnecessary scene solely because a low-texture surface has low raw feature confidence.
 
 ## Validation
 

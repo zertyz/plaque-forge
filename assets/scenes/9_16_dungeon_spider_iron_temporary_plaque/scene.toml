@@ -1,0 +1,107 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../9_16_dungeon_spider_iron_temporary_plaque.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "automatic"
+reference_frame = 10
+bounds = [143.0, 173.0, 435.0, 253.0]
+
+[surfaces.writable_region]
+shape = "rounded-rect"
+bounds = [161.0, 192.0, 399.0, 215.0]
+radius = 22.0
+
+# Reviewed rigid-board poses. The board starts stationary, retracts upward as a
+# physical plane, then leaves no writable material on screen. These anchors correct
+# the semantic disappearance; automatic tracking supplies every intermediate pose.
+[[surfaces.anchors]]
+frame = 0
+coordinates = "source-pixels"
+quad = [[143.0, 173.0], [578.0, 173.0], [578.0, 426.0], [143.0, 426.0]]
+locked = true
+visibility = 1.0
+
+[[surfaces.anchors]]
+frame = 52
+coordinates = "source-pixels"
+quad = [[143.0, 173.0], [578.0, 173.0], [578.0, 426.0], [143.0, 426.0]]
+locked = true
+visibility = 1.0
+
+[[surfaces.anchors]]
+frame = 56
+coordinates = "source-pixels"
+quad = [[143.0, 153.0], [578.0, 153.0], [578.0, 406.0], [143.0, 406.0]]
+locked = true
+visibility = 1.0
+
+[[surfaces.anchors]]
+frame = 60
+coordinates = "source-pixels"
+quad = [[143.0, 128.0], [578.0, 128.0], [578.0, 381.0], [143.0, 381.0]]
+locked = true
+visibility = 1.0
+
+[[surfaces.anchors]]
+frame = 64
+coordinates = "source-pixels"
+quad = [[143.0, 98.0], [578.0, 98.0], [578.0, 351.0], [143.0, 351.0]]
+locked = true
+visibility = 0.0
+
+[[surfaces.anchors]]
+frame = 68
+coordinates = "source-pixels"
+quad = [[143.0, 55.0], [578.0, 55.0], [578.0, 308.0], [143.0, 308.0]]
+locked = true
+visibility = 0.0
+
+[[surfaces.anchors]]
+frame = 72
+coordinates = "source-pixels"
+quad = [[143.0, 23.0], [578.0, 23.0], [578.0, 276.0], [143.0, 276.0]]
+locked = true
+visibility = 0.0
+
+[[surfaces.anchors]]
+frame = 239
+coordinates = "source-pixels"
+quad = [[143.0, 23.0], [578.0, 23.0], [578.0, 276.0], [143.0, 276.0]]
+locked = true
+visibility = 0.0
+
+[[layers]]
+id = "instrument-housing"
+role = "foreground"
+surface = "main"
+in_front_of = "main"
+active_frames = [32, 71]
+affects_layout = false
+
+[[layers.prompts]]
+frame = 36
+coordinates = "source-pixels"
+object = "instrument-housing"
+box_bounds = [125.0, 45.0, 490.0, 245.0]
+positive_points = [[230.0, 115.0], [360.0, 105.0], [510.0, 145.0]]
+negative_points = [[360.0, 345.0], [90.0, 180.0], [640.0, 180.0]]
+
+[[layers.prompts]]
+frame = 52
+coordinates = "source-pixels"
+object = "instrument-housing"
+box_bounds = [125.0, 75.0, 490.0, 220.0]
+positive_points = [[230.0, 145.0], [360.0, 130.0], [510.0, 165.0]]
+negative_points = [[360.0, 350.0], [90.0, 200.0], [640.0, 200.0]]
+
+[[layers.prompts]]
+frame = 68
+coordinates = "source-pixels"
+object = "instrument-housing"
+box_bounds = [125.0, 75.0, 490.0, 220.0]
+positive_points = [[230.0, 145.0], [360.0, 130.0], [510.0, 165.0]]
+negative_points = [[360.0, 330.0], [90.0, 200.0], [640.0, 200.0]]

@@ -1,0 +1,17 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../16_9_background_digifall.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "screen-canvas"
+depth = "flat"
+reference_frame = 10
+bounds = [34.0, 4.0, 990.0, 680.0]
+
+[surfaces.writable_region]
+shape = "ellipse"
+center = [500.0, 344.0]
+radii = [455.0, 318.0]
+rotation_degrees = 0.0

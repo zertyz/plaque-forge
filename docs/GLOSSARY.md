@@ -8,6 +8,12 @@ The planar title surface that receives new text. It may already exist in the sou
 **Tracker / tracking**  
 The analysis subsystem that estimates where the plaque is on every video frame. Its output is a frame-by-frame geometric transform from a stable plaque coordinate system to source-video pixels.
 
+**Independent source-flow verification**  
+A verifier measurement made from freshly detected source-video features, separately
+from the analyzer and rendered title. Robust pairwise material motion is compared to
+the saved four-corner trajectory at several time baselines and reported as pixel-error
+percentiles. It catches a plausible-looking but screen-fixed or lagging trajectory.
+
 **Reference frame**  
 A source-video frame used as the geometric anchor for the plaque definition.
 
@@ -37,8 +43,8 @@ and shadow/reflection/modulation preserve soft material relationships.
 **Segmentation**  
 The process of separating a requested object from the rest of a frame. Plaque Forge can delegate this optional task to Python-based ML models through a narrow worker protocol.
 
-**Refinement**  
-Reviewed input that corrects or supplements automatic analysis. `refinement.toml` is the human entry point. Large motion tracks and mask sequences are artifacts that can be generated, reviewed, and reused rather than typed by hand.
+**Scene**  
+Reviewed input that corrects or supplements automatic analysis. `scene.toml` is the human entry point. Large motion tracks and mask sequences are artifacts that can be generated, reviewed, and reused rather than typed by hand.
 
 **Analysis cache**  
 Reusable generated scene data under `assets/analysis/<name>/`. It contains motion, masks, templates, diagnostics, and provenance needed to render titles without repeating expensive analysis.
@@ -53,19 +59,19 @@ Private in-progress work under `/tmp/plaque-forge/`. A complete validated result
 
 **Failure evidence**
 
-Compact diagnostics retained under `/tmp/plaque-forge/failures/` after failed analysis. It is bounded and disposable, unlike human refinements or a complete analysis cache.
+Compact diagnostics retained under `/tmp/plaque-forge/failures/` after failed analysis. It is bounded and disposable, unlike human scenes or a complete analysis cache.
 
-**Locked motion keyframe**  
+**Locked trajectory anchor**  
 A human-approved plaque position that analysis must honor exactly.
 
-**Guide motion keyframe**  
+**Guide trajectory anchor**  
 A suggested plaque position that guides automatic tracking but does not fully override it.
 
 **Source-pixel coordinates**  
 Coordinates measured directly in the original video frame.
 
 **Normalized coordinates**  
-Human-friendly frame coordinates in the range `0..1`. Schema-2 sparse motion anchors and segmentation prompts may use them so corrections do not depend on the source resolution.
+Human-friendly frame coordinates in the range `0..1`. Sparse trajectory anchors and segmentation prompts may use them so corrections do not depend on the source resolution.
 
 **Plaque-canonical coordinates**  
 Coordinates measured in the rectified plaque coordinate system.
