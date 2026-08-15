@@ -3,14 +3,14 @@ mod typography;
 
 use std::{collections::HashMap, fs, path::Path};
 
-use anyhow::{Context, Result, bail};
-use image::{GrayImage, ImageBuffer, Luma, RgbaImage, imageops::FilterType};
+use anyhow::{bail, Context, Result};
+use image::{imageops::FilterType, GrayImage, ImageBuffer, Luma, RgbaImage};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     analysis::{Analysis, CONTENT_MASK_FILE, OCCLUDER_DIR},
     analyze::extraction::transformed_rect,
-    cli::ComposeArgs,
+    application::{RenderRequest, TitleSource},
     image_io::load_luma,
     layers::{ForegroundReader, merge_mask},
     model::TypographyMetrics,
@@ -20,7 +20,8 @@ use crate::{
     video::{self, Decoder, Encoder},
 };
 
-pub const RENDER_MANIFEST_SCHEMA_VERSION: u32 = 2;
+pub const RENDER_MANIFEST_SCHEMA_VERSION: u32 = 3;
+pub const DECISION_TRACE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -63,9 +64,58 @@ pub struct RenderManifest {
     pub font_sha256: String,
     #[serde(default)]
     pub encoder_args: Vec<String>,
+    pub decision_trace: PortablePath,
+    pub decision_trace_sha256: String,
 }
 
-pub fn run(mut args: ComposeArgs) -> Result<()> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenderDecisionTrace {
+    pub schema_version: u32,
+    pub source_sha256: String,
+    pub analysis_manifest_sha256: String,
+    pub rendered_sha256: String,
+    pub surface: SurfaceDecision,
+    pub tracking: TrackingDecision,
+    pub typography: TypographyMetrics,
+    pub compositing_layers: Vec<CompositingLayerDecision>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SurfaceDecision {
+    pub id: Option<String>,
+    pub selection_reason: String,
+    pub reference_frame: usize,
+    pub source_plaque_rect: crate::model::RectF,
+    pub surface_space: crate::scene::SurfaceSpace,
+    pub canonical_width: u32,
+    pub canonical_height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrackingDecision {
+    pub trajectory_model: String,
+    pub locked_keyframes: usize,
+    pub guide_keyframes: usize,
+    pub foreground_layers_excluded_from_tracking: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompositingLayerDecision {
+    pub id: String,
+    pub role: crate::scene::LayerRole,
+    pub affects_layout: bool,
+    pub affects_tracking: bool,
+    pub matte: crate::scene::LayerMatte,
+}
+
+pub fn run(
+    mut args: RenderRequest,
+    commands: &dyn crate::infrastructure::CommandExecutor,
+) -> Result<()> {
     let final_output = args.output.clone();
     let output_name = final_output
         .file_name()
@@ -73,6 +123,7 @@ pub fn run(mut args: ComposeArgs) -> Result<()> {
         .to_owned();
     let final_mask = final_output.with_extension("text-mask.png");
     let final_manifest = final_output.with_extension("render-manifest.json");
+    let final_trace = final_output.with_extension("decision-trace.json");
     let final_contact_sheet = args.diagnostics.as_ref().map(|directory| {
         directory.join(Path::new(&output_name).with_extension("render-contact-sheet.png"))
     });
@@ -82,13 +133,20 @@ pub fn run(mut args: ComposeArgs) -> Result<()> {
         .as_ref()
         .map(|_| stage.path().join("diagnostics"));
 
-    let frame_count = render_to(args, &final_manifest, final_contact_sheet.as_deref())?;
+    let frame_count = render_to(
+        args,
+        &final_manifest,
+        final_contact_sheet.as_deref(),
+        commands,
+    )?;
     let staged_output = stage.path().join(&output_name);
     let staged_mask = staged_output.with_extension("text-mask.png");
     let staged_manifest = staged_output.with_extension("render-manifest.json");
+    let staged_trace = staged_output.with_extension("decision-trace.json");
     let mut members = vec![
         (staged_mask, final_mask),
         (staged_output, final_output.clone()),
+        (staged_trace, final_trace.clone()),
     ];
     if let Some(final_contact_sheet) = final_contact_sheet {
         members.push((
@@ -104,13 +162,15 @@ pub fn run(mut args: ComposeArgs) -> Result<()> {
         final_output.display()
     );
     println!("render manifest -> {}", final_manifest.display());
+    println!("decision trace -> {}", final_trace.display());
     Ok(())
 }
 
 fn render_to(
-    args: ComposeArgs,
+    args: RenderRequest,
     manifest_reference_path: &Path,
     contact_sheet_reference_path: Option<&Path>,
+    commands: &dyn crate::infrastructure::CommandExecutor,
 ) -> Result<usize> {
     let mut progress = ProgressReporter::new(args.progress, args.progress_interval_ms);
     progress.start(1, 3, "Open analysis and validate source", None);
@@ -125,12 +185,10 @@ fn render_to(
     if !pack.manifest.analysis_gate_passed {
         eprintln!("warning: this analysis was accepted below the confidence threshold");
     }
-    let text = match (args.text, args.text_file) {
-        (Some(text), None) => text,
-        (None, Some(path)) => fs::read_to_string(&path)
+    let text = match args.title {
+        TitleSource::Text(text) => text,
+        TitleSource::File(path) => fs::read_to_string(&path)
             .with_context(|| format!("failed to read UTF-8 text file {}", path.display()))?,
-        (None, None) => bail!("provide --text or --text-file"),
-        (Some(_), Some(_)) => unreachable!(),
     };
     if !args.input.is_file() {
         bail!("input video does not exist: {}", args.input.display());
@@ -160,7 +218,7 @@ fn render_to(
         );
     }
     let source = args.input;
-    let info = video::probe(&args.ffprobe, &source)?;
+    let info = video::probe_with(commands, &args.ffprobe, &source)?;
     info.ensure_supported_compositing_color()?;
     let mask = load_luma(
         &pack.require_asset(CONTENT_MASK_FILE)?,
@@ -328,7 +386,7 @@ fn render_to(
                     mask: &mask,
                     text: key,
                     font_path: &args.font,
-                    fit_mode: crate::cli::FitMode::Fixed,
+                    fit_mode: crate::application::FitMode::Fixed,
                     requested_font_size: Some(text_render.metrics.font_size * 0.97),
                     supersampling: args.supersampling,
                     target_fill: args.target_fill,
@@ -471,6 +529,72 @@ fn render_to(
     let analysis_manifest_sha256 =
         crate::digest::file_sha256(&pack.root.join(crate::analysis::MANIFEST_FILE))?;
 
+    let scene_surface_id = pack
+        .manifest
+        .scenes
+        .as_ref()
+        .and_then(|scene| scene.surface_id.clone());
+    let selected_surface_id = args.surface.clone().or(scene_surface_id.clone());
+    let selection_reason = if args.surface.is_some() {
+        "explicit-surface-request"
+    } else if scene_surface_id.is_some() {
+        "scene-default-surface"
+    } else {
+        "analysis-selected-surface"
+    };
+    let scene_provenance = pack.manifest.scenes.as_ref();
+    let decision_trace = RenderDecisionTrace {
+        schema_version: DECISION_TRACE_SCHEMA_VERSION,
+        source_sha256: pack.manifest.source.sha256.clone(),
+        analysis_manifest_sha256: analysis_manifest_sha256.clone(),
+        rendered_sha256: rendered_sha256.clone(),
+        surface: SurfaceDecision {
+            id: selected_surface_id,
+            selection_reason: selection_reason.to_string(),
+            reference_frame: pack.manifest.reference_frame,
+            source_plaque_rect: pack.manifest.source_plaque_rect,
+            surface_space: pack.manifest.surface_space,
+            canonical_width: pack.manifest.canonical_width,
+            canonical_height: pack.manifest.canonical_height,
+        },
+        tracking: TrackingDecision {
+            trajectory_model: pack.manifest.trajectory_model.clone(),
+            locked_keyframes: scene_provenance.map_or(0, |scene| scene.locked_keyframes),
+            guide_keyframes: scene_provenance.map_or(0, |scene| scene.guide_keyframes),
+            foreground_layers_excluded_from_tracking: pack
+                .manifest
+                .layers
+                .iter()
+                .filter(|layer| {
+                    layer.role == crate::scene::LayerRole::Foreground && !layer.affects_tracking
+                })
+                .map(|layer| layer.id.clone())
+                .collect(),
+        },
+        typography: text_render.metrics.clone(),
+        compositing_layers: pack
+            .manifest
+            .layers
+            .iter()
+            .map(|layer| CompositingLayerDecision {
+                id: layer.id.clone(),
+                role: layer.role,
+                affects_layout: layer.affects_layout,
+                affects_tracking: layer.affects_tracking,
+                matte: layer.matte,
+            })
+            .collect(),
+    };
+    let decision_trace_path = args.output.with_extension("decision-trace.json");
+    fs::write(&decision_trace_path, serde_json::to_vec_pretty(&decision_trace)?)
+        .with_context(|| {
+            format!(
+                "failed to write render decision trace {}",
+                decision_trace_path.display()
+            )
+        })?;
+    let decision_trace_sha256 = crate::digest::file_sha256(&decision_trace_path)?;
+
     let manifest = RenderManifest {
         schema_version: RENDER_MANIFEST_SCHEMA_VERSION,
         program_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -504,10 +628,58 @@ fn render_to(
         font_file,
         font_sha256,
         encoder_args,
+        decision_trace: PortablePath::bundle(
+            decision_trace_path
+                .file_name()
+                .context("decision trace has no file name")?,
+        )?,
+        decision_trace_sha256,
     };
     fs::write(&report_path, serde_json::to_vec_pretty(&manifest)?)
         .with_context(|| format!("failed to write render manifest {}", report_path.display()))?;
     Ok(frame_index)
+}
+
+pub(crate) fn load_decision_trace(
+    manifest_path: &Path,
+    manifest: &RenderManifest,
+) -> Result<RenderDecisionTrace> {
+    anyhow::ensure!(
+        manifest.schema_version == RENDER_MANIFEST_SCHEMA_VERSION,
+        "unsupported render manifest schema {}; expected {}",
+        manifest.schema_version,
+        RENDER_MANIFEST_SCHEMA_VERSION
+    );
+    let path = manifest.decision_trace.resolve_from(manifest_path);
+    let bytes = fs::read(&path)
+        .with_context(|| format!("failed to read render decision trace {}", path.display()))?;
+    ensure_trace_hash(&bytes, &manifest.decision_trace_sha256, &path)?;
+    let trace: RenderDecisionTrace = serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to parse render decision trace {}", path.display()))?;
+    anyhow::ensure!(
+        trace.schema_version == DECISION_TRACE_SCHEMA_VERSION,
+        "unsupported render decision trace schema {}; expected {}",
+        trace.schema_version,
+        DECISION_TRACE_SCHEMA_VERSION
+    );
+    anyhow::ensure!(
+        trace.source_sha256 == manifest.source_sha256
+            && trace.analysis_manifest_sha256 == manifest.analysis_manifest_sha256
+            && trace.rendered_sha256 == manifest.rendered_sha256
+            && trace.typography == manifest.typography,
+        "render decision trace provenance or typography differs from its render manifest"
+    );
+    Ok(trace)
+}
+
+fn ensure_trace_hash(bytes: &[u8], expected: &str, path: &Path) -> Result<()> {
+    let actual = crate::digest::bytes_sha256(bytes);
+    anyhow::ensure!(
+        actual == expected,
+        "render decision trace identity changed: {}",
+        path.display()
+    );
+    Ok(())
 }
 
 fn load_full_luma(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {

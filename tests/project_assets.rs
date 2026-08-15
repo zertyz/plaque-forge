@@ -75,7 +75,10 @@ fn plaque_catalog_is_complete_portable_and_matches_the_pngs() {
         let path = catalog_path.parent().unwrap().join(relative);
         let bytes = fs::read(&path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), plaque.sha256);
+        assert_eq!(Sha256::digest(&bytes)
+    .iter()
+    .map(|b| format!("{:02x}", b))
+    .collect::<String>(), plaque.sha256);
         let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
             .unwrap_or_else(|error| panic!("failed to decode {}: {error}", path.display()))
             .to_rgba8();

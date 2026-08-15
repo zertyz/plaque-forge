@@ -13,7 +13,7 @@ use crate::{
         ANALYSIS_FORMAT, Analysis, AnalysisManifest, AnalysisStatus, INJECTED_SURFACE_FILE,
         InjectedSurfaceAsset, OCCLUDER_DIR, SegmentationConfig, SourceInfo, TRAJECTORY_FILE,
     },
-    cli::AnalyzeArgs,
+    application::AnalyzeRequest,
     layers::{self, LayerInput},
     model::AnalysisConfidence,
     progress::ProgressReporter,
@@ -46,7 +46,10 @@ impl AnalysisScenes {
     }
 }
 
-pub fn run(mut args: AnalyzeArgs) -> Result<()> {
+pub fn run(
+    mut args: AnalyzeRequest,
+    commands: &dyn crate::infrastructure::CommandExecutor,
+) -> Result<()> {
     if !args.source_is_text_free {
         bail!(
             "analysis requires an explicit --source-is-text-free assertion; Plaque Forge does not remove or inpaint existing titles"
@@ -68,7 +71,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             args.input.display()
         );
     }
-    let info = video::probe(&args.ffprobe, &args.input)
+    let info = video::probe_with(commands, &args.ffprobe, &args.input)
         .with_context(|| format!("failed to probe input video {}", args.input.display()))?;
     info.ensure_supported_compositing_color()?;
     if !info.constant_frame_rate {
@@ -148,6 +151,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 source_sha256: &source_sha256,
                 output_root: &generated_layer_root,
                 reuse_root: output.is_dir().then_some(published_layer_root.as_path()),
+                commands,
             },
         )
         .context("failed to materialize prompted scene layers")?;
@@ -338,6 +342,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                         analysis_root: &partial,
                         force: args.force_ml,
                         reuse_root: output.is_dir().then_some(output.as_path()),
+                        commands,
                     },
                 ) {
                     Ok(true) => {
@@ -728,7 +733,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
 }
 
 fn resolve_scenes(
-    args: &mut AnalyzeArgs,
+    args: &mut AnalyzeRequest,
     info: &video::VideoInfo,
     source_sha256: &str,
     generated_layer_root: &Path,
@@ -1002,7 +1007,7 @@ fn analysis_cache_is_current(
     }
 }
 
-fn segmentation_config(args: &AnalyzeArgs) -> Result<Option<SegmentationConfig>> {
+fn segmentation_config(args: &AnalyzeRequest) -> Result<Option<SegmentationConfig>> {
     args.segmentation_worker
         .as_ref()
         .map(|worker| {
@@ -1018,7 +1023,7 @@ fn segmentation_config(args: &AnalyzeArgs) -> Result<Option<SegmentationConfig>>
 }
 
 struct SurfaceIntentContext<'a> {
-    args: &'a AnalyzeArgs,
+    args: &'a AnalyzeRequest,
     scenes: &'a AnalysisScenes,
     tracking_rect: crate::model::RectF,
     width: u32,
@@ -1218,7 +1223,7 @@ fn geometric_mean(values: &[f64]) -> f64 {
 }
 
 struct AnalysisQuality<'a> {
-    args: &'a AnalyzeArgs,
+    args: &'a AnalyzeRequest,
     rect: crate::model::RectF,
     candidate: f64,
     motion: f64,

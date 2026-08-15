@@ -32,14 +32,14 @@ Full-frame verification acceptance requires:
 - the overall score meets `--minimum-score` (default `0.95`);
 - each component meets its verifier-defined threshold recorded in the verification JSON;
 - every render has the source frame count and timing;
-- source, analysis manifest, rendered video, canonical text mask, optional contact sheet, font, style, encoder arguments, and implementation versions match recorded provenance;
+- source, analysis manifest, rendered video, canonical text mask, render decision trace, optional contact sheet, font, style, encoder arguments, and implementation versions match recorded provenance;
 - declared SDR color metadata and display rotation are preserved;
 - visual review finds no plaque drift, foreground inversion, hard matte edge, temporal blinking, or obviously poor title composition.
 
 For human triage, run `./scripts/review_assets.sh <asset-stem>` and open the generated
 `diagnostics/review.html`. Review accepts verification evidence only together with the exact
 render manifest whose SHA-256 and source/analysis/render identities match the report. Stale or
-cross-wired evidence is rejected. Coverage percentages describe scene complexity; they are not
+cross-wired evidence is rejected. The same page surfaces the provenance-bound render decision trace so surface selection, tracking participation, typography, and matte semantics can be inspected causally. Coverage percentages describe scene complexity; they are not
 treated as quality failures by themselves.
 
 Scene integrity is alpha-aware: title/plaque coverage permits only the change source-over compositing can produce, including antialiased boundaries. Foreground restoration is also evaluated at every nonzero matte level rather than only at opaque pixels.
@@ -100,5 +100,6 @@ Open `output/review/index.html`. Each asset report uses the complete cache or ne
 - `./scripts/validate_assets.sh ...` performs real lossless render + full-frame verification,
   retains the certified artifact under `output/validation/`, and can be expensive; it never
   invokes scene analysis or Python ML.
-- `./scripts/check_homologated_assets.sh` performs a real delivery render and enforces sparse human-accepted regression contracts; CI runs this as a separate integration gate.
+- `plaque-forge homologation-coverage` validates the behavioral capability matrix and reports which representative cases still await explicit human acceptance.
+- `./scripts/check_homologated_assets.sh` performs a real delivery render and enforces sparse human-accepted regression contracts; CI runs this as a separate integration gate. Failed semantic witnesses retain source/render/diff/overlay diagnostics under `output/regressions/`.
 - Human review remains mandatory when establishing or deliberately changing artistic composition. Once accepted, the corresponding homologation contract makes that behavior executable.

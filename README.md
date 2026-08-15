@@ -70,7 +70,7 @@ An additional **Prismwraith Reliquary** pair is available for both aspect ratios
   --style gold-shine
 ```
 
-Outputs go to `output/*.hevc.mkv`. Append asset stems to render only those videos. Each video, canonical text mask, optional contact sheet, and render manifest is published as a transactional bundle; an interrupted render cannot replace a previously complete bundle with partial files.
+Outputs go to `output/*.hevc.mkv`. Append asset stems to render only those videos. Each video, canonical text mask, render decision trace, optional contact sheet, and render manifest is published as a transactional bundle; an interrupted render cannot replace a previously complete bundle with partial files.
 
 **Artistic line composition is the default**, using the largest safe title size. The default direct style also has a visible glow.
 
@@ -88,7 +88,11 @@ visual integration gate with:
 ```
 
 The gate checks scene geometry, typography limits, exact render provenance, and sparse
-reviewed foreground/source-preservation witnesses. See [Homologation](docs/HOMOLOGATION.md).
+reviewed foreground/source-preservation witnesses. `assets/homologation/capabilities.toml` records
+coverage by behavioral capability rather than by filename; run `plaque-forge homologation-coverage`
+to see which representative behaviors are still awaiting explicit human acceptance. Failed semantic
+witnesses emit source/render/diff/overlay images under `output/regressions/`. See
+[Homologation](docs/HOMOLOGATION.md).
 
 ## 5. Review quality
 
@@ -135,7 +139,7 @@ Generated manifests use only portable relative paths. Incompatible caches are re
 ## Repository map
 
 ```text
-src/                         Rust implementation
+src/                         Rust implementation (`application` is the programmatic API and service boundary)
 scripts/                     high-level setup/analyze/render/review operations
 tools/                       optional external-tool adapters
 styles/                      reusable typography/material/effect programs

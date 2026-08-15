@@ -28,11 +28,12 @@ Analysis is intentionally reusable. Rendering must not rebuild or delete analysi
 
 ## Rust layers
 
-### CLI and workflow orchestration
+### Application API, CLI, and workflow orchestration
 
 - `main.rs` is a thin executable entry point.
 - `lib.rs` owns command dispatch and the single module graph used by the executable and library tests.
-- `cli.rs` defines user-facing arguments.
+- `application.rs` is the programmatic API for the major analyze/render/verify/homologate workflows. Its request types are interface-independent. `ApplicationServices` lets tests or embedding programs replace supported external-command boundaries without impersonating a CLI.
+- `cli.rs` is an adapter: it parses `clap` arguments and translates them into application requests. Core analyze/render/verify/homologate workflows do not consume CLI argument types.
 - `analyze/`, `render/`, `verify/`, `review.rs`, `scene_commands.rs`, and `segmentation.rs` implement application workflows.
 
 These modules coordinate operations. They should not contain asset-specific scene data.
@@ -72,10 +73,11 @@ A writing surface has two orthogonal properties: **placement/pose** and **writab
 
 ## External processes
 
-External executables are kept behind two boundaries:
+External executables are kept behind explicit boundaries:
 
-1. `video.rs` owns FFmpeg/FFprobe process invocation for Rust workflows.
-2. `segmentation.rs` owns the versioned segmentation-worker protocol. Rust decides when authored or automatic foreground segmentation is useful; `tools/segmentation_worker.py` exists only because the supported ML ecosystems are Python-native. Worker implementation, prompt/seed-mask content, source, runtime, backend, model revision, and requested device participate in cache identity. Frames and masks cross this boundary as lossless PNG, including soft alpha; Rust validates every output image, frame range, coverage, and identity before accepting it. A replacement analysis may copy a prior automatic sequence into its private stage only after this complete validation succeeds.
+1. `infrastructure.rs` contains deliberately small replaceable external-process contracts. The FFprobe path uses the production `CommandExecutor` contract and can be replaced by a deterministic test implementation without launching a process.
+2. `video.rs` owns FFmpeg/FFprobe video semantics and streaming encode/decode for Rust workflows.
+3. `segmentation.rs` owns the versioned segmentation-worker protocol. Rust decides when authored or automatic foreground segmentation is useful; `tools/segmentation_worker.py` exists only because the supported ML ecosystems are Python-native. Worker implementation, prompt/seed-mask content, source, runtime, backend, model revision, and requested device participate in cache identity. Frames and masks cross this boundary as lossless PNG, including soft alpha; Rust validates every output image, frame range, coverage, and identity before accepting it. A replacement analysis may copy a prior automatic sequence into its private stage only after this complete validation succeeds.
 
 Shell scripts do not implement scene-analysis algorithms. They build the Rust binary, choose assets, translate convenient command-line/environment settings, and invoke high-level commands.
 
@@ -106,7 +108,7 @@ output/                                               complete published render 
 /tmp/plaque-forge-python/                             optional disposable ML runtime/cache
 ```
 
-Analysis/segmentation stages are RAII-owned and committed by rename when possible. Render publishes video, text mask, optional contact sheet, and manifest as one recoverable file bundle with the manifest last. Stale work is reaped after 24 hours; successful analysis purges that asset's retained failures.
+Analysis/segmentation stages are RAII-owned and committed by rename when possible. Render publishes video, text mask, decision trace, optional contact sheet, and manifest as one recoverable file bundle with the manifest last. The manifest hashes the decision trace; verification and homologation reject a missing, changed, or provenance-inconsistent trace. Stale work is reaped after 24 hours; successful analysis purges that asset's retained failures.
 
 ## Human diagnostics
 
@@ -117,3 +119,14 @@ Machine-readable JSON remains canonical for automated validation. `review.rs` is
 Decoded frames stay in encoded pixel coordinates (`-noautorotate` in FFmpeg and disabled OpenCV autorotation), while display rotation is carried as output metadata. Declared SDR color range/space/transfer/primaries are copied to rendered video. HDR PQ/HLG and BT.2020 input currently fail explicitly because the compositor is intentionally 8-bit SDR.
 
 Raster resampling and source-over compositing operate in linear light with premultiplied alpha. This prevents dark/color fringes around translucent plaque edges. Foreground restoration and verification both honor soft alpha rather than reducing mattes to binary cutouts.
+
+
+## Render decision trace
+
+Every new render emits `<output>.decision-trace.json`. It records the causal choices that are
+otherwise difficult to infer from pixels alone: selected surface and selection reason, canonical
+plane geometry, trajectory model and authored keyframe counts, foreground layers excluded from
+tracking, typography resolution, and compositing-layer matte/layout/tracking semantics. The trace
+is diagnostic evidence, not an independent source of truth: its SHA-256 is pinned by the render
+manifest and its source/analysis/render identities are cross-checked whenever the manifest is
+verified or homologated. Human review pages surface the same trace.

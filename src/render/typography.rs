@@ -14,7 +14,7 @@ use cosmic_text::{
 use image::{RgbaImage, imageops::FilterType};
 
 use crate::{
-    cli::{FitMode, TextAlign, VerticalAlign},
+    application::{FitMode, TextAlign, VerticalAlign},
     color::Rgba,
     model::TypographyMetrics,
     surface::Surface,

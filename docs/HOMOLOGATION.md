@@ -83,3 +83,43 @@ They are complementary:
 
 Neither report is valid for a rendered artifact whose SHA-256 differs from the hash stored
 in that report.
+
+
+## Capability coverage
+
+`assets/homologation/capabilities.toml` is the catalog-level regression map. It groups the asset
+set by behavioral capability instead of requiring one expensive golden test per input video. Each
+entry chooses a representative scene. A `contract` is added only after a human has explicitly
+accepted that representative output; `ci = true` marks the small subset worth a real render on every
+CI run.
+
+Inspect coverage without rendering:
+
+```bash
+target/release/plaque-forge homologation-coverage \
+  --matrix assets/homologation/capabilities.toml \
+  --report output/homologation-coverage.json
+```
+
+Use `--require-complete` only for a release/process gate that intentionally requires every declared
+capability to have been human-homologated. Normal CI must not fabricate acceptance for candidate
+representatives merely to make the percentage green.
+
+## Failure diagnostics
+
+Pass `--diagnostics output/regressions` to `homologate`. A failed source-preservation witness emits
+a directory containing `source.png`, `rendered.png`, `diff-3x.png`, `witness-overlay.png`, and the
+reviewed `witness-mask.png`. The homologation JSON points to that directory. This makes a failed
+depth/foreground contract visually diagnosable without weakening it or replaying the comparison by
+hand.
+
+The CI homologation job uploads these compact reports/images when the gate fails, so the visual
+evidence survives the ephemeral runner. It intentionally does not upload the full rendered video.
+
+## Decision traces
+
+The render manifest hashes the adjacent decision trace. Homologation validates that trace before
+accepting an artifact. The trace explains *why* a render made important choices (surface selection,
+tracking model, typography, foreground tracking participation, matte semantics) while the
+homologation contract remains the independent statement of *what observable behavior must remain
+true*. Never use a generated decision trace as its own acceptance oracle.

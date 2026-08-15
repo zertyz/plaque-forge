@@ -1,0 +1,55 @@
+# Capability coverage is intentionally behavioral rather than one-entry-per-video.
+# A capability receives `contract` only after its representative output has been
+# explicitly reviewed and accepted by a human. `ci = true` means the expensive real
+# render belongs in the continuous homologation gate.
+format = "plaque-forge.homologation-capabilities/1"
+
+[[capabilities]]
+id = "static-scene-plane-plaque"
+description = "Stable rectangular physical plaque: geometry, fitting, and alignment."
+representative_asset = "16_9_swamp_wooden_plaque"
+scene = "../scenes/16_9_swamp_wooden_plaque/scene.toml"
+
+[[capabilities]]
+id = "projective-moving-plaque"
+description = "Scene-plane plaque whose tracked projective motion must remain visually locked."
+representative_asset = "moving-holographic-plaque"
+scene = "../scenes/moving-holographic-plaque/scene.toml"
+
+[[capabilities]]
+id = "foreground-crossing-title"
+description = "Opaque foreground object crosses title pixels and must remain visually in front."
+representative_asset = "16_9_dungeon_spider_iron_plaque"
+scene = "../scenes/16_9_dungeon_spider_iron_plaque/scene.toml"
+contract = "16_9_dungeon_spider_iron_plaque/contract.toml"
+ci = true
+
+[[capabilities]]
+id = "non-rectangular-writable-region"
+description = "Elliptical or otherwise non-rectangular title region constrains typography."
+representative_asset = "16_9_background_digifall"
+scene = "../scenes/16_9_background_digifall/scene.toml"
+
+[[capabilities]]
+id = "foreground-parallax-on-moving-plaque"
+description = "Foreground depth ordering must survive plaque motion and parallax."
+representative_asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
+scene = "../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
+
+[[capabilities]]
+id = "background-motion-independent-of-plaque"
+description = "Background animation must not pull an otherwise stable writing surface off lock."
+representative_asset = "static-holographic-plaque-with-background-movement"
+scene = "../scenes/static-holographic-plaque-with-background-movement/scene.toml"
+
+[[capabilities]]
+id = "multi-layer-foreground-and-shadow"
+description = "Multiple foreground/shadow layers compose independently around the writing surface."
+representative_asset = "swamp-wooden-plaque-with-foreground-objects"
+scene = "../scenes/swamp-wooden-plaque-with-foreground-objects/scene.toml"
+
+[[capabilities]]
+id = "portrait-scene-plane-geometry"
+description = "Portrait aspect-ratio geometry and fitting remain independent from 16:9 assumptions."
+representative_asset = "9_16_dungeon_spider_iron_plaque"
+scene = "../scenes/9_16_dungeon_spider_iron_plaque/scene.toml"

@@ -1,0 +1,47 @@
+# Generated analysis cache. Regenerate with analyze.
+format = "plaque-forge.analysis/1"
+status = "complete"
+source_is_text_free = true
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+reference_frame = 0
+canonical_width = 433
+canonical_height = 250
+surface_space = "scene-plane"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "declared-only"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../9_16_scrappy_datacenter_holographic_plaque.mp4"
+sha256 = "ed4f833caf9e77d60d55beb107ab25b4c9eb52468033191bf3e1776b50979cea"
+width = 720
+height = 1280
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 144.0
+y = 176.0
+width = 433.0
+height = 250.0
+
+[scenes]
+surface_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[scenes.manifest]
+path = "../../scenes/9_16_scrappy_datacenter_holographic_plaque/scene.toml"
+sha256 = "68f41cce00ca28ca00723b2ab110d490adac22a6926a9da14a2ff8e3c3515df9"
+semantic_sha256 = "0e1121814f9774dc6fec5a78a6527d1bfe475cf30e6c1f498c9a7aa98486d8f6"
+
+[confidence]
+plaque_detection = 0.92
+motion = 0.7957033454626785
+extraction = 0.9180919168591224
+occlusion = 0.8
+overall = 0.856305612484713

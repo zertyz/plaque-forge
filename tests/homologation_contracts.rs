@@ -34,7 +34,10 @@ fn homologated_assets_pin_scene_geometry_and_source_identity() {
         let source_bytes = fs::read(&source)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", source.display()));
         assert_eq!(
-            format!("{:x}", Sha256::digest(&source_bytes)),
+            Sha256::digest(&source_bytes)
+    .iter()
+    .map(|b| format!("{:02x}", b))
+    .collect::<String>(),
             contract.source_sha256,
             "homologated source identity changed for {}",
             contract.asset
@@ -76,4 +79,53 @@ fn homologated_assets_pin_scene_geometry_and_source_identity() {
     }
 
     assert!(contracts > 0, "no homologation contracts were found");
+}
+
+#[test]
+fn capability_matrix_makes_unprotected_behavior_explicit() {
+    let path = repository_root().join("assets/homologation/capabilities.toml");
+    let matrix = plaque_forge::homologation::matrix::CapabilityMatrix::load(&path)
+        .unwrap_or_else(|error| panic!("invalid capability matrix {}: {error:#}", path.display()));
+    let report = matrix.report();
+    assert!(
+        report.capabilities >= 8,
+        "expected a representative capability matrix"
+    );
+    assert!(
+        report.homologated >= 1,
+        "at least one capability must be human-homologated"
+    );
+    assert!(
+        report.ci_protected >= 1,
+        "at least one homologated capability must run in CI"
+    );
+    assert!(
+        !report.complete,
+        "new capability classes must not be silently treated as homologated before human acceptance"
+    );
+}
+
+#[test]
+fn every_homologation_contract_is_represented_by_the_capability_matrix() {
+    let root = repository_root().join("assets/homologation");
+    let matrix_path = root.join("capabilities.toml");
+    let matrix = plaque_forge::homologation::matrix::CapabilityMatrix::load(&matrix_path).unwrap();
+    let represented = matrix
+        .capabilities
+        .iter()
+        .filter_map(|entry| entry.contract.as_ref())
+        .map(|path| matrix_path.parent().unwrap().join(path))
+        .collect::<std::collections::BTreeSet<_>>();
+
+    for entry in fs::read_dir(&root).unwrap() {
+        let entry = entry.unwrap();
+        let contract = entry.path().join("contract.toml");
+        if contract.is_file() {
+            assert!(
+                represented.contains(&contract),
+                "homologation contract is absent from capability matrix: {}",
+                contract.display()
+            );
+        }
+    }
 }

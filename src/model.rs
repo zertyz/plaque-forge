@@ -182,7 +182,7 @@ pub struct AnalysisConfidence {
     pub overall: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TypographyMetrics {
     pub fit_mode: String,
     pub font_size: f32,

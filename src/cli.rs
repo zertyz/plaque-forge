@@ -1,11 +1,23 @@
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use clap::{builder::PossibleValue, ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
-use crate::writable_region::ResolvedWritableRegion;
+use crate::{
+    application::{
+        AnalyzeRequest, FitMode, HomologateRequest, HomologationCoverageRequest, ProgressMode,
+        RenderRequest, TextAlign, TitleSource, VerifyRequest, VerticalAlign,
+    },
+    writable_region::ResolvedWritableRegion,
+};
 
 #[derive(Debug, Parser)]
-#[command(author, version, long_version = crate::build_info::LONG_VERSION, about, propagate_version = true)]
+#[command(
+    author,
+    version,
+    long_version = crate::build_info::LONG_VERSION,
+    about,
+    propagate_version = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -29,6 +41,8 @@ pub enum Command {
     Verify(VerifyArgs),
     /// Enforce a human-homologated visual acceptance contract against a render.
     Homologate(HomologateArgs),
+    /// Audit which behavioral capability classes have homologated sentinels.
+    HomologationCoverage(HomologationCoverageArgs),
     /// Build a human-oriented HTML report from analysis and verification diagnostics.
     Review(ReviewArgs),
 }
@@ -58,7 +72,8 @@ pub struct PlaceSurfaceArgs {
     #[arg(long)]
     pub input: PathBuf,
 
-    /// Transparent PNG to composite as the virtual plaque. It is normalized/copied into the scene directory.
+    /// Transparent PNG to composite as the virtual plaque.
+    /// It is normalized/copied into the scene directory.
     #[arg(long)]
     pub image: PathBuf,
 
@@ -360,43 +375,6 @@ pub struct RenderArgs {
     pub ffprobe: PathBuf,
 }
 
-#[derive(Debug)]
-pub struct ComposeArgs {
-    pub input: PathBuf,
-    pub analysis: PathBuf,
-    pub scene: Option<PathBuf>,
-    pub surface: Option<String>,
-    pub text: Option<String>,
-    pub text_file: Option<PathBuf>,
-    pub font: PathBuf,
-    pub style_file: Option<PathBuf>,
-    pub output: PathBuf,
-    pub diagnostics: Option<PathBuf>,
-    pub fit: FitMode,
-    pub font_size: Option<f32>,
-    pub supersampling: u32,
-    pub target_fill: f32,
-    pub max_lines: usize,
-    pub padding: f32,
-    pub line_height: f32,
-    pub stroke_width: f32,
-    pub text_color: String,
-    pub stroke_color: String,
-    pub glow_color: String,
-    pub glow_radius: u32,
-    pub shadow_offset_x: f32,
-    pub shadow_offset_y: f32,
-    pub shadow_blur_radius: u32,
-    pub shadow_color: String,
-    pub text_align: TextAlign,
-    pub vertical_align: VerticalAlign,
-    pub encoder_args: Vec<String>,
-    pub progress: ProgressMode,
-    pub progress_interval_ms: u64,
-    pub ffmpeg: PathBuf,
-    pub ffprobe: PathBuf,
-}
-
 #[derive(Debug, Args)]
 pub struct VerifyArgs {
     #[arg(long)]
@@ -445,11 +423,30 @@ pub struct HomologateArgs {
     #[arg(long)]
     pub report: Option<PathBuf>,
 
+    /// Root directory for rich diagnostics emitted for failed semantic witnesses.
+    #[arg(long)]
+    pub diagnostics: Option<PathBuf>,
+
     #[arg(long, default_value = "ffmpeg")]
     pub ffmpeg: PathBuf,
 
     #[arg(long, default_value = "ffprobe")]
     pub ffprobe: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct HomologationCoverageArgs {
+    /// Capability matrix describing representative behavioral sentinels.
+    #[arg(long, default_value = "assets/homologation/capabilities.toml")]
+    pub matrix: PathBuf,
+
+    /// Optional JSON coverage report.
+    #[arg(long)]
+    pub report: Option<PathBuf>,
+
+    /// Fail unless every capability has a human-reviewed contract.
+    #[arg(long)]
+    pub require_complete: bool,
 }
 
 #[derive(Debug, Args)]
@@ -474,19 +471,57 @@ pub struct ReviewArgs {
     pub output: Option<PathBuf>,
 }
 
+impl From<AnalyzeArgs> for AnalyzeRequest {
+    fn from(args: AnalyzeArgs) -> Self {
+        Self {
+            input: args.input,
+            source_is_text_free: args.source_is_text_free,
+            output: args.output,
+            scene: args.scene,
+            surface: args.surface,
+            minimum_analysis_confidence: args.minimum_analysis_confidence,
+            diagnostics: args.diagnostics,
+            force: args.force,
+            if_needed: args.if_needed,
+            segmentation_worker: args.segmentation_worker,
+            segmentation_backend: args.segmentation_backend,
+            segmentation_model: args.segmentation_model,
+            segmentation_device: args.segmentation_device,
+            force_ml: args.force_ml,
+            progress: args.progress,
+            progress_interval_ms: args.progress_interval_ms,
+            ffmpeg: args.ffmpeg,
+            ffprobe: args.ffprobe,
+            surface_hint: args.surface_hint,
+            surface_frame: args.surface_frame,
+            writable_region_hint: args.writable_region_hint,
+            anchor_interval: args.anchor_interval,
+            tracking_inertia: args.tracking_inertia,
+            candidate_samples: args.candidate_samples,
+            extraction_samples: args.extraction_samples,
+            local_scene_radius: args.local_scene_radius,
+            occlusion_sensitivity: args.occlusion_sensitivity,
+            disable_occlusion: args.disable_occlusion,
+        }
+    }
+}
+
 impl RenderArgs {
-    pub fn as_compose_args(&self, analysis: PathBuf, output: PathBuf) -> ComposeArgs {
-        ComposeArgs {
-            input: self.input.clone(),
+    pub fn into_request(self, analysis: PathBuf, output: PathBuf) -> RenderRequest {
+        RenderRequest {
+            input: self.input,
             analysis,
-            scene: self.scene.clone(),
-            surface: self.surface.clone(),
-            text: self.text.clone(),
-            text_file: self.text_file.clone(),
-            font: self.font.clone(),
-            style_file: self.style_file.clone(),
+            scene: self.scene,
+            surface: self.surface,
+            title: match (self.text, self.text_file) {
+                (Some(text), None) => TitleSource::Text(text),
+                (None, Some(path)) => TitleSource::File(path),
+                _ => unreachable!("clap title_source group guarantees exactly one title source"),
+            },
+            font: self.font,
+            style_file: self.style_file,
             output,
-            diagnostics: self.diagnostics.clone(),
+            diagnostics: self.diagnostics,
             fit: self.fit,
             font_size: self.font_size,
             supersampling: self.supersampling,
@@ -495,47 +530,115 @@ impl RenderArgs {
             padding: self.padding,
             line_height: self.line_height,
             stroke_width: self.stroke_width,
-            text_color: self.text_color.clone(),
-            stroke_color: self.stroke_color.clone(),
-            glow_color: self.glow_color.clone(),
+            text_color: self.text_color,
+            stroke_color: self.stroke_color,
+            glow_color: self.glow_color,
             glow_radius: self.glow_radius,
             shadow_offset_x: self.shadow_offset_x,
             shadow_offset_y: self.shadow_offset_y,
             shadow_blur_radius: self.shadow_blur_radius,
-            shadow_color: self.shadow_color.clone(),
+            shadow_color: self.shadow_color,
             text_align: self.text_align,
             vertical_align: self.vertical_align,
-            encoder_args: self.encoder_args.clone(),
+            encoder_args: self.encoder_args,
             progress: self.progress,
             progress_interval_ms: self.progress_interval_ms,
-            ffmpeg: self.ffmpeg.clone(),
-            ffprobe: self.ffprobe.clone(),
+            ffmpeg: self.ffmpeg,
+            ffprobe: self.ffprobe,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum FitMode {
-    Maximize,
-    Balanced,
-    /// Search explicit word-boundary line breaks and score visual balance before fitting.
-    Artistic,
-    Fixed,
+impl From<VerifyArgs> for VerifyRequest {
+    fn from(args: VerifyArgs) -> Self {
+        Self {
+            analysis: args.analysis,
+            rendered: args.rendered,
+            original: args.original,
+            report: args.report,
+            diagnostics: args.diagnostics,
+            minimum_score: args.minimum_score,
+            progress: args.progress,
+            progress_interval_ms: args.progress_interval_ms,
+            ffmpeg: args.ffmpeg,
+            ffprobe: args.ffprobe,
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum TextAlign {
-    Left,
-    Center,
-    Right,
+impl From<HomologateArgs> for HomologateRequest {
+    fn from(args: HomologateArgs) -> Self {
+        Self {
+            contract: args.contract,
+            rendered: args.rendered,
+            report: args.report,
+            diagnostics: args.diagnostics,
+            ffmpeg: args.ffmpeg,
+            ffprobe: args.ffprobe,
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum VerticalAlign {
-    Top,
-    Center,
-    Bottom,
+impl From<HomologationCoverageArgs> for HomologationCoverageRequest {
+    fn from(args: HomologationCoverageArgs) -> Self {
+        Self {
+            matrix: args.matrix,
+            report: args.report,
+            require_complete: args.require_complete,
+        }
+    }
 }
+
+macro_rules! impl_value_enum {
+    ($type:ty, [$($variant:path => $name:literal),+ $(,)?]) => {
+        impl ValueEnum for $type {
+            fn value_variants<'a>() -> &'a [Self] {
+                const VARIANTS: &[$type] = &[$($variant),+];
+                VARIANTS
+            }
+
+            fn to_possible_value(&self) -> Option<PossibleValue> {
+                Some(match *self {
+                    $($variant => PossibleValue::new($name)),+
+                })
+            }
+        }
+    };
+}
+
+impl_value_enum!(
+    FitMode,
+    [
+        FitMode::Maximize => "maximize",
+        FitMode::Balanced => "balanced",
+        FitMode::Artistic => "artistic",
+        FitMode::Fixed => "fixed",
+    ]
+);
+impl_value_enum!(
+    TextAlign,
+    [
+        TextAlign::Left => "left",
+        TextAlign::Center => "center",
+        TextAlign::Right => "right",
+    ]
+);
+impl_value_enum!(
+    VerticalAlign,
+    [
+        VerticalAlign::Top => "top",
+        VerticalAlign::Center => "center",
+        VerticalAlign::Bottom => "bottom",
+    ]
+);
+impl_value_enum!(
+    ProgressMode,
+    [
+        ProgressMode::Auto => "auto",
+        ProgressMode::Always => "always",
+        ProgressMode::Never => "never",
+    ]
+);
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum PlacementSpace {
@@ -543,13 +646,6 @@ pub enum PlacementSpace {
     ScenePlane,
     /// Place the image intentionally in screen coordinates.
     ScreenCanvas,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum ProgressMode {
-    Auto,
-    Always,
-    Never,
 }
 
 #[cfg(test)]
@@ -585,5 +681,121 @@ mod tests {
             ]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn cli_non_render_defaults_match_programmatic_request_defaults() {
+        let analyze_cli = Cli::try_parse_from([
+            "plaque-forge",
+            "analyze",
+            "--input",
+            "source.mp4",
+            "--source-is-text-free",
+        ])
+        .unwrap();
+        let Command::Analyze(analyze_args) = analyze_cli.command else {
+            panic!("analyze arguments produced a different command")
+        };
+        let actual: AnalyzeRequest = analyze_args.into();
+        let expected = AnalyzeRequest::text_free("source.mp4");
+        assert_eq!(actual.minimum_analysis_confidence, expected.minimum_analysis_confidence);
+        assert_eq!(actual.segmentation_backend, expected.segmentation_backend);
+        assert_eq!(actual.segmentation_model, expected.segmentation_model);
+        assert_eq!(actual.segmentation_device, expected.segmentation_device);
+        assert_eq!(actual.progress, expected.progress);
+        assert_eq!(actual.progress_interval_ms, expected.progress_interval_ms);
+        assert_eq!(actual.ffmpeg, expected.ffmpeg);
+        assert_eq!(actual.ffprobe, expected.ffprobe);
+        assert_eq!(actual.anchor_interval, expected.anchor_interval);
+        assert_eq!(actual.tracking_inertia, expected.tracking_inertia);
+        assert_eq!(actual.candidate_samples, expected.candidate_samples);
+        assert_eq!(actual.extraction_samples, expected.extraction_samples);
+        assert_eq!(actual.local_scene_radius, expected.local_scene_radius);
+        assert_eq!(actual.occlusion_sensitivity, expected.occlusion_sensitivity);
+
+        let verify_cli = Cli::try_parse_from([
+            "plaque-forge",
+            "verify",
+            "--analysis",
+            "analysis",
+            "--rendered",
+            "output.mkv",
+        ])
+        .unwrap();
+        let Command::Verify(verify_args) = verify_cli.command else {
+            panic!("verify arguments produced a different command")
+        };
+        let actual: VerifyRequest = verify_args.into();
+        let expected = VerifyRequest::new("analysis", "output.mkv");
+        assert_eq!(actual.minimum_score, expected.minimum_score);
+        assert_eq!(actual.progress, expected.progress);
+        assert_eq!(actual.progress_interval_ms, expected.progress_interval_ms);
+        assert_eq!(actual.ffmpeg, expected.ffmpeg);
+        assert_eq!(actual.ffprobe, expected.ffprobe);
+
+        let homologate_cli = Cli::try_parse_from([
+            "plaque-forge",
+            "homologate",
+            "--contract",
+            "contract.toml",
+            "--rendered",
+            "output.mkv",
+        ])
+        .unwrap();
+        let Command::Homologate(homologate_args) = homologate_cli.command else {
+            panic!("homologate arguments produced a different command")
+        };
+        let actual: HomologateRequest = homologate_args.into();
+        let expected = HomologateRequest::new("contract.toml", "output.mkv");
+        assert_eq!(actual.ffmpeg, expected.ffmpeg);
+        assert_eq!(actual.ffprobe, expected.ffprobe);
+        assert!(actual.diagnostics.is_none());
+
+        let coverage_cli = Cli::try_parse_from(["plaque-forge", "homologation-coverage"]).unwrap();
+        let Command::HomologationCoverage(coverage_args) = coverage_cli.command else {
+            panic!("coverage arguments produced a different command")
+        };
+        let actual: HomologationCoverageRequest = coverage_args.into();
+        let expected = HomologationCoverageRequest::new("assets/homologation/capabilities.toml");
+        assert_eq!(actual.matrix, expected.matrix);
+        assert_eq!(actual.require_complete, expected.require_complete);
+    }
+
+    #[test]
+    fn cli_render_defaults_match_programmatic_request_defaults() {
+        let cli = Cli::try_parse_from(render_arguments(&["--text", "Title"])).unwrap();
+        let Command::Render(args) = cli.command else {
+            panic!("render arguments produced a different command")
+        };
+        let actual = (*args).into_request("analysis".into(), "output.mkv".into());
+        let expected = RenderRequest::new(
+            "source.mp4",
+            "analysis",
+            "output.mkv",
+            TitleSource::Text("Title".to_string()),
+            "font.ttf",
+        );
+
+        assert_eq!(actual.fit, expected.fit);
+        assert_eq!(actual.supersampling, expected.supersampling);
+        assert_eq!(actual.target_fill, expected.target_fill);
+        assert_eq!(actual.max_lines, expected.max_lines);
+        assert_eq!(actual.padding, expected.padding);
+        assert_eq!(actual.line_height, expected.line_height);
+        assert_eq!(actual.stroke_width, expected.stroke_width);
+        assert_eq!(actual.text_color, expected.text_color);
+        assert_eq!(actual.stroke_color, expected.stroke_color);
+        assert_eq!(actual.glow_color, expected.glow_color);
+        assert_eq!(actual.glow_radius, expected.glow_radius);
+        assert_eq!(actual.shadow_offset_x, expected.shadow_offset_x);
+        assert_eq!(actual.shadow_offset_y, expected.shadow_offset_y);
+        assert_eq!(actual.shadow_blur_radius, expected.shadow_blur_radius);
+        assert_eq!(actual.shadow_color, expected.shadow_color);
+        assert_eq!(actual.text_align, expected.text_align);
+        assert_eq!(actual.vertical_align, expected.vertical_align);
+        assert_eq!(actual.progress, expected.progress);
+        assert_eq!(actual.progress_interval_ms, expected.progress_interval_ms);
+        assert_eq!(actual.ffmpeg, expected.ffmpeg);
+        assert_eq!(actual.ffprobe, expected.ffprobe);
     }
 }

@@ -70,6 +70,8 @@ CODE ENGINEERING POLICY
   * Foreground/depth requirements should be tested as visible compositing requirements (for example, selected foreground pixels remain source-preserved), not merely as implementation facts such as a mask file being present or non-empty.
   * Acceptance and verification reports must identify the exact artifact bytes they certify. A report whose recorded artifact identity does not match the current artifact is stale and must not be presented as current evidence.
   * Replacing an artifact should invalidate or replace any adjacent acceptance report that refers to the previous bytes.
+  * Regression protection for artifact-producing systems should be planned by behavioral capability, not merely by asset/file count. Representative sentinels should cover materially different geometry, tracking, compositing, aspect-ratio, and depth behaviors without turning CI into an exhaustive render farm.
+  * Generated diagnostic/decision traces should explain causal choices and be provenance-bound to the exact artifact they describe. They complement independent acceptance contracts; they must not become self-certifying acceptance evidence.
 
 ## 5. Code and test organization, duplication, and abstraction
 ### Production code

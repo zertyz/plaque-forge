@@ -5,9 +5,9 @@
 
 use std::{
     cmp::Reverse,
+    ffi::OsString,
     fs,
     path::{Path, PathBuf},
-    process::Command,
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -31,6 +31,37 @@ const WORKER_REQUEST_FORMAT: &str = "plaque-forge.segmentation-request/1";
 const WORKER_RESULT_FORMAT: &str = "plaque-forge.segmentation-result/1";
 const TEMP_LAYER_CACHE_MAX_AGE: Duration = Duration::from_secs(14 * 24 * 60 * 60);
 const TEMP_LAYER_CACHE_MAX_ENTRIES: usize = 32;
+
+fn run_worker_process(
+    executor: &dyn crate::infrastructure::CommandExecutor,
+    worker: &Path,
+    request: &Path,
+    output: &Path,
+    label: &str,
+) -> Result<()> {
+    let args = vec![
+        OsString::from("--request"),
+        request.as_os_str().to_os_string(),
+        OsString::from("--output"),
+        output.as_os_str().to_os_string(),
+    ];
+    let status = executor
+        .status(worker, &args)
+        .with_context(|| format!("failed to start {label} worker {}", worker.display()))?;
+    if !status.success {
+        let code = status
+            .code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string());
+        bail!(
+            "{label} worker {} exited unsuccessfully (code={})",
+            worker.display(),
+            code
+        );
+    }
+    eprintln!("[ml] {label} worker completed successfully");
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct WorkerRequest {
@@ -255,6 +286,13 @@ fn layer_cache_is_current(path: &Path, expected: LayerCacheIdentity<'_>) -> bool
 }
 
 pub fn run(args: SegmentArgs) -> Result<()> {
+    run_with_executor(args, &crate::infrastructure::OS_COMMAND_EXECUTOR)
+}
+
+fn run_with_executor(
+    args: SegmentArgs,
+    commands: &dyn crate::infrastructure::CommandExecutor,
+) -> Result<()> {
     if !args.input.is_file() {
         bail!("input video does not exist: {}", args.input.display());
     }
@@ -287,7 +325,7 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         bail!("layer {:?} has no segmentation prompts", layer.id);
     }
 
-    let info = video::probe(&args.ffprobe, &args.input)?;
+    let info = video::probe_with(commands, &args.ffprobe, &args.input)?;
     info.ensure_supported_compositing_color()?;
     for prompt in &layer.prompts {
         if prompt.frame >= info.frames {
@@ -381,24 +419,13 @@ pub fn run(args: SegmentArgs) -> Result<()> {
         args.device,
         args.worker.display()
     );
-    let mut child = Command::new(&args.worker)
-        .arg("--request")
-        .arg(&request_path)
-        .arg("--output")
-        .arg(&partial)
-        .spawn()
-        .with_context(|| format!("failed to start worker {}", args.worker.display()))?;
-    eprintln!("[ml] segmentation worker started: pid={}", child.id());
-    let status = child
-        .wait()
-        .context("failed while waiting for segmentation worker")?;
-    eprintln!(
-        "[ml] segmentation worker exited: pid={}, status={status}",
-        child.id()
-    );
-    if !status.success() {
-        bail!("segmentation worker exited with {status}; temporary work was cleaned up");
-    }
+    run_worker_process(
+        commands,
+        &args.worker,
+        &request_path,
+        &partial,
+        "segmentation",
+    )?;
     validate_worker_output(&partial, &request, &info)?;
     crate::staged_output::remove_child(&partial, &request_path)?;
     crate::staged_output::remove_child(&partial, &partial.join("result.json"))?;
@@ -428,6 +455,7 @@ pub struct PromptedLayersRequest<'a> {
     pub output_root: &'a Path,
     /// Previously published layer root eligible for validated cache reuse.
     pub reuse_root: Option<&'a Path>,
+    pub commands: &'a dyn crate::infrastructure::CommandExecutor,
 }
 
 pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usize> {
@@ -445,6 +473,7 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         source_sha256,
         output_root,
         reuse_root,
+        commands,
     } = request;
     let Some(loaded) = find_scene(input, explicit_scene)? else {
         eprintln!(
@@ -525,19 +554,22 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
     );
 
     for (layer, prompt) in &pending {
-        run(SegmentArgs {
-            input: input.to_path_buf(),
-            scene: Some(loaded.path.clone()),
-            surface: Some(plaque.id.clone()),
-            layer: layer.clone(),
-            worker: worker.to_path_buf(),
-            backend: backend.to_string(),
-            model: model.to_string(),
-            device: device.to_string(),
-            output: Some(output_root.join(layer)),
-            force: false,
-            ffprobe: ffprobe.to_path_buf(),
-        })?;
+        run_with_executor(
+            SegmentArgs {
+                input: input.to_path_buf(),
+                scene: Some(loaded.path.clone()),
+                surface: Some(plaque.id.clone()),
+                layer: layer.clone(),
+                worker: worker.to_path_buf(),
+                backend: backend.to_string(),
+                model: model.to_string(),
+                device: device.to_string(),
+                output: Some(output_root.join(layer)),
+                force: false,
+                ffprobe: ffprobe.to_path_buf(),
+            },
+            commands,
+        )?;
         let artifact = output_root.join(layer).join("artifact.toml");
         store_temporary_layer_cache(
             &artifact,
@@ -652,6 +684,7 @@ pub struct AutomaticForegroundRequest<'a> {
     /// Previous complete analysis cache, when replacing one. Automatic ML output
     /// may be copied from it only after validating the complete semantic request.
     pub reuse_root: Option<&'a Path>,
+    pub commands: &'a dyn crate::infrastructure::CommandExecutor,
 }
 
 pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> Result<bool> {
@@ -749,33 +782,15 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
         request.model,
         request.device
     );
-    let mut child = Command::new(request.worker)
-        .arg("--request")
-        .arg(&request_path)
-        .arg("--output")
-        .arg(&output)
-        .spawn()
-        .with_context(|| {
-            format!(
-                "failed to start automatic worker {}",
-                request.worker.display()
-            )
-        })?;
-    eprintln!(
-        "[ml] automatic foreground worker started: pid={}, output={}",
-        child.id(),
-        output.display()
-    );
-    let status = child
-        .wait()
-        .context("failed while waiting for automatic foreground worker")?;
-    eprintln!(
-        "[ml] automatic foreground worker exited: pid={}, status={status}",
-        child.id()
-    );
-    if !status.success() {
+    if let Err(error) = run_worker_process(
+        request.commands,
+        request.worker,
+        &request_path,
+        &output,
+        "automatic foreground",
+    ) {
         crate::staged_output::remove_child(request.analysis_root, &output)?;
-        bail!("automatic foreground worker exited with {status}");
+        return Err(error);
     }
     if let Err(error) = validate_worker_output(&output, &request_document, request.info) {
         crate::staged_output::remove_child(request.analysis_root, &output)?;
@@ -1524,5 +1539,56 @@ mod foreground_fusion_tests {
         photometric[4] = 48_000;
         let fused = fuse_automatic_foreground_alpha(&semantic, &photometric, 3, 3);
         assert_eq!(fused[4], 0);
+    }
+}
+
+#[cfg(test)]
+mod worker_process_contract_tests {
+    use std::{ffi::OsString, path::Path};
+
+    use anyhow::Result;
+
+    use super::run_worker_process;
+    use crate::infrastructure::{CommandExecutor, CommandOutput, CommandStatus};
+
+    struct StubExecutor {
+        success: bool,
+    }
+
+    impl CommandExecutor for StubExecutor {
+        fn output(&self, _program: &Path, _args: &[OsString]) -> Result<CommandOutput> {
+            unreachable!("worker execution uses status, not collected output")
+        }
+
+        fn status(&self, _program: &Path, args: &[OsString]) -> Result<CommandStatus> {
+            assert_eq!(args[0].to_string_lossy(), "--request");
+            assert_eq!(args[2].to_string_lossy(), "--output");
+            Ok(CommandStatus {
+                success: self.success,
+                code: Some(if self.success { 0 } else { 17 }),
+            })
+        }
+    }
+
+    #[test]
+    fn segmentation_worker_process_is_replaceable_by_the_production_contract() {
+        run_worker_process(
+            &StubExecutor { success: true },
+            Path::new("worker"),
+            Path::new("request.json"),
+            Path::new("output"),
+            "test",
+        )
+        .unwrap();
+
+        let error = run_worker_process(
+            &StubExecutor { success: false },
+            Path::new("worker"),
+            Path::new("request.json"),
+            Path::new("output"),
+            "test",
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("code=17"));
     }
 }

@@ -29,13 +29,6 @@ y = 100.0
 width = 935.0
 height = 151.0
 
-[segmentation]
-backend = "sam2-cutie-vitmatte"
-model = "facebook/sam2.1-hiera-large"
-device = "auto"
-worker_sha256 = "0370459d65b4ce16eb95d0e22042da35e8ec751608bc015c01eb92fafda59883"
-runtime_sha256 = "41062f851c368a04e1bb98c4ed8b67a69aea3fa6de9964eb57a45a858fbb0efb"
-
 [[layers]]
 id = "spider"
 role = "foreground"
@@ -43,10 +36,14 @@ coordinates = "source-pixels"
 kind = "alpha-sequence"
 affects_layout = false
 affects_tracking = false
-matte = { mode = "opaque", support_threshold = 0.03, solid_threshold = 0.20 }
 path = "layers/spider/%06d.png"
 first_frame = 0
 last_frame = 233
+
+[layers.matte]
+mode = "opaque"
+support_threshold = 0.03
+solid_threshold = 0.2
 
 [layers.generator]
 backend = "sam2-cutie-vitmatte"
@@ -67,6 +64,7 @@ guide_keyframes = 0
 [scenes.manifest]
 path = "../../scenes/16_9_dungeon_spider_iron_plaque/scene.toml"
 sha256 = "1e70f913a05f8c0c917636d7f6f14c667659e476728aaca4bbc3e1f03f684baa"
+semantic_sha256 = "3e5e600152a465164b8d7167d446d0b892554bebbeeec54f3bebb3c8a82b799b"
 
 [[scenes.layer_artifacts]]
 path = "layers/spider/artifact.toml"

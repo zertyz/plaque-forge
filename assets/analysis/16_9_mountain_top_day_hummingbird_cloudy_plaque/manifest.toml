@@ -35,9 +35,15 @@ role = "writing-surface"
 coordinates = "source-pixels"
 kind = "alpha-sequence"
 affects_layout = false
+affects_tracking = true
 path = "layers/cloud-writing-surface/%06d.png"
 first_frame = 0
 last_frame = 239
+
+[layers.matte]
+mode = "optical"
+support_threshold = 0.03
+solid_threshold = 0.2
 
 [layers.generator]
 backend = "sam2-cutie-vitmatte"
@@ -56,9 +62,15 @@ role = "foreground"
 coordinates = "source-pixels"
 kind = "alpha-sequence"
 affects_layout = false
+affects_tracking = true
 path = "layers/crossing-hummingbird/%06d.png"
 first_frame = 0
 last_frame = 239
+
+[layers.matte]
+mode = "optical"
+support_threshold = 0.03
+solid_threshold = 0.2
 
 [layers.generator]
 backend = "sam2-cutie-vitmatte"
@@ -79,7 +91,7 @@ guide_keyframes = 0
 [scenes.manifest]
 path = "../../scenes/16_9_mountain_top_day_hummingbird_cloudy_plaque/scene.toml"
 sha256 = "a6a7c66a840e4d1ead1db44a0922f6a87bdd3694eea0f98a7da7c601798adbba"
-semantic_sha256 = "1692a8599431c1611e64cb39718f607b457de0eccb6145aa7bd3b0f7dee4ad67"
+semantic_sha256 = "ebfafe2b1978ffc4cc6320505a537d37fd8341747ea8cabd264653d6d0b2e541"
 
 [[scenes.layer_artifacts]]
 path = "layers/cloud-writing-surface/artifact.toml"

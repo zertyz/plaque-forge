@@ -60,9 +60,16 @@ for name in "${cases[@]}"; do
 
   verification="output/validation/$name.lossless.verification.json"
   render_manifest="output/validation/$name.lossless.render-manifest.json"
-  if [[ ! -f "$verification" || ! -f "$render_manifest" ]]; then
+  [[ -f "$verification" ]] || verification=""
+  [[ -f "$render_manifest" ]] || render_manifest=""
+  # Verification is never shown without its retained lossless render manifest.
+  if [[ -n "$verification" && -z "$render_manifest" ]]; then
     verification=""
-    render_manifest=""
+  fi
+  # A delivery render still carries useful provenance-bound causal diagnostics even
+  # when no exhaustive lossless verification has been run yet.
+  if [[ -z "$render_manifest" && -f "output/$name.hevc.render-manifest.json" ]]; then
+    render_manifest="output/$name.hevc.render-manifest.json"
   fi
   scene="assets/scenes/$name/scene.toml"
   args=(--analysis "$analysis")

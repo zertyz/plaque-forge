@@ -1,0 +1,55 @@
+# Generated analysis cache. Regenerate with analyze.
+format = "plaque-forge.analysis/1"
+status = "complete"
+source_is_text_free = true
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+reference_frame = 0
+canonical_width = 580
+canonical_height = 162
+surface_space = "screen-canvas"
+trajectory_model = "screen-canvas"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "flat"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../9_16_plaqueless_neon_datacenter_ground_hole.mp4"
+sha256 = "f7952c4c23cb07e1598417189437a5aa141d7f9a71628f7267f176a973f27a8c"
+width = 720
+height = 1280
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 70.0
+y = 70.0
+width = 580.0
+height = 162.0
+
+[injected_surface]
+path = "injected-surface.png"
+source_sha256 = "6c290ec12718f807e1cbc6acc2d30bbd3f8ce730eb81d65b0de9bb03a185a096"
+
+[scenes]
+surface_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[scenes.manifest]
+path = "../../scenes/9_16_plaqueless_neon_datacenter_ground_hole/scene.toml"
+sha256 = "1fd8934b352ac2b4299e0a8ced233a4172ba5af8e8ad3eb054d5b527899e3846"
+semantic_sha256 = "2d6f58a443a6905ef62a01c79fd4442c555458946cd26ac9310f9edc1122412b"
+
+[scenes.surface_asset]
+path = "../../plaques/aetherglass-aurora-9_16.png"
+sha256 = "6c290ec12718f807e1cbc6acc2d30bbd3f8ce730eb81d65b0de9bb03a185a096"
+
+[confidence]
+plaque_detection = 0.92
+motion = 1.0
+extraction = 0.6524952107279693
+occlusion = 0.8
+overall = 0.8324607877934265

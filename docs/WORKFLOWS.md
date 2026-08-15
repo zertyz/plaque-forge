@@ -105,6 +105,29 @@ The normal analyzer invokes ML automatically when appropriate. Direct segmentati
 
 Custom `--encoder-arg` values must be self-contained settings, not workstation paths or file-backed filters. Arguments are persisted in the portable render manifest; fonts and style files are represented by basename plus content hash instead of an absolute path.
 
+## Programmatic Rust API
+
+The CLI is not required when Plaque Forge is embedded in another Rust tool. Major workflows accept
+interface-independent request types:
+
+```rust
+use plaque_forge::application::{RenderRequest, TitleSource};
+
+let request = RenderRequest::new(
+    "assets/example.mp4",
+    "assets/analysis/example",
+    "output/example.mkv",
+    TitleSource::Text("Custom title".into()),
+    "/path/to/font.ttf",
+);
+plaque_forge::application::render(request)?;
+```
+
+Tests and host applications that need deterministic process boundaries can use
+`ApplicationServices::new(...)` together with `analyze_with`, `render_with`, `verify_with`, or
+`homologate_with`. Only dependencies with a genuine independent lifecycle are abstracted; the API
+does not introduce interfaces for ordinary pure Rust operations.
+
 ## Quality reports
 
 ```bash

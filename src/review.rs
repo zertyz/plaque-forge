@@ -10,10 +10,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
-use crate::{cli::ReviewArgs, scene::Scene};
+use crate::{
+    cli::ReviewArgs,
+    render::{RenderDecisionTrace, RenderManifest},
+    scene::Scene,
+};
 
 #[derive(Debug, Clone)]
 struct FocusItem {
@@ -31,6 +35,7 @@ struct ReportInputs<'a> {
     candidates: Option<&'a Value>,
     verification: Option<&'a Value>,
     render_manifest: Option<&'a Value>,
+    decision_trace: Option<&'a RenderDecisionTrace>,
     scene: Option<&'a (PathBuf, Scene)>,
     focus: &'a [FocusItem],
 }
@@ -62,6 +67,16 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         Some(path) => Some(read_json(path)?),
         None => None,
     };
+    let decision_trace = match args.render_manifest.as_deref() {
+        Some(path) => {
+            let bytes = fs::read(path)
+                .with_context(|| format!("failed to read render manifest {}", path.display()))?;
+            let manifest: RenderManifest = serde_json::from_slice(&bytes)
+                .with_context(|| format!("invalid render manifest {}", path.display()))?;
+            Some(crate::render::load_decision_trace(path, &manifest)?)
+        }
+        None => None,
+    };
     validate_verification_provenance(
         args.verification.as_deref(),
         verification.as_ref(),
@@ -83,6 +98,7 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         candidates: candidates.as_ref(),
         verification: verification.as_ref(),
         render_manifest: render_manifest.as_ref(),
+        decision_trace: decision_trace.as_ref(),
         scene: scene.as_ref(),
         focus: &focus,
     });
@@ -336,6 +352,7 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
         candidates,
         verification,
         render_manifest,
+        decision_trace,
         scene,
         focus,
     } = inputs;
@@ -427,6 +444,9 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
 
     if let Some(manifest) = render_manifest {
         append_typography(&mut body, manifest);
+    }
+    if let Some(trace) = decision_trace {
+        append_decision_trace(&mut body, trace);
     }
 
     if let Some(verification) = verification {
@@ -880,6 +900,63 @@ fn build_text_summary(
         ));
     }
     output
+}
+
+fn append_decision_trace(body: &mut String, trace: &RenderDecisionTrace) {
+    body.push_str("<h2>Render decision trace</h2>");
+    body.push_str(
+        "<p>This section explains the causal rendering choices rather than only their resulting scores.</p><dl>",
+    );
+    let surface = trace.surface.id.as_deref().unwrap_or("<automatic>");
+    body.push_str(&format!(
+        "<dt>Selected surface</dt><dd><code>{}</code> ({})</dd>",
+        escape_html(surface),
+        escape_html(&trace.surface.selection_reason)
+    ));
+    body.push_str(&format!(
+        "<dt>Reference frame</dt><dd>{}</dd>",
+        trace.surface.reference_frame
+    ));
+    body.push_str(&format!(
+        "<dt>Tracking model</dt><dd><code>{}</code></dd>",
+        escape_html(&trace.tracking.trajectory_model)
+    ));
+    body.push_str(&format!(
+        "<dt>Canonical title plane</dt><dd>{} × {}</dd>",
+        trace.surface.canonical_width, trace.surface.canonical_height
+    ));
+    body.push_str(&format!(
+        "<dt>Typography</dt><dd>{:.2}px, {} lines, {:.1}% fill</dd>",
+        trace.typography.font_size,
+        trace.typography.lines,
+        trace.typography.fill_ratio * 100.0
+    ));
+    if !trace.tracking.foreground_layers_excluded_from_tracking.is_empty() {
+        body.push_str(&format!(
+            "<dt>Foreground excluded from tracking</dt><dd><code>{}</code></dd>",
+            escape_html(
+                &trace
+                    .tracking
+                    .foreground_layers_excluded_from_tracking
+                    .join(", ")
+            )
+        ));
+    }
+    body.push_str("</dl>");
+    if !trace.compositing_layers.is_empty() {
+        body.push_str("<h3>Compositing layers</h3><ul>");
+        for layer in &trace.compositing_layers {
+            body.push_str(&format!(
+                "<li><code>{}</code>: {:?}; layout={}, tracking={}, matte={:?}</li>",
+                escape_html(&layer.id),
+                layer.role,
+                layer.affects_layout,
+                layer.affects_tracking,
+                layer.matte.mode
+            ));
+        }
+        body.push_str("</ul>");
+    }
 }
 
 fn append_typography(body: &mut String, manifest: &Value) {

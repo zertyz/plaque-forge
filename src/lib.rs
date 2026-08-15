@@ -8,6 +8,11 @@
 //!
 //! The system is organized into modular pipelines:
 //!
+//! - **Application API (`application`)**: Interface-independent requests for analyze, render,
+//!   verify, homologate, and homologation-coverage workflows. The CLI is an adapter over it.
+//! - **Infrastructure (`infrastructure`)**: Small replaceable contracts for genuinely external
+//!   process boundaries; avoid interface-for-everything abstraction.
+//!
 //! - **Analysis (`analyze`)**: Feature extraction, homography tracking, writable region
 //!   discovery, and photometric/edge structural lock.
 //! - **Scene & Refinement (`scene`)**: Manifest declarations (`scene.toml`), human intent
@@ -26,6 +31,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+pub mod application;
 mod analysis;
 mod analyze;
 mod build_info;
@@ -35,6 +41,7 @@ mod digest;
 mod geometry;
 pub mod homologation;
 mod image_io;
+pub mod infrastructure;
 mod layers;
 pub mod model;
 mod portable_path;
@@ -62,11 +69,16 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::CreateScene(args) => scene_commands::create(args),
         Command::PlaceSurface(args) => scene_commands::place_surface(args),
-        Command::Analyze(args) => analyze::run(args),
+        Command::Analyze(args) => application::analyze(args.into()),
         Command::ExportTrajectory(args) => scene_commands::export_trajectory(args),
         Command::Segment(args) => segmentation::run(args),
-        Command::Verify(args) => verify::run(args),
-        Command::Homologate(args) => homologation::run(args),
+        Command::Verify(args) => application::verify(args.into()),
+        Command::Homologate(args) => application::homologate(args.into()),
+        Command::HomologationCoverage(args) => {
+            let report = application::homologation_coverage(args.into())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
         Command::Review(args) => review::run(args),
         Command::Render(args) => {
             let analysis = args
@@ -82,7 +94,7 @@ pub fn run() -> Result<()> {
             if let Some(parent) = output.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            render::run(args.as_compose_args(analysis, output))
+            application::render(args.into_request(analysis, output))
         }
     }
 }

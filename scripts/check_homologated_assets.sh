@@ -3,13 +3,21 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Keep this list intentionally small and high-value. These cases are the visual
-# equivalents of integration tests: they exercise a real source, real analysis,
+# Audit the capability inventory first so CI retains coverage evidence even when a later
+# expensive render fails. Incomplete coverage is deliberate until a human accepts each
+# representative output.
+target/release/plaque-forge homologation-coverage \
+  --matrix assets/homologation/capabilities.toml \
+  --report output/homologation-coverage.json
+
+# Keep the expensive CI sentinel set intentionally small and high-value. These cases are
+# the visual equivalents of integration tests: they exercise a real source, real analysis,
 # real typography, real compositing, and a delivery encode.
 case_name="16_9_dungeon_spider_iron_plaque"
 contract="assets/homologation/$case_name/contract.toml"
 report="output/$case_name.homologation.json"
 rendered="output/$case_name.hevc.mkv"
+diagnostics="output/regressions"
 
 ./scripts/render_assets.sh \
   --text "WITH THE BIGGER POTENTIAL OF SEEING FURTHER" \
@@ -21,7 +29,9 @@ rendered="output/$case_name.hevc.mkv"
 target/release/plaque-forge homologate \
   --contract "$contract" \
   --rendered "$rendered" \
-  --report "$report"
+  --report "$report" \
+  --diagnostics "$diagnostics"
 
 printf 'homologated: %s\n' "$rendered"
 printf 'acceptance:  %s\n' "$report"
+printf 'coverage:    %s\n' "output/homologation-coverage.json"

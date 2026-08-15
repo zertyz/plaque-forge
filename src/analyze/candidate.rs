@@ -13,7 +13,7 @@ use opencv::{
     videoio::{CAP_PROP_POS_FRAMES, VideoCapture},
 };
 
-use crate::{cli::AnalyzeArgs, model::RectF, video::VideoInfo};
+use crate::{application::AnalyzeRequest, model::RectF, video::VideoInfo};
 
 #[derive(Debug, Clone)]
 pub struct Candidate {
@@ -47,7 +47,7 @@ struct ScoredRect {
     frame_index: usize,
 }
 
-pub fn detect(args: &AnalyzeArgs, info: &VideoInfo, diagnostics: &Path) -> Result<Candidate> {
+pub fn detect(args: &AnalyzeRequest, info: &VideoInfo, diagnostics: &Path) -> Result<Candidate> {
     if let Some([x, y, width, height]) = args.surface_hint {
         let candidate = Candidate {
             rect: RectF {
@@ -411,7 +411,7 @@ fn write_candidate_image(
         )?;
     }
     imgcodecs::imwrite(
-        &diagnostics.join("candidate.png").to_string_lossy(),
+        &*diagnostics.join("candidate.png").to_string_lossy(),
         &frame,
         &Vector::new(),
     )?;

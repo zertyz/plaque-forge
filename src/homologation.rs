@@ -5,25 +5,33 @@
 //! for visually important foreground crossings. Rendering and segmentation algorithms may
 //! change freely as long as the observable contract continues to hold.
 
+pub mod matrix;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     analysis::{Analysis, MANIFEST_FILE},
-    cli::HomologateArgs,
+    application::HomologateRequest,
     render::{RENDER_MANIFEST_SCHEMA_VERSION, RenderManifest},
     scene::{Scene, resolve_relative},
     video::{self, Decoder},
 };
 
+/// Audit behavioral homologation coverage without rendering assets.
+pub fn audit_capabilities(matrix_path: &Path) -> Result<matrix::CapabilityCoverageReport> {
+    let matrix = matrix::CapabilityMatrix::load(matrix_path)?;
+    Ok(matrix.report())
+}
+
 pub const HOMOLOGATION_FORMAT: &str = "plaque-forge.homologation/1";
-pub const HOMOLOGATION_REPORT_SCHEMA_VERSION: u32 = 1;
+pub const HOMOLOGATION_REPORT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -92,6 +100,8 @@ pub struct SourcePreservationResult {
     pub maximum_mean_absolute_error: f64,
     pub maximum_p95_absolute_error: f64,
     pub passed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -124,6 +134,10 @@ impl HomologationContract {
             self.format
         );
         ensure!(!self.asset.trim().is_empty(), "homologation asset name is empty");
+        ensure!(
+            !self.asset.contains('/') && !self.asset.contains('\\'),
+            "homologation asset name must not contain path separators"
+        );
         ensure!(!self.surface.trim().is_empty(), "homologation surface id is empty");
         validate_sha256(&self.source_sha256, "source_sha256")?;
         validate_sha256(&self.render.style_sha256, "render.style_sha256")?;
@@ -194,8 +208,22 @@ impl HomologationContract {
     }
 }
 
-pub(crate) fn run(args: HomologateArgs) -> Result<()> {
+pub(crate) fn run(
+    args: HomologateRequest,
+    commands: &dyn crate::infrastructure::CommandExecutor,
+) -> Result<()> {
     let contract = HomologationContract::load(&args.contract)?;
+    if let Some(root) = args.diagnostics.as_ref() {
+        let previous = root.join(&contract.asset);
+        if previous.exists() {
+            fs::remove_dir_all(&previous).with_context(|| {
+                format!(
+                    "failed to clear stale homologation diagnostics {}",
+                    previous.display()
+                )
+            })?;
+        }
+    }
     let contract_sha256 = crate::digest::file_sha256(&args.contract)?;
     let source = resolve_relative(&args.contract, &contract.source);
     let scene_path = resolve_relative(&args.contract, &contract.scene);
@@ -264,6 +292,9 @@ pub(crate) fn run(args: HomologateArgs) -> Result<()> {
         &analysis_manifest_sha256,
         &mut failures,
     );
+    if let Err(error) = crate::render::load_decision_trace(&manifest_path, &manifest) {
+        failures.push(format!("render decision trace is invalid: {error:#}"));
+    }
     check_equal(
         "title text",
         &manifest.title_text,
@@ -338,7 +369,7 @@ pub(crate) fn run(args: HomologateArgs) -> Result<()> {
     );
 
     let source_preservation =
-        check_source_preservation(&args, &contract, &source, &mut failures)?;
+        check_source_preservation(&args, &contract, &source, &mut failures, commands)?;
 
     let passed = failures.is_empty();
     let report = HomologationReport {
@@ -403,16 +434,17 @@ fn check_scene_geometry(
 }
 
 fn check_source_preservation(
-    args: &HomologateArgs,
+    args: &HomologateRequest,
     contract: &HomologationContract,
     source: &Path,
     failures: &mut Vec<String>,
+    commands: &dyn crate::infrastructure::CommandExecutor,
 ) -> Result<Vec<SourcePreservationResult>> {
     if contract.source_preservation.is_empty() {
         return Ok(Vec::new());
     }
-    let source_info = video::probe(&args.ffprobe, source)?;
-    let rendered_info = video::probe(&args.ffprobe, &args.rendered)?;
+    let source_info = video::probe_with(commands, &args.ffprobe, source)?;
+    let rendered_info = video::probe_with(commands, &args.ffprobe, &args.rendered)?;
     ensure!(
         source_info.width == rendered_info.width && source_info.height == rendered_info.height,
         "homologated render dimensions differ from the source"
@@ -489,7 +521,7 @@ fn check_source_preservation(
         let p95 = percentile_u8(&mut errors, 0.95);
         let passed = mean <= witness.maximum_mean_absolute_error + f64::EPSILON
             && p95 <= witness.maximum_p95_absolute_error + f64::EPSILON;
-        if !passed {
+        let diagnostics = if !passed {
             failures.push(format!(
                 "frame {} source-preservation regression: mean error {:.2} (max {:.2}), p95 {:.2} (max {:.2})",
                 frame_index,
@@ -498,7 +530,24 @@ fn check_source_preservation(
                 p95,
                 witness.maximum_p95_absolute_error
             ));
-        }
+            args.diagnostics
+                .as_ref()
+                .map(|root| {
+                    write_witness_diagnostics(
+                        root,
+                        &contract.asset,
+                        frame_index,
+                        &source_frame,
+                        &rendered_frame,
+                        &mask,
+                        &mask_path,
+                    )
+                })
+                .transpose()?
+                .map(|path| path.to_string_lossy().into_owned())
+        } else {
+            None
+        };
         results.push(SourcePreservationResult {
             frame: frame_index,
             mask: witness.mask.to_string_lossy().into_owned(),
@@ -509,6 +558,7 @@ fn check_source_preservation(
             maximum_mean_absolute_error: witness.maximum_mean_absolute_error,
             maximum_p95_absolute_error: witness.maximum_p95_absolute_error,
             passed,
+            diagnostics,
         });
     }
     source_decoder.finish()?;
@@ -524,6 +574,57 @@ fn check_source_preservation(
         witnesses.len()
     );
     Ok(results)
+}
+
+fn write_witness_diagnostics(
+    root: &Path,
+    asset: &str,
+    frame: usize,
+    source: &crate::surface::Surface,
+    rendered: &crate::surface::Surface,
+    mask: &image::GrayImage,
+    mask_path: &Path,
+) -> Result<PathBuf> {
+    let directory = root.join(asset).join(format!("frame-{frame:06}"));
+    fs::create_dir_all(&directory).with_context(|| {
+        format!(
+            "failed to create regression diagnostics {}",
+            directory.display()
+        )
+    })?;
+    let width = source.width();
+    let height = source.height();
+    let source_bytes = source.pixels();
+    let rendered_bytes = rendered.pixels();
+    let source_image = image::RgbaImage::from_raw(width, height, source_bytes.to_vec())
+        .context("invalid source diagnostic frame")?;
+    let rendered_image = image::RgbaImage::from_raw(width, height, rendered_bytes.to_vec())
+        .context("invalid rendered diagnostic frame")?;
+    source_image.save(directory.join("source.png"))?;
+    rendered_image.save(directory.join("rendered.png"))?;
+
+    let mut diff = image::RgbaImage::new(width, height);
+    let mut witness = rendered_image.clone();
+    for (index, pixel) in diff.pixels_mut().enumerate() {
+        let offset = index * 4;
+        *pixel = image::Rgba([
+            source_bytes[offset].abs_diff(rendered_bytes[offset]).saturating_mul(3),
+            source_bytes[offset + 1].abs_diff(rendered_bytes[offset + 1]).saturating_mul(3),
+            source_bytes[offset + 2].abs_diff(rendered_bytes[offset + 2]).saturating_mul(3),
+            255,
+        ]);
+        if mask.as_raw()[index] != 0 {
+            let target = witness.get_pixel_mut(index as u32 % width, index as u32 / width);
+            target.0[0] = (target.0[0] / 2).saturating_add(127);
+            target.0[1] /= 2;
+            target.0[2] /= 2;
+        }
+    }
+    diff.save(directory.join("diff-3x.png"))?;
+    witness.save(directory.join("witness-overlay.png"))?;
+    fs::copy(mask_path, directory.join("witness-mask.png"))
+        .with_context(|| format!("failed to copy witness mask {}", mask_path.display()))?;
+    Ok(directory)
 }
 
 fn check_equal<T>(description: &str, actual: &T, expected: &T, failures: &mut Vec<String>)
@@ -613,5 +714,54 @@ mod tests {
             [10.0, 20.0, 100.0, 50.0],
             [9.0, 20.0, 100.0, 50.0]
         ));
+    }
+
+    #[test]
+    fn failed_witness_diagnostics_are_self_contained() {
+        let root = std::env::temp_dir().join(format!(
+            "plaque-forge-homologation-diagnostics-{}",
+            std::process::id()
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+
+        let source = crate::surface::Surface::from_rgba(
+            2,
+            1,
+            vec![10, 20, 30, 255, 40, 50, 60, 255],
+        )
+        .unwrap();
+        let rendered = crate::surface::Surface::from_rgba(
+            2,
+            1,
+            vec![20, 10, 30, 255, 40, 80, 60, 255],
+        )
+        .unwrap();
+        let mask = image::GrayImage::from_raw(2, 1, vec![255, 0]).unwrap();
+        let mask_path = root.join("mask.png");
+        mask.save(&mask_path).unwrap();
+
+        let directory = write_witness_diagnostics(
+            &root,
+            "asset",
+            7,
+            &source,
+            &rendered,
+            &mask,
+            &mask_path,
+        )
+        .unwrap();
+        for name in [
+            "source.png",
+            "rendered.png",
+            "diff-3x.png",
+            "witness-overlay.png",
+            "witness-mask.png",
+        ] {
+            assert!(directory.join(name).is_file(), "missing diagnostic {name}");
+        }
+        fs::remove_dir_all(&root).unwrap();
     }
 }
