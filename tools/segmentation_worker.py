@@ -18,16 +18,11 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
-MODEL_REVISIONS = {
-    "facebook/sam2.1-hiera-large": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
-    "hustvl/vitmatte-base-composition-1k": "bf486d01a7d9e3dbcc8400f7942835caf0eaf76e",
-    "PeiqingYang/MatAnyone2": "40c894a6f68d1f55c86ab0de838d89dc61587930",
-}
-
-
-def model_revision(model_name):
-    revision = MODEL_REVISIONS.get(model_name)
-    return {"revision": revision} if revision else {}
+from segmentation_runtime import (
+    MODEL_REVISIONS,
+    load_sam2_video_predictor,
+    model_revision,
+)
 
 
 # Upstream dependencies emit several warnings that are expected in Plaque Forge's
@@ -86,13 +81,17 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def xpu_available(torch):
+    return hasattr(torch, "xpu") and torch.xpu.is_available()
+
+
 def device_candidates(requested, allow_xpu=True):
     import torch
 
     if requested != "auto":
         return [requested]
     devices = []
-    if allow_xpu and torch.xpu.is_available():
+    if allow_xpu and xpu_available(torch):
         devices.append("xpu")
     if torch.cuda.is_available():
         devices.append("cuda")
@@ -105,7 +104,7 @@ def release_device(device):
 
     gc.collect()
     try:
-        if device.startswith("xpu") and torch.xpu.is_available():
+        if device.startswith("xpu") and xpu_available(torch):
             torch.xpu.empty_cache()
         elif device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -318,8 +317,6 @@ def sam2_masks(request, frames, device):
         return images, video_height, video_width
 
     predictor_module.load_video_frames = load_lossless_frames
-    SAM2VideoPredictor = predictor_module.SAM2VideoPredictor
-
     native_postprocessing = sam2_native_postprocessing_available()
     if not native_postprocessing:
         print(
@@ -328,9 +325,7 @@ def sam2_masks(request, frames, device):
             file=sys.stderr,
             flush=True,
         )
-    predictor = SAM2VideoPredictor.from_pretrained(
-        request["model"], device=device, **model_revision(request["model"])
-    )
+    predictor = load_sam2_video_predictor(request["model"], device)
 
     # SAM2 unconditionally compresses its temporal memory to BF16 before storing
     # it. That is appropriate under the documented accelerator autocast path, but
@@ -1038,7 +1033,7 @@ def verify_runtime():
 
     print(f"[verify] Python: {sys.version.split()[0]}", file=sys.stderr)
     print(f"[verify] PyTorch: {torch.__version__}", file=sys.stderr)
-    print(f"[verify] Intel XPU available: {torch.xpu.is_available()}", file=sys.stderr)
+    print(f"[verify] Intel XPU available: {xpu_available(torch)}", file=sys.stderr)
 
     # Verification runs offline: these calls prove setup cached every required snapshot.
     for repo_id, revision in MODEL_REVISIONS.items():

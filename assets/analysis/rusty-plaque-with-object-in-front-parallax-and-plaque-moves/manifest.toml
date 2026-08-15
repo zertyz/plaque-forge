@@ -1,0 +1,47 @@
+# Generated analysis cache. Regenerate with analyze.
+format = "plaque-forge.analysis/1"
+status = "complete"
+source_is_text_free = true
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+reference_frame = 113
+canonical_width = 634
+canonical_height = 133
+surface_space = "scene-plane"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow"
+loop_closed = false
+has_occluder = false
+occlusion_mode = "declared-only"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../rusty-plaque-with-object-in-front-parallax-and-plaque-moves.mp4"
+sha256 = "7415a7b03289eac8cb92fa6c7e0b9d4d1f44095c1eb70923c04481c574f7ba1e"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 322.0
+y = 46.0
+width = 634.0
+height = 133.0
+
+[scenes]
+surface_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[scenes.manifest]
+path = "../../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
+sha256 = "904c1a44919df78b5211b2f2b487ecab6026ab68d5bb8c6a9711c3228a94cc61"
+semantic_sha256 = "fee683408ef7315936c1729b2cfcd966c85af190bde8e9b525d7d04aef36cbd8"
+
+[confidence]
+plaque_detection = 0.92
+motion = 0.9576514469098081
+extraction = 0.9704231991651053
+occlusion = 0.8
+overall = 0.9094139534727208

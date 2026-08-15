@@ -1,0 +1,47 @@
+# Generated analysis cache. Regenerate with analyze.
+format = "plaque-forge.analysis/1"
+status = "complete"
+source_is_text_free = true
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+reference_frame = 10
+canonical_width = 606
+canonical_height = 193
+surface_space = "scene-plane"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-occluders-foreground-aware-source-flow"
+loop_closed = false
+has_occluder = true
+occlusion_mode = "automatic"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../16_9_swamp_wooden_plaque.mp4"
+sha256 = "5336784452c6473c5cc41258cb605b4bd1c48e264ce609948ba4a24bc53ac0db"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 342.0
+y = 50.0
+width = 606.0
+height = 193.0
+
+[scenes]
+surface_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[scenes.manifest]
+path = "../../scenes/16_9_swamp_wooden_plaque/scene.toml"
+sha256 = "aa0cc4890aac928a3dccabc5c65b857bf2da890e802b506dde2e25a989298d73"
+semantic_sha256 = "c233c8ae67aaa45c4e40529c86a450153d1450640f63a3b6158d5bc5d536996f"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.8337572604946483
+extraction = 0.9451164093093247
+occlusion = 0.9100667431935598
+overall = 0.915600588303841

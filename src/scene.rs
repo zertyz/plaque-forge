@@ -873,12 +873,17 @@ impl LayerArtifact {
             bail!("layer artifact generator fields cannot be empty");
         }
         if let Some(generator) = &self.generator {
+            // LayerArtifact also represents reviewed/authored artifacts whose
+            // generator metadata may describe provenance without being a live ML
+            // cache record.  Strict worker/cache provenance (device plus sealed
+            // source/prompt/worker/runtime/request hashes) is enforced by the
+            // segmentation boundary when worker output is accepted or reused.
             if generator
                 .requested_device
                 .as_deref()
-                .is_none_or(str::is_empty)
+                .is_some_and(|device| device.trim().is_empty())
             {
-                bail!("generated layer artifact requires requested_device provenance");
+                bail!("layer artifact requested_device cannot be empty");
             }
             for (name, value) in [
                 ("source_sha256", generator.source_sha256.as_deref()),
@@ -886,10 +891,36 @@ impl LayerArtifact {
                 ("worker_sha256", generator.worker_sha256.as_deref()),
                 ("request_sha256", generator.request_sha256.as_deref()),
             ] {
-                validate_optional_sha256(value, name, true)?;
+                validate_optional_sha256(value, name, false)?;
             }
             validate_optional_sha256(generator.runtime_sha256.as_deref(), "runtime_sha256", false)?;
         }
+        Ok(())
+    }
+
+    /// Validate the sealed identity required when this artifact is a reusable
+    /// machine-generated cache rather than reviewed/static scene data.
+    pub fn validate_generated_provenance(&self) -> Result<()> {
+        let generator = self
+            .generator
+            .as_ref()
+            .context("generated layer artifact is missing generator provenance")?;
+        if generator
+            .requested_device
+            .as_deref()
+            .is_none_or(|device| device.trim().is_empty())
+        {
+            bail!("generated layer artifact requires requested_device provenance");
+        }
+        for (name, value) in [
+            ("source_sha256", generator.source_sha256.as_deref()),
+            ("prompt_sha256", generator.prompt_sha256.as_deref()),
+            ("worker_sha256", generator.worker_sha256.as_deref()),
+            ("request_sha256", generator.request_sha256.as_deref()),
+        ] {
+            validate_optional_sha256(value, name, true)?;
+        }
+        validate_optional_sha256(generator.runtime_sha256.as_deref(), "runtime_sha256", false)?;
         Ok(())
     }
 
@@ -1546,6 +1577,27 @@ mod tests {
             sequence.referenced_paths(Path::new("artifact.toml")).len(),
             10
         );
+    }
+
+    #[test]
+    fn authored_layer_generator_metadata_does_not_require_worker_cache_identity() {
+        let artifact: LayerArtifact = toml::from_str(
+            r#"
+                format = "plaque-forge.layer/1"
+                kind = "alpha-image"
+                coordinates = "plaque-canonical"
+                path = "moss.png"
+
+                [generator]
+                backend = "color-refinement"
+                model = "moss-alpha"
+                version = "1"
+            "#,
+        )
+        .unwrap();
+
+        artifact.validate().unwrap();
+        assert!(artifact.validate_generated_provenance().is_err());
     }
 
     #[test]

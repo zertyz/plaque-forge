@@ -20,8 +20,8 @@ use crate::{
     cli::SegmentArgs,
     model::RectF,
     scene::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Scene, SegmentationPrompt,
-        SpatialCoordinates, find_scene, resolve_relative,
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Scene, SceneLayer,
+        SegmentationPrompt, SpatialCoordinates, find_scene, resolve_relative,
     },
     video::{self, VideoInfo},
     workspace,
@@ -283,6 +283,22 @@ fn layer_cache_is_current(path: &Path, expected: LayerCacheIdentity<'_>) -> bool
         && generator.prompt_sha256.as_deref() == Some(expected.prompt_sha256)
         && generator.worker_sha256.as_deref() == Some(expected.worker_sha256)
         && generator.runtime_sha256.as_deref() == expected.runtime_sha256
+}
+
+pub(crate) fn prompted_artifact_matches_source_and_prompt(
+    artifact: &LayerArtifact,
+    layer: &SceneLayer,
+    info: &VideoInfo,
+    source_sha256: &str,
+) -> Result<bool> {
+    artifact.validate_generated_provenance()?;
+    let generator = artifact
+        .generator
+        .as_ref()
+        .context("generated layer artifact is missing generator provenance")?;
+    let prompt_sha256 = prompt_sha256(&worker_layer(layer, info)?)?;
+    Ok(generator.source_sha256.as_deref() == Some(source_sha256)
+        && generator.prompt_sha256.as_deref() == Some(prompt_sha256.as_str()))
 }
 
 pub fn run(args: SegmentArgs) -> Result<()> {

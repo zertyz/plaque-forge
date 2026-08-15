@@ -1,0 +1,114 @@
+# Generated analysis cache. Regenerate with analyze.
+format = "plaque-forge.analysis/1"
+status = "complete"
+source_is_text_free = true
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+reference_frame = 72
+canonical_width = 641
+canonical_height = 285
+surface_space = "scene-plane"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-occluders-foreground-aware-source-flow"
+loop_closed = false
+has_occluder = true
+occlusion_mode = "automatic"
+automatic_ml_foreground = false
+analysis_gate_passed = true
+
+[source]
+path = "../../swamp-wooden-plaque-with-foreground-objects.mp4"
+sha256 = "5d575c9efcbaf5985bc5978478d4ad422ab013af9b2a972e67da3bce98bfb60f"
+width = 1280
+height = 720
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 327.0
+y = 30.0
+width = 641.0
+height = 285.0
+
+[[layers]]
+id = "writing-surface"
+role = "writing-surface"
+coordinates = "plaque-canonical"
+kind = "alpha-image"
+affects_layout = true
+affects_tracking = true
+path = "layers/writing-surface/mask.png"
+
+[layers.matte]
+mode = "optical"
+support_threshold = 0.03
+solid_threshold = 0.2
+
+[[layers]]
+id = "attached"
+role = "foreground"
+coordinates = "plaque-canonical"
+kind = "alpha-image"
+affects_layout = false
+affects_tracking = true
+path = "layers/attached/mask.png"
+
+[layers.matte]
+mode = "optical"
+support_threshold = 0.03
+solid_threshold = 0.2
+
+[layers.generator]
+backend = "sam2-vitmatte"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0@xpu+vitmatte-4.57.1@xpu"
+
+[[layers]]
+id = "attached-shadow"
+role = "shadow"
+coordinates = "plaque-canonical"
+kind = "alpha-image"
+affects_layout = false
+affects_tracking = true
+path = "layers/attached-shadow/mask.png"
+
+[layers.matte]
+mode = "optical"
+support_threshold = 0.03
+solid_threshold = 0.2
+
+[layers.generator]
+backend = "derived-shadow"
+model = "gaussian-alpha"
+version = "1"
+
+[scenes]
+surface_id = "main"
+locked_keyframes = 0
+guide_keyframes = 0
+
+[scenes.manifest]
+path = "../../scenes/swamp-wooden-plaque-with-foreground-objects/scene.toml"
+sha256 = "55fd770b8e0b519d66affd54ec1ed4de410d627ec84e33912fc1aaee81cecb39"
+semantic_sha256 = "d2c7373d40400021a29df1438b9d6510a1aca1a19faf7d9e226e2a7d5b9d2e0b"
+
+[[scenes.layer_artifacts]]
+path = "../../scenes/swamp-wooden-plaque-with-foreground-objects/writing-surface.toml"
+sha256 = "b9bb45dc2bbb87666c070de1cca211ef591cc0937b2041798e70b37cb80f7cb9"
+semantic_sha256 = "2d28c13aa15b9a5a9286a3c956317161f93a664f9423a9dfaa384ff0b5559956"
+
+[[scenes.layer_artifacts]]
+path = "../../scenes/swamp-wooden-plaque-with-foreground-objects/attached.toml"
+sha256 = "892b76183ece59e4a93c9366d71a8bff227dc1d915773bf0bab5d7c532b558ba"
+semantic_sha256 = "78051137b29ab5a7c5c862912248d075b3dc31541a8375d1f1fceb1304347d40"
+
+[[scenes.layer_artifacts]]
+path = "../../scenes/swamp-wooden-plaque-with-foreground-objects/attached-shadow.toml"
+sha256 = "89fde167daccd3af3c5c0b68ce98c422935cd83b3d778983d533c33cdd823f75"
+semantic_sha256 = "e9ad02319dd28b73d2cef75571698bc4bd6d27137528bc0b3cf9f3fd5f272d6c"
+
+[confidence]
+plaque_detection = 0.92
+motion = 0.7509625240422547
+extraction = 0.8718978022278785
+occlusion = 0.8494629490630506
+overall = 0.8457734131025748

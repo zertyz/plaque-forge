@@ -1,0 +1,18 @@
+{
+  "automatic_mean_plaque_visibility": 1.0,
+  "confidence": 0.9100667431935598,
+  "coverage_persistence": 0.10700659433390484,
+  "has_occluder": true,
+  "mask_basis": "lossless-photometric-material",
+  "mask_coordinates": "source-pixels",
+  "mask_frames_summarized": 240,
+  "max_coverage": 0.06463406169937322,
+  "mean_content_occlusion": 0.010656343644133459,
+  "mean_coverage": 0.006916270820417406,
+  "mean_plaque_visibility": 1.0,
+  "minimum_plaque_visibility": 1.0,
+  "nonempty_adjacent_mask_iou": 0.7170966642773734,
+  "occupied_frames": 84,
+  "occupied_ratio": 0.35,
+  "summary_matches_installed_masks": true
+}

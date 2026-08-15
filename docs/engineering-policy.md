@@ -72,6 +72,7 @@ CODE ENGINEERING POLICY
   * Replacing an artifact should invalidate or replace any adjacent acceptance report that refers to the previous bytes.
   * Regression protection for artifact-producing systems should be planned by behavioral capability, not merely by asset/file count. Representative sentinels should cover materially different geometry, tracking, compositing, aspect-ratio, and depth behaviors without turning CI into an exhaustive render farm.
   * Generated diagnostic/decision traces should explain causal choices and be provenance-bound to the exact artifact they describe. They complement independent acceptance contracts; they must not become self-certifying acceptance evidence.
+  * Validation automation should evaluate the commit it was asked to validate. Generated-artifact publication should be a distinct producer responsibility when practical, with explicit write permissions, canonical execution provenance, and acceptance completed before publication. A validation workflow should not silently turn its input commit into a different unvalidated branch head.
 
 ## 5. Code and test organization, duplication, and abstraction
 ### Production code

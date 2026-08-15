@@ -21,7 +21,7 @@ Prepare the ML foreground/object worker once:
 ./scripts/setup_segmentation.sh
 ```
 
-Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its virtualenv, cloned ML repositories, and model caches. Nothing is installed into your user Python environment or user caches. If `/tmp` is cleared, rerun setup.
+Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its virtualenv, cloned ML repositories, and model caches. Nothing is installed into your user Python environment or user caches. If setup is interrupted after downloads, rerunning the same command first attempts an offline in-place repair rather than deleting the cache. Use `--verify` for an offline smoke test, or `--torch-profile cpu` when an XPU build is inappropriate (for example, hosted CI). If `/tmp` is cleared, rerun setup.
 
 Plaque Forge requires Rust 1.89 or newer, FFmpeg/FFprobe, OpenCV, Clang, and fontconfig. The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
 
@@ -41,7 +41,7 @@ Analyze selected assets by appending their stems:
 ./scripts/analyze_assets.sh 16_9_dungeon_spider_iron_plaque 9_16_swamp_wooden_plaque
 ```
 
-Use `--force` to rebuild current Rust/scene caches, `--force-ml` to regenerate ML work too, or `--no-ml` only when you explicitly want the pure-Rust path. Run `./scripts/ml_status.sh` to see whether Python actually ran.
+Use `--force` to rebuild current Rust/scene caches, `--force-ml` to regenerate ML work too, or `--no-ml` only when you explicitly want the pure-Rust path. In `--no-ml` mode, valid previously generated prompted layers may be reused, while missing/incompatible prompted layers are skipped rather than turning an explicitly pure-Rust run into a setup error. Run `./scripts/ml_status.sh` to see whether Python actually ran.
 
 When automatic quality is insufficient, the incomplete cache is deleted. Only compact diagnostics are retained under `/tmp/plaque-forge/failures/<asset>/`, limited to the newest three failures and seven days. Fix only the smallest item identified by `review.html`, then rerun analysis; a successful run removes retained failures for that asset.
 
@@ -92,7 +92,7 @@ reviewed foreground/source-preservation witnesses. `assets/homologation/capabili
 coverage by behavioral capability rather than by filename; run `plaque-forge homologation-coverage`
 to see which representative behaviors are still awaiting explicit human acceptance. Failed semantic
 witnesses emit source/render/diff/overlay images under `output/regressions/`. See
-[Homologation](docs/HOMOLOGATION.md).
+[Homologation](docs/HOMOLOGATION.md). CI also protects the non-Rust setup and pure-Rust analysis paths; see [Continuous integration](docs/CI.md).
 
 ## 5. Review quality
 
@@ -152,4 +152,4 @@ output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows
 ```
 
-The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md).
+The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md).
