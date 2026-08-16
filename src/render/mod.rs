@@ -769,6 +769,34 @@ fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Resul
 }
 
 #[cfg(test)]
+pub(crate) fn test_font() -> std::path::PathBuf {
+    let candidates = [
+        "/usr/share/fonts/noto/NotoSerif-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
+        "/usr/share/fonts/noto-serif/NotoSerif-Regular.ttf",
+        "/usr/share/fonts/google-noto-serif/NotoSerif-Regular.ttf",
+    ];
+    for candidate in candidates {
+        let path = std::path::PathBuf::from(candidate);
+        if path.is_file() {
+            return path;
+        }
+    }
+    if let Ok(output) = std::process::Command::new("fc-match")
+        .args(["--format=%{file}", "serif"])
+        .output()
+        && output.status.success()
+    {
+        let path =
+            std::path::PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_string());
+        if path.is_file() {
+            return path;
+        }
+    }
+    panic!("no usable test font; install fonts-noto-core");
+}
+
+#[cfg(test)]
 mod tests {
     use super::{evenly_spaced, validate_portable_encoder_args};
 
@@ -930,8 +958,8 @@ mod tests {
         }
 
         assert!(
-            tested >= 4,
-            "expected at least 4 style files, found {tested}"
+            tested >= 25,
+            "expected at least 25 style files to be tested, found {tested}"
         );
         assert!(
             failures.is_empty(),

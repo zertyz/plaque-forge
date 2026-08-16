@@ -1163,39 +1163,10 @@ mod tests {
     // (a deterministic font + a simple writable mask), verifying layout behavior,
     // input validation, and mask containment without video or FFmpeg.
 
+    use super::super::test_font;
     use super::{RenderRequest, render};
     use crate::application::{FitMode, TextAlign, VerticalAlign};
     use crate::render::effects::{DirectStyleOptions, Style};
-
-    /// Path to a deterministic font for typography tests.
-    fn test_font() -> std::path::PathBuf {
-        let candidates = [
-            "/usr/share/fonts/noto/NotoSerif-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
-            "/usr/share/fonts/noto-serif/NotoSerif-Regular.ttf",
-            "/usr/share/fonts/google-noto-serif/NotoSerif-Regular.ttf",
-        ];
-        for candidate in candidates {
-            let path = std::path::PathBuf::from(candidate);
-            if path.is_file() {
-                return path;
-            }
-        }
-        if let Ok(output) = std::process::Command::new("fc-match")
-            .args(["--format=%{file}", "serif"])
-            .output()
-        {
-            if output.status.success() {
-                let path = std::path::PathBuf::from(
-                    String::from_utf8_lossy(&output.stdout).trim().to_string(),
-                );
-                if path.is_file() {
-                    return path;
-                }
-            }
-        }
-        panic!("no usable test font; install fonts-noto-core");
-    }
 
     fn default_test_style() -> Style {
         Style::direct(DirectStyleOptions {
