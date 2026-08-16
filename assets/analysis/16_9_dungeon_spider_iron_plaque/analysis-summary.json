@@ -1,6 +1,6 @@
 {
   "analysis_gate_passed": true,
-  "automatic_ml_foreground": false,
+  "automatic_ml_foreground": true,
   "candidate_confidence": 0.98,
   "candidate_edge_completeness": 1.0,
   "candidate_screen_stationarity": 1.0,
@@ -12,16 +12,16 @@
   "has_occluder": true,
   "minimum_analysis_confidence": 0.7,
   "motion_confidence": 0.89017231739291,
-  "occluder_mean_coverage": 0.005322521023614059,
-  "occlusion_confidence": 0.7730998341511526,
-  "overall": 0.8989002247896996,
-  "registration_area": 0.06188334454793356,
+  "occluder_mean_coverage": 0.0008197720533016939,
+  "occlusion_confidence": 0.6397127283924054,
+  "overall": 0.8570676561327127,
+  "registration_area": 0.062393313737295036,
   "remedies": [
-    "occlusion confidence is 0.773; inspect occlusion-summary.json and add a foreground scene when automatic separation is wrong"
+    "occlusion confidence is 0.640; inspect occlusion-summary.json and add a foreground scene when automatic separation is wrong"
   ],
   "source_contract": "text-free-writing-surface",
-  "structural_area": 0.019980876155398945,
-  "structural_confidence": 0.9680776994723235,
+  "structural_area": 0.020101285547331517,
+  "structural_confidence": 0.9668860006374616,
   "surface_source": "source",
   "surface_space": "ScenePlane",
   "tracking_measurement_fraction": 0.9700854700854701,

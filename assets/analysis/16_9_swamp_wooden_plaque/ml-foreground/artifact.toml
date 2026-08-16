@@ -1,0 +1,19 @@
+format = "plaque-forge.layer/1"
+kind = "alpha-sequence"
+coordinates = "source-pixels"
+pattern = "%06d.png"
+first_frame = 0
+last_frame = 239
+affects_layout = false
+
+[generator]
+backend = "sam2-cutie"
+model = "facebook/sam2.1-hiera-large"
+version = "sam2-1.0+bf16+eager@xpu+cutie-1.0.0@cpu/bf16+selected-cutie+categorical-membership-p50"
+requested_device = "auto"
+source_sha256 = "5336784452c6473c5cc41258cb605b4bd1c48e264ce609948ba4a24bc53ac0db"
+prompt_sha256 = "cdb3251cab5aa92600253f3d84b4bc743f0f58a7ab4d0bb1665edd747f449df3"
+worker_sha256 = "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9"
+runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
+request_sha256 = "eb892c8e1ef5c19e819faf15f9efc1a6d0de3fd1faea8d5ecb99bf84c30aa9c2"
+plan_sha256 = "d67f03ffbc1051bc75ab1c8cb9838c53caf592c9aeb671194367edf4adacba6d"

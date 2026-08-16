@@ -29,6 +29,15 @@ y = 28.0
 width = 920.0
 height = 258.0
 
+[segmentation]
+backend = "auto"
+model = "auto"
+device = "auto"
+profile = "balanced"
+precision = "auto"
+worker_sha256 = "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9"
+runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
+
 [injected_surface]
 path = "injected-surface.png"
 source_sha256 = "2d79c1f57c27fa9cef99aa8bac54d24949b9cc4dced30a0ed613407f7681c108"

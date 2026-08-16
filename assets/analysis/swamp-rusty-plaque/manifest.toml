@@ -29,6 +29,15 @@ y = 53.0
 width = 640.0
 height = 125.0
 
+[segmentation]
+backend = "auto"
+model = "auto"
+device = "auto"
+profile = "balanced"
+precision = "auto"
+worker_sha256 = "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9"
+runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
+
 [[layers]]
 id = "moss"
 role = "foreground"
@@ -75,7 +84,7 @@ guide_keyframes = 0
 [scenes.manifest]
 path = "../../scenes/swamp-rusty-plaque/scene.toml"
 sha256 = "dacc483fc17e13d7a6f03b5e0adce348542d6861bdb93a37f9410f34cb73d557"
-semantic_sha256 = "237dd46e2d2139b1a4e1caf7d6c2dbb8c6eec1dbdb43ba174452812a336a3d53"
+semantic_sha256 = "6e7772c64b8d8c7e48bea165c0d5e826f2826e90257d0b5bea8cf1af34a8381c"
 
 [[scenes.layer_artifacts]]
 path = "../../scenes/swamp-rusty-plaque/moss-soft.toml"

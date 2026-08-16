@@ -1,0 +1,50 @@
+{
+  "format": "plaque-forge.segmentation-result/2",
+  "backend": "sam2-cutie",
+  "model": "facebook/sam2.1-hiera-large",
+  "version": "sam2-1.0+bf16+eager@xpu+cutie-1.0.0@cpu/bf16+selected-cutie+categorical-membership-p50",
+  "plan_sha256": "d67f03ffbc1051bc75ab1c8cb9838c53caf592c9aeb671194367edf4adacba6d",
+  "precision": "bf16",
+  "frames": 240,
+  "mean_confidence": 0.9291666666666667,
+  "minimum_confidence": 0.0,
+  "request_sha256": "c9e6cd37eb2051b0f331c0e45cfa0cdbfda846084a8476334e4be306ba546fa3",
+  "source_sha256": "5d575c9efcbaf5985bc5978478d4ad422ab013af9b2a972e67da3bce98bfb60f",
+  "prompt_sha256": "726e86f6744f8012cdd9c0598d67d0a73508d8f438cb75b67b802a63df1ae11d",
+  "worker_sha256": "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9",
+  "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
+  "nonempty_frames": 223,
+  "mean_coverage": 0.004482629846643518,
+  "maximum_coverage": 0.012373046875,
+  "soft_edge_pixels": 0,
+  "execution": [
+    {
+      "stage": "Decode frames",
+      "device": "cpu",
+      "precision": "lossless",
+      "seconds": 0.0,
+      "cache_hit": true
+    },
+    {
+      "stage": "SAM 2",
+      "device": "xpu",
+      "precision": "bf16",
+      "seconds": 442.163769,
+      "cache_hit": false
+    },
+    {
+      "stage": "Cutie",
+      "device": "cpu",
+      "precision": "bf16",
+      "seconds": 280.451567,
+      "cache_hit": false
+    },
+    {
+      "stage": "Temporal stabilization",
+      "device": "cpu",
+      "precision": "fp32",
+      "seconds": 1e-06,
+      "cache_hit": false
+    }
+  ]
+}
