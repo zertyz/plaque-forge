@@ -2,7 +2,7 @@
 format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
-analyzer_build = "surface-analysis-v2"
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
 reference_frame = 0
 canonical_width = 920
 canonical_height = 258
@@ -30,11 +30,13 @@ width = 920.0
 height = 258.0
 
 [segmentation]
-backend = "sam2-cutie-vitmatte"
-model = "facebook/sam2.1-hiera-large"
+backend = "auto"
+model = "auto"
 device = "auto"
-worker_sha256 = "eae50516c7549a217484c46d2b894b2053c1cd884c1dc81d85fb3caef3257850"
-runtime_sha256 = "cadd6ac4ea4e4c0b2eca1ecff64b3044d904e50e6cb9776af7fa2905d7969652"
+profile = "balanced"
+precision = "auto"
+worker_sha256 = "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9"
+runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [injected_surface]
 path = "injected-surface.png"

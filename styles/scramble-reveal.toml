@@ -1,0 +1,14 @@
+version = 4
+fill = "#D8FBFFFF"
+
+[[effects]]
+type = "glow"
+radius = 8
+color = "#3AE6FF80"
+
+[[animations]]
+type = "scramble"
+period_seconds = 3.8
+hold_fraction = 0.32
+steps_per_second = 15.0
+seed = 1396920910

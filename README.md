@@ -21,7 +21,7 @@ Prepare the ML foreground/object worker once:
 ./scripts/setup_segmentation.sh
 ```
 
-Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its virtualenv, cloned ML repositories, and model caches. Nothing is installed into your user Python environment or user caches. If `/tmp` is cleared, rerun setup.
+Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its virtualenv, cloned ML repositories, and model caches. Nothing is installed into your user Python environment or user caches. If setup is interrupted after downloads, rerunning the same command first attempts an offline in-place repair rather than deleting the cache. Use `--verify` for an offline smoke test, or `--torch-profile cpu` when an XPU build is inappropriate (for example, hosted CI). If `/tmp` is cleared, rerun setup.
 
 Plaque Forge requires Rust 1.89 or newer, FFmpeg/FFprobe, OpenCV, Clang, and fontconfig. The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
 
@@ -41,7 +41,9 @@ Analyze selected assets by appending their stems:
 ./scripts/analyze_assets.sh 16_9_dungeon_spider_iron_plaque 9_16_swamp_wooden_plaque
 ```
 
-Use `--force` to rebuild current Rust/scene caches, `--force-ml` to regenerate ML work too, or `--no-ml` only when you explicitly want the pure-Rust path. Run `./scripts/ml_status.sh` to see whether Python actually ran.
+Use `--force` to rebuild current Rust/scene caches, `--force-ml` to regenerate ML work too, or `--no-ml` only when you explicitly want the pure-Rust path. In `--no-ml` mode, valid previously generated prompted layers may be reused, while missing/incompatible prompted layers are skipped rather than turning an explicitly pure-Rust run into a setup error. Run `./scripts/ml_status.sh` to see whether Python actually ran.
+
+ML model choice is planned by Rust by default (`--backend auto`). Device and numeric precision are independent policies: `--device` selects execution hardware while `--precision` selects `fp32`/`bf16`. `--profile preview` uses SAM 2.1 Small first and can escalate to Large when independent Rust evidence rejects it; `balanced` tries SAM 2.1 Large before paying for Cutie and escalates only when the versioned policy requires it; `canonical` keeps the robust SAM2+Cutie path with FP32 and disables compilation-induced numeric variance. Opaque layers skip optical alpha refinement, while explicitly declared human optical mattes may select MatAnyone2. SAM 3.1 is an optional experimental CUDA backend installed separately with `./scripts/setup_sam31.sh`; it is never selected implicitly. See [Segmentation strategy](docs/SEGMENTATION.md).
 
 When automatic quality is insufficient, the incomplete cache is deleted. Only compact diagnostics are retained under `/tmp/plaque-forge/failures/<asset>/`, limited to the newest three failures and seven days. Fix only the smallest item identified by `review.html`, then rerun analysis; a successful run removes retained failures for that asset.
 
@@ -70,15 +72,31 @@ An additional **Prismwraith Reliquary** pair is available for both aspect ratios
   --style gold-shine
 ```
 
-Outputs go to `output/*.hevc.mkv`. Append asset stems to render only those videos. Each video, canonical text mask, optional contact sheet, and render manifest is published as a transactional bundle; an interrupted render cannot replace a previously complete bundle with partial files.
+Outputs go to `output/*.hevc.mkv`. Append asset stems to render only those videos. Each video, canonical text mask, render decision trace, optional contact sheet, and render manifest is published as a transactional bundle; an interrupted render cannot replace a previously complete bundle with partial files.
 
 **Artistic line composition is the default**, using the largest safe title size. The default direct style also has a visible glow.
 
-Try the bundled styles with `--style NAME`, including `classic-glow`, `bronze-relief`, `gold-shine`, `chrome-shine`, `holographic-foil`, `neon-flicker`, `liquid-wave`, `chromatic-glitch`, `velocity-trails`, `letterpress-wood`, `frosted-ice`, `living-fire`, `cosmic-nebula`, `halftone-pop`, `typewriter`, and `particle-dissolve`.
+Try the bundled styles with `--style NAME`. In addition to the existing glow, metal, holographic, liquid, glitch, trail, ice, fire, nebula, halftone, typewriter, and dissolve presets, the renderer now includes `art-deco-arc`, `orbital-text`, `texture-mapped`, `scramble-reveal`, `split-flap`, `confetti-converge`, `laser-burn-wood`, `scene-emboss`, `blueprint`, and `paper-collage`.
 
 See [Text effects](docs/TEXT_EFFECTS.md) for the exact capability matrix and style format.
 
-## 4. Review quality
+## 4. Protect homologated outputs
+
+Human-accepted outputs can carry executable regression contracts. Run the representative
+visual integration gate with:
+
+```bash
+./scripts/check_homologated_assets.sh
+```
+
+The gate checks scene geometry, typography limits, exact render provenance, and sparse
+reviewed foreground/source-preservation witnesses. `assets/homologation/capabilities.toml` records
+coverage by behavioral capability rather than by filename; run `plaque-forge homologation-coverage`
+to see which representative behaviors are still awaiting explicit human acceptance. Failed semantic
+witnesses emit source/render/diff/overlay images under `output/regressions/`. See
+[Homologation](docs/HOMOLOGATION.md). CI also protects the non-Rust setup and pure-Rust analysis paths. A trusted generated-analysis producer can refresh stale ML analysis on a bot branch and explicitly dispatch validation on that generated commit; see [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md).
+
+## 5. Review quality
 
 Generate/rebuild the human quality reports after analysis/rendering:
 
@@ -123,16 +141,17 @@ Generated manifests use only portable relative paths. Incompatible caches are re
 ## Repository map
 
 ```text
-src/                         Rust implementation
+src/                         Rust implementation (`application` is the programmatic API and service boundary)
 scripts/                     high-level setup/analyze/render/review operations
 tools/                       optional external-tool adapters
 styles/                      reusable typography/material/effect programs
 assets/*.mp4                 source videos
 assets/plaques/              reusable injected plaque images
-assets/scenes/<name>/       sparse human intent + small reviewed source masks
+assets/scenes/<name>/        sparse human intent + small reviewed source masks
 assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
+assets/homologation/<name>/   reviewed regression contracts + sparse visual evidence
 output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows
 ```
 
-The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md).
+The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md).

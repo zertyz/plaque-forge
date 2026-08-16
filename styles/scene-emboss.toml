@@ -1,0 +1,9 @@
+version = 4
+fill = "#FFFFFF10"
+
+[[surface_effects]]
+type = "emboss"
+depth = 0.82
+highlight_strength = 0.78
+shadow_strength = 0.74
+cast_shadow = 3

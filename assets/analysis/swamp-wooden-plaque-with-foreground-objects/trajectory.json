@@ -1,0 +1,7682 @@
+[
+  {
+    "frame": 0,
+    "transform": {
+      "values": [
+        [
+          0.9120578939809535,
+          -0.04701810913522593,
+          55.653627543900186
+        ],
+        [
+          -0.0008943698333937495,
+          0.896454284551382,
+          18.958142943144626
+        ],
+        [
+          -3.7377030246973734e-6,
+          -0.00007186368125100477,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 267,
+    "spatial_coverage": 0.9267991965015728,
+    "uncertainty_px": 0.742054872472903,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8956589766784303,
+    "reprojection_error": 0.7143792729123288,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 1,
+    "transform": {
+      "values": [
+        [
+          0.9129326611317039,
+          -0.04635458474979551,
+          54.99259803500643
+        ],
+        [
+          -0.0009684487555174992,
+          0.8976055676623825,
+          18.674480292161878
+        ],
+        [
+          -3.9171886184670975e-6,
+          -0.00007114584438755664,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 284,
+    "spatial_coverage": 0.9270415772994358,
+    "uncertainty_px": 0.7887086470353166,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9069195859119915,
+    "reprojection_error": 0.7593923336821069,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 2,
+    "transform": {
+      "values": [
+        [
+          0.9136685894748096,
+          -0.045538909222243046,
+          54.34278043678084
+        ],
+        [
+          -0.0010229198841908223,
+          0.89883888012836,
+          18.340508747905787
+        ],
+        [
+          -4.307566950384484e-6,
+          -0.00007004238094145825,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 277,
+    "spatial_coverage": 0.9267934178312619,
+    "uncertainty_px": 0.7945770150413801,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9019422220761496,
+    "reprojection_error": 0.7649401704964902,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 3,
+    "transform": {
+      "values": [
+        [
+          0.9140811173508431,
+          -0.04524164577440851,
+          53.834260599522054
+        ],
+        [
+          -0.001027974406964688,
+          0.9003620135301785,
+          17.946946984669705
+        ],
+        [
+          -4.971272344091869e-6,
+          -0.00006870772087428959,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 298,
+    "spatial_coverage": 0.8726325298349064,
+    "uncertainty_px": 0.8422628582624869,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9127863758994393,
+    "reprojection_error": 0.7867981843250614,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 4,
+    "transform": {
+      "values": [
+        [
+          0.9168788979515275,
+          -0.04331312524351012,
+          52.42489582471011
+        ],
+        [
+          -0.0009247113351354038,
+          0.9034476089156109,
+          17.39892730242272
+        ],
+        [
+          -4.038189508774311e-6,
+          -0.00006631901230571068,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 283,
+    "spatial_coverage": 0.9267991965015728,
+    "uncertainty_px": 0.7838942597337414,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9067332197637418,
+    "reprojection_error": 0.754658222838079,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 5,
+    "transform": {
+      "values": [
+        [
+          0.9195282735182188,
+          -0.04149394356012022,
+          51.17702226959605
+        ],
+        [
+          -0.0007566794251976028,
+          0.9062618108490483,
+          16.89461001505165
+        ],
+        [
+          -2.9936933838651015e-6,
+          -0.00006408994274269221,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 297,
+    "spatial_coverage": 0.9269788046677907,
+    "uncertainty_px": 0.7670132812661768,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9163452326940994,
+    "reprojection_error": 0.7384783815051498,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 6,
+    "transform": {
+      "values": [
+        [
+          0.9197724426465248,
+          -0.04202838180598768,
+          50.62168937537691
+        ],
+        [
+          -0.0009721647688498685,
+          0.9069312584107866,
+          16.648438870201147
+        ],
+        [
+          -3.955376599225493e-6,
+          -0.0000646507284771863,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 284,
+    "spatial_coverage": 0.9268854071696598,
+    "uncertainty_px": 0.7620012025882859,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8837535029547607,
+    "reprojection_error": 0.7336158048366574,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 7,
+    "transform": {
+      "values": [
+        [
+          0.9208681260213306,
+          -0.04167120122933628,
+          49.68792981197193
+        ],
+        [
+          -0.0010054138920395563,
+          0.9085364522352763,
+          16.207195826528054
+        ],
+        [
+          -4.510455959024995e-6,
+          -0.00006403119796692608,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 283,
+    "spatial_coverage": 0.9269788046677907,
+    "uncertainty_px": 0.7418539407349034,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9122434702508393,
+    "reprojection_error": 0.7142550342319439,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 8,
+    "transform": {
+      "values": [
+        [
+          0.923385667430976,
+          -0.0425478615975335,
+          48.34418298848742
+        ],
+        [
+          -0.0008725800097342491,
+          0.9105942225648281,
+          15.622541115965582
+        ],
+        [
+          -3.8809665955476354e-6,
+          -0.00006536573435749096,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 290,
+    "spatial_coverage": 0.8728749106327693,
+    "uncertainty_px": 0.8082025390170847,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9069794674488632,
+    "reprojection_error": 0.755085648178004,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 9,
+    "transform": {
+      "values": [
+        [
+          0.9245463860252082,
+          -0.041716022611155396,
+          47.3693143730473
+        ],
+        [
+          -0.0008823858168285701,
+          0.9127617217297875,
+          15.1260025281997
+        ],
+        [
+          -4.384376256568355e-6,
+          -0.00006399434369158375,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 279,
+    "spatial_coverage": 0.8727209309736889,
+    "uncertainty_px": 0.8465946575927725,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8946263465553618,
+    "reprojection_error": 0.7908847829480761,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 10,
+    "transform": {
+      "values": [
+        [
+          0.9261380815391668,
+          -0.042041908467665076,
+          46.303265704135384
+        ],
+        [
+          -0.0008810672320346286,
+          0.9144622041910355,
+          14.638541879511413
+        ],
+        [
+          -4.530277522049648e-6,
+          -0.00006425076662374105,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 277,
+    "spatial_coverage": 0.9281495069464047,
+    "uncertainty_px": 0.8022477448991496,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9086857292335481,
+    "reprojection_error": 0.7728896189626945,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 11,
+    "transform": {
+      "values": [
+        [
+          0.9278003854637936,
+          -0.041676193425174944,
+          45.055993918213645
+        ],
+        [
+          -0.001024403771475876,
+          0.9161283362542325,
+          14.17405454163545
+        ],
+        [
+          -4.914111676750851e-6,
+          -0.0000642445984656645,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 278,
+    "spatial_coverage": 0.9272214566667873,
+    "uncertainty_px": 0.7855947038887591,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8919891331946159,
+    "reprojection_error": 0.7564675161108199,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 12,
+    "transform": {
+      "values": [
+        [
+          0.9294948968143436,
+          -0.04212255385614917,
+          43.880306796729144
+        ],
+        [
+          -0.001050903919864886,
+          0.917981163465432,
+          13.62939107091099
+        ],
+        [
+          -5.0691997780186715e-6,
+          -0.00006530063880187521,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 279,
+    "spatial_coverage": 0.9267991965015728,
+    "uncertainty_px": 0.8969250064738921,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8993495696112515,
+    "reprojection_error": 0.8634733868755808,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 13,
+    "transform": {
+      "values": [
+        [
+          0.9317226544992266,
+          -0.04129019524283916,
+          42.5355581425899
+        ],
+        [
+          -0.0010140389083755825,
+          0.9209355820342684,
+          13.038436176354072
+        ],
+        [
+          -4.9365925261115835e-6,
+          -0.00006390090298210968,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 279,
+    "spatial_coverage": 0.8717912534872692,
+    "uncertainty_px": 0.8960078649716113,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8597513216651149,
+    "reprojection_error": 0.83660041481276,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 14,
+    "transform": {
+      "values": [
+        [
+          0.9352996549944224,
+          -0.04206491403586454,
+          40.77382564108268
+        ],
+        [
+          -0.0009513874071322683,
+          0.9236946546940794,
+          12.448798664722776
+        ],
+        [
+          -3.82080439578947e-6,
+          -0.00006485287595868533,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 268,
+    "spatial_coverage": 0.9267991965015728,
+    "uncertainty_px": 0.850904223760405,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8657349734186741,
+    "reprojection_error": 0.8191689903770353,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 15,
+    "transform": {
+      "values": [
+        [
+          0.9371830192848953,
+          -0.042282437516924634,
+          39.433449412176216
+        ],
+        [
+          -0.001068196462450805,
+          0.9257567180796658,
+          11.943143277210767
+        ],
+        [
+          -4.1465859291360686e-6,
+          -0.00006509408558352571,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 266,
+    "spatial_coverage": 0.8726267511645954,
+    "uncertainty_px": 0.8710647854882484,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8786526549099296,
+    "reprojection_error": 0.8137007534942713,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 16,
+    "transform": {
+      "values": [
+        [
+          0.9393014076844544,
+          -0.04216815036800316,
+          38.05730851112529
+        ],
+        [
+          -0.000996200751497528,
+          0.9281368146414014,
+          11.294716983184262
+        ],
+        [
+          -4.245091312636538e-6,
+          -0.0000648231519280164,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 279,
+    "spatial_coverage": 0.9267991965015728,
+    "uncertainty_px": 0.9343742627820504,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8702036457960494,
+    "reprojection_error": 0.8995259397055019,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 17,
+    "transform": {
+      "values": [
+        [
+          0.9424195794391883,
+          -0.04227271990560852,
+          36.352019834153225
+        ],
+        [
+          -0.0009009775413536537,
+          0.9303686208793763,
+          10.715086608744286
+        ],
+        [
+          -3.6169471033511154e-6,
+          -0.00006508627320531935,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 285,
+    "spatial_coverage": 0.9258298506339391,
+    "uncertainty_px": 0.7970158642501346,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8728317682237072,
+    "reprojection_error": 0.7668890831488577,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 18,
+    "transform": {
+      "values": [
+        [
+          0.9449858313544705,
+          -0.04119052783648028,
+          34.72580769635116
+        ],
+        [
+          -0.0007947140027786582,
+          0.9333444430663836,
+          10.017296586920754
+        ],
+        [
+          -3.5687635604108474e-6,
+          -0.0000635397897077732,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 288,
+    "spatial_coverage": 0.9270358507831891,
+    "uncertainty_px": 0.7462574791424497,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8908666346685805,
+    "reprojection_error": 0.7185168571769374,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 19,
+    "transform": {
+      "values": [
+        [
+          0.9457549752423967,
+          -0.04262081674408263,
+          33.73687143795922
+        ],
+        [
+          -0.0009406639809193418,
+          0.9351631549158383,
+          9.468635444764882
+        ],
+        [
+          -4.6686635280928676e-6,
+          -0.00006527807134590506,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 314,
+    "spatial_coverage": 0.8728691841165226,
+    "uncertainty_px": 0.8195618624890825,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8977780806377829,
+    "reprojection_error": 0.7656958996363135,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 20,
+    "transform": {
+      "values": [
+        [
+          0.9488293757343925,
+          -0.041843014471228145,
+          31.89731472994361
+        ],
+        [
+          -0.0009204209988490312,
+          0.9387592032789472,
+          8.767722086476422
+        ],
+        [
+          -4.323834976909444e-6,
+          -0.0000643150087591086,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 293,
+    "spatial_coverage": 0.8730547900001209,
+    "uncertainty_px": 0.8333169089587559,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8913924129682071,
+    "reprojection_error": 0.778629661573383,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 21,
+    "transform": {
+      "values": [
+        [
+          0.9507983666851086,
+          -0.042315298581984906,
+          30.446649625249975
+        ],
+        [
+          -0.0010835341667434645,
+          0.9409981683778748,
+          8.273192278302599
+        ],
+        [
+          -4.748606640698905e-6,
+          -0.00006486309364675411,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 306,
+    "spatial_coverage": 0.8903853038946788,
+    "uncertainty_px": 0.8092668788640064,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8926337503563417,
+    "reprojection_error": 0.7636260896375988,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 22,
+    "transform": {
+      "values": [
+        [
+          0.955217582964819,
+          -0.041758181180708634,
+          28.11901185213837
+        ],
+        [
+          -0.0009489321991859799,
+          0.9440724986673212,
+          7.570272054614311
+        ],
+        [
+          -3.607674560752905e-6,
+          -0.0000643379210797738,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 300,
+    "spatial_coverage": 0.9270415772994358,
+    "uncertainty_px": 0.8222502968779863,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8780566539364127,
+    "reprojection_error": 0.7916872398496977,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 23,
+    "transform": {
+      "values": [
+        [
+          0.9576902963629578,
+          -0.04238256813410203,
+          26.38057210358246
+        ],
+        [
+          -0.0010170849651981789,
+          0.9471212131131151,
+          6.8629432865586475
+        ],
+        [
+          -3.92739496499228e-6,
+          -0.00006510785833375302,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 295,
+    "spatial_coverage": 0.9260226329167683,
+    "uncertainty_px": 0.8078631833810104,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8732682366863733,
+    "reprojection_error": 0.7774073050652612,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 24,
+    "transform": {
+      "values": [
+        [
+          0.9622736269529227,
+          -0.0405238703547334,
+          23.37202631644099
+        ],
+        [
+          -0.0008447616921450881,
+          0.9516269331761373,
+          5.740682578052006
+        ],
+        [
+          -3.981629405054046e-6,
+          -0.00006231781053436595,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 311,
+    "spatial_coverage": 0.9176050816973049,
+    "uncertainty_px": 0.853210662169492,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8739829765820588,
+    "reprojection_error": 0.8173050436587682,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 25,
+    "transform": {
+      "values": [
+        [
+          0.9643874710791974,
+          -0.04230388170255213,
+          21.793790019755875
+        ],
+        [
+          -0.0008586103763119255,
+          0.953739935198477,
+          5.077196677628844
+        ],
+        [
+          -4.487418393956245e-6,
+          -0.00006471778590027773,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 314,
+    "spatial_coverage": 0.9270358507831891,
+    "uncertainty_px": 0.8732146682378991,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8763333703964616,
+    "reprojection_error": 0.8407546679251867,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 26,
+    "transform": {
+      "values": [
+        [
+          0.9666966972650698,
+          -0.04270381017696217,
+          20.101373301056874
+        ],
+        [
+          -0.000924871058224886,
+          0.9559167068213356,
+          4.491114191119454
+        ],
+        [
+          -4.943888093140304e-6,
+          -0.0000653016535186351,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 322,
+    "spatial_coverage": 0.9452250917752583,
+    "uncertainty_px": 0.8110498477210099,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8958353212010894,
+    "reprojection_error": 0.7885244569598575,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 27,
+    "transform": {
+      "values": [
+        [
+          0.9694065102941151,
+          -0.043226900310957855,
+          18.304545376556543
+        ],
+        [
+          -0.0009647627205981714,
+          0.9581798887265676,
+          3.920407179186382
+        ],
+        [
+          -4.948318737092469e-6,
+          -0.00006640555201131327,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 296,
+    "spatial_coverage": 0.9452250917752583,
+    "uncertainty_px": 0.8279450909689077,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8750186490783326,
+    "reprojection_error": 0.8049504664643141,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 28,
+    "transform": {
+      "values": [
+        [
+          0.9719384847740022,
+          -0.0435909914574964,
+          16.565966622463588
+        ],
+        [
+          -0.001008554306257248,
+          0.9611382588862879,
+          3.2501441647239746
+        ],
+        [
+          -5.1929179974682515e-6,
+          -0.00006683991974438019,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 312,
+    "spatial_coverage": 0.9452250917752583,
+    "uncertainty_px": 0.9299981498343242,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8564371719743524,
+    "reprojection_error": 0.9041691927227105,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 29,
+    "transform": {
+      "values": [
+        [
+          0.9763336167482658,
+          -0.04106774675912656,
+          14.19997306995587
+        ],
+        [
+          -0.0008021489866138089,
+          0.9653301341174123,
+          2.4710883485396917
+        ],
+        [
+          -4.053388756248579e-6,
+          -0.0000637337422237803,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 317,
+    "spatial_coverage": 0.9457795312007268,
+    "uncertainty_px": 0.8689156482470495,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8421542398698946,
+    "reprojection_error": 0.8450308685758487,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 30,
+    "transform": {
+      "values": [
+        [
+          0.9796498872307675,
+          -0.04104307779117465,
+          12.227553633082179
+        ],
+        [
+          -0.0007112123530133894,
+          0.968288344063947,
+          1.7959187376717347
+        ],
+        [
+          -3.6461986401206997e-6,
+          -0.00006392245683543873,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 317,
+    "spatial_coverage": 0.9452242051561672,
+    "uncertainty_px": 0.8033490018685941,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8539362243838067,
+    "reprojection_error": 0.7810371213746861,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 31,
+    "transform": {
+      "values": [
+        [
+          0.9831210532903141,
+          -0.04098158025454524,
+          10.187273394919236
+        ],
+        [
+          -0.0006894574469974684,
+          0.9708472930084243,
+          1.2292653149467703
+        ],
+        [
+          -3.001764962895819e-6,
+          -0.00006507430729490561,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 316,
+    "spatial_coverage": 0.9452242051561672,
+    "uncertainty_px": 0.8369249622346417,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8486380947998134,
+    "reprojection_error": 0.8136805570056398,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 32,
+    "transform": {
+      "values": [
+        [
+          0.9870854690238223,
+          -0.04008861418160457,
+          7.989588695270582
+        ],
+        [
+          -0.0005734198552261278,
+          0.9739571425878011,
+          0.6049824847417314
+        ],
+        [
+          -2.114283470911065e-6,
+          -0.00006429893272134937,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 282,
+    "spatial_coverage": 0.8633050153652828,
+    "uncertainty_px": 1.181320048462371,
+    "measurement_source": "root",
+    "inlier_ratio": 0.7847531001805264,
+    "reprojection_error": 1.0976141736734384,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 33,
+    "transform": {
+      "values": [
+        [
+          0.9906488993860274,
+          -0.03986558664858976,
+          5.941428439097706
+        ],
+        [
+          -0.0004719996872734884,
+          0.9768867585230085,
+          0.012998903066202439
+        ],
+        [
+          -1.3270861165560452e-6,
+          -0.00006511908177899018,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 356,
+    "spatial_coverage": 0.9449541722734769,
+    "uncertainty_px": 0.820517170536845,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8509785349695592,
+    "reprojection_error": 0.7976145122852081,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 34,
+    "transform": {
+      "values": [
+        [
+          0.994115644644443,
+          -0.03939181857743254,
+          3.876959381393789
+        ],
+        [
+          -0.0003915703244826938,
+          0.9793292590408722,
+          -0.538891421882717
+        ],
+        [
+          -8.165335190529832e-7,
+          -0.00006526222492329525,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 328,
+    "spatial_coverage": 0.9434096922477085,
+    "uncertainty_px": 0.75493142364055,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8423288911611685,
+    "reprojection_error": 0.7332594519682791,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 35,
+    "transform": {
+      "values": [
+        [
+          0.9968069012479549,
+          -0.04084779399266632,
+          2.222151821373714
+        ],
+        [
+          -0.00039079978788994436,
+          0.9815302790899404,
+          -1.0554659893829854
+        ],
+        [
+          -5.614500268791772e-7,
+          -0.00006792901912963377,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 331,
+    "spatial_coverage": 0.9811855152249336,
+    "uncertainty_px": 0.812793641888764,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8414482295710319,
+    "reprojection_error": 0.8051111881512684,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 36,
+    "transform": {
+      "values": [
+        [
+          0.9983150065810166,
+          -0.04313427870283357,
+          0.9213283958467109
+        ],
+        [
+          -0.0005632421338862206,
+          0.9825239548880612,
+          -1.371870492166921
+        ],
+        [
+          -1.2963984541416198e-6,
+          -0.00007103315248541608,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 313,
+    "spatial_coverage": 0.9267762174208958,
+    "uncertainty_px": 0.9973854781929946,
+    "measurement_source": "root",
+    "inlier_ratio": 0.7917574003997107,
+    "reprojection_error": 0.960175192007305,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 37,
+    "transform": {
+      "values": [
+        [
+          1.0009336737350032,
+          -0.043003138173470276,
+          -0.7853440763476982
+        ],
+        [
+          -0.0005465011982718938,
+          0.9848849523204295,
+          -1.8533114501814025
+        ],
+        [
+          -1.2528005862033784e-6,
+          -0.00007125763461687253,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 348,
+    "spatial_coverage": 0.9251403426130612,
+    "uncertainty_px": 0.8860941458291105,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8380787013453175,
+    "reprojection_error": 0.8522827080442,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 38,
+    "transform": {
+      "values": [
+        [
+          1.0051264649575005,
+          -0.04315991248219425,
+          -2.9441609346656072
+        ],
+        [
+          -0.00020517904444335077,
+          0.9884175864780105,
+          -2.6043057482428
+        ],
+        [
+          1.4546969457872173e-7,
+          -0.00007262433000766663,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 339,
+    "spatial_coverage": 0.9986704468727111,
+    "uncertainty_px": 1.064715201527871,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8085851471848022,
+    "reprojection_error": 1.0640071683947456,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 39,
+    "transform": {
+      "values": [
+        [
+          1.0068401167488257,
+          -0.04430573118955946,
+          -4.28257281343803
+        ],
+        [
+          -0.0002871459742240658,
+          0.9899083269717306,
+          -3.0074817731105914
+        ],
+        [
+          -3.372737788753149e-7,
+          -0.00007456092827595879,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 328,
+    "spatial_coverage": 0.997881606221199,
+    "uncertainty_px": 0.9449317786209671,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8423838690957558,
+    "reprojection_error": 0.9439303791996151,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 40,
+    "transform": {
+      "values": [
+        [
+          1.0104759367859895,
+          -0.04379963794726823,
+          -6.3735681621302085
+        ],
+        [
+          -0.00024820799776826576,
+          0.9926523795935085,
+          -3.4681771466108477
+        ],
+        [
+          4.2874735058630815e-7,
+          -0.00007522535614510687,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 327,
+    "spatial_coverage": 0.997881606221199,
+    "uncertainty_px": 0.8699462191296746,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8187676149259385,
+    "reprojection_error": 0.8690242862873745,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 41,
+    "transform": {
+      "values": [
+        [
+          1.0109885347225416,
+          -0.04621397109070244,
+          -7.23266911099817
+        ],
+        [
+          -0.0005301524445886291,
+          0.9931887651751959,
+          -3.6422406576446047
+        ],
+        [
+          -8.420240238316414e-7,
+          -0.0000783441821403296,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 364,
+    "spatial_coverage": 0.9978265210986137,
+    "uncertainty_px": 0.9668142824254528,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8340458352200756,
+    "reprojection_error": 0.9657630356768714,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 42,
+    "transform": {
+      "values": [
+        [
+          1.0149201013536,
+          -0.045686195973061984,
+          -9.281145106425733
+        ],
+        [
+          -0.00029601630057472664,
+          0.9961983091424129,
+          -4.204642527714622
+        ],
+        [
+          4.7492676185478016e-7,
+          -0.00007933351802289856,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 363,
+    "spatial_coverage": 0.9978265210986137,
+    "uncertainty_px": 0.8090162642257599,
+    "measurement_source": "root",
+    "inlier_ratio": 0.843360377259206,
+    "reprojection_error": 0.808136596090135,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 43,
+    "transform": {
+      "values": [
+        [
+          1.0165348034233046,
+          -0.04666530502047997,
+          -10.551382559593943
+        ],
+        [
+          -0.00034736100926114575,
+          0.9976319127386994,
+          -4.559414734717377
+        ],
+        [
+          -1.8551229614837978e-8,
+          -0.00008113732301881185,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 368,
+    "spatial_coverage": 0.9982907339930535,
+    "uncertainty_px": 1.0096067502505603,
+    "measurement_source": "root",
+    "inlier_ratio": 0.826330214717415,
+    "reprojection_error": 1.0087435379786616,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 44,
+    "transform": {
+      "values": [
+        [
+          1.0185284460492796,
+          -0.04746641053602891,
+          -11.92927272063806
+        ],
+        [
+          -0.00045682719239374924,
+          0.9992158179711089,
+          -4.863241014843043
+        ],
+        [
+          -2.3587750176942867e-7,
+          -0.00008276425746370369,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 344,
+    "spatial_coverage": 0.9967811971902847,
+    "uncertainty_px": 1.118300004363672,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8297143220411983,
+    "reprojection_error": 1.1164987601348362,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 45,
+    "transform": {
+      "values": [
+        [
+          1.020415910077281,
+          -0.049255734895949185,
+          -13.080340867417704
+        ],
+        [
+          -0.0005071036194025876,
+          1.000429292521764,
+          -5.110788209262497
+        ],
+        [
+          -1.2793514990187626e-7,
+          -0.00008612030034908448,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 356,
+    "spatial_coverage": 0.8907885695497196,
+    "uncertainty_px": 0.89668810774739,
+    "measurement_source": "root",
+    "inlier_ratio": 0.7959119646927921,
+    "reprojection_error": 0.8463085487538172,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 46,
+    "transform": {
+      "values": [
+        [
+          1.021851380983035,
+          -0.051558312215732885,
+          -14.149622486209676
+        ],
+        [
+          -0.0005629276585987065,
+          1.0010396810450763,
+          -5.32547458562362
+        ],
+        [
+          -4.784260988840626e-7,
+          -0.00008970250694655697,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 312,
+    "spatial_coverage": 0.8614200944701831,
+    "uncertainty_px": 1.3234770384474928,
+    "measurement_source": "root",
+    "inlier_ratio": 0.6881579964366181,
+    "reprojection_error": 1.2283550344580638,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 47,
+    "transform": {
+      "values": [
+        [
+          1.0242897472539545,
+          -0.05240968624585277,
+          -15.529005376232877
+        ],
+        [
+          -0.0006927434654813016,
+          1.0027770395800388,
+          -5.512674402757251
+        ],
+        [
+          -9.318090600738054e-8,
+          -0.00009136466633272814,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 304,
+    "spatial_coverage": 0.8512457127372424,
+    "uncertainty_px": 1.2434335458095869,
+    "measurement_source": "root",
+    "inlier_ratio": 0.6903235285932369,
+    "reprojection_error": 1.1472288200240766,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 48,
+    "transform": {
+      "values": [
+        [
+          1.02644583446724,
+          -0.053445958574693905,
+          -16.83035739739427
+        ],
+        [
+          -0.0007876295255869431,
+          1.0043200540052384,
+          -5.72268388460859
+        ],
+        [
+          4.988538120880854e-8,
+          -0.00009302085575029608,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 331,
+    "spatial_coverage": 0.9449541722734769,
+    "uncertainty_px": 0.8968174119801768,
+    "measurement_source": "root",
+    "inlier_ratio": 0.77099601129795,
+    "reprojection_error": 0.8717850257751922,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 49,
+    "transform": {
+      "values": [
+        [
+          1.0290558869159605,
+          -0.05225550596692837,
+          -18.259672944186644
+        ],
+        [
+          -0.0008138368139256575,
+          1.0065441828003514,
+          -5.904996155436157
+        ],
+        [
+          6.586917777739575e-7,
+          -0.00009216305686031328,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 350,
+    "spatial_coverage": 0.9452258323629696,
+    "uncertainty_px": 0.9484935063471879,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8002017621692586,
+    "reprojection_error": 0.9221512365969593,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 50,
+    "transform": {
+      "values": [
+        [
+          1.0296030876678286,
+          -0.05278980234358939,
+          -18.89755519792557
+        ],
+        [
+          -0.001081112214674377,
+          1.0074589156391682,
+          -5.911063709940748
+        ],
+        [
+          -4.514396077018134e-8,
+          -0.00009285612030217898,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 356,
+    "spatial_coverage": 0.9443595950802166,
+    "uncertainty_px": 0.8282428644270233,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8159336735540573,
+    "reprojection_error": 0.8048712258328105,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 51,
+    "transform": {
+      "values": [
+        [
+          1.0323769750631033,
+          -0.051913750100883685,
+          -20.270570385981834
+        ],
+        [
+          -0.0009593771345338346,
+          1.009957344667209,
+          -6.1603370123728585
+        ],
+        [
+          8.93872791136865e-7,
+          -0.00009194174932337386,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 347,
+    "spatial_coverage": 0.9984212338924408,
+    "uncertainty_px": 1.008804114206392,
+    "measurement_source": "root",
+    "inlier_ratio": 0.7953061368630839,
+    "reprojection_error": 1.0080074667798642,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 52,
+    "transform": {
+      "values": [
+        [
+          1.034055315775201,
+          -0.05015364768451636,
+          -21.21598666599938
+        ],
+        [
+          -0.0010240915421292544,
+          1.0126946785589808,
+          -6.319286433950895
+        ],
+        [
+          1.173600483118418e-6,
+          -0.00008979506128538382,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 338,
+    "spatial_coverage": 0.9443617333968479,
+    "uncertainty_px": 0.9443298085738133,
+    "measurement_source": "root",
+    "inlier_ratio": 0.7966945530491758,
+    "reprojection_error": 0.9176834280971609,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 53,
+    "transform": {
+      "values": [
+        [
+          1.036613507044906,
+          -0.04747473382975524,
+          -22.362183462433176
+        ],
+        [
+          -0.000953922495628133,
+          1.0159601333215,
+          -6.494452826558307
+        ],
+        [
+          2.3907670158375885e-6,
+          -0.0000868872172686041,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 372,
+    "spatial_coverage": 0.9443617333968479,
+    "uncertainty_px": 0.829011683868378,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8370266283504867,
+    "reprojection_error": 0.80561926254758,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 54,
+    "transform": {
+      "values": [
+        [
+          1.038927743699131,
+          -0.04356590569714937,
+          -23.449335873746183
+        ],
+        [
+          -0.0008835090273586417,
+          1.01922649585344,
+          -6.66250522433299
+        ],
+        [
+          3.381570776156774e-6,
+          -0.00008209915710333836,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 378,
+    "spatial_coverage": 0.9441075240572293,
+    "uncertainty_px": 0.7658878754083256,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8563129561926637,
+    "reprojection_error": 0.744176452397927,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 55,
+    "transform": {
+      "values": [
+        [
+          1.039361286461915,
+          -0.040847095111440995,
+          -23.803374359365385
+        ],
+        [
+          -0.0009100771345569611,
+          1.0213013244658566,
+          -6.70791921354853
+        ],
+        [
+          3.1795910259521743e-6,
+          -0.00007772807457999962,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 389,
+    "spatial_coverage": 0.9984212338924408,
+    "uncertainty_px": 0.6935140914659943,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8600080464444065,
+    "reprojection_error": 0.6929664269507065,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 56,
+    "transform": {
+      "values": [
+        [
+          1.0408724913761511,
+          -0.036889168353071725,
+          -24.44057555503833
+        ],
+        [
+          -0.0008256026118110821,
+          1.024132682084505,
+          -6.824645021061582
+        ],
+        [
+          3.956641068812211e-6,
+          -0.0000718348613761708,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 381,
+    "spatial_coverage": 0.9985297247767448,
+    "uncertainty_px": 0.7748959079874908,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8580163940938341,
+    "reprojection_error": 0.7743260433189079,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 57,
+    "transform": {
+      "values": [
+        [
+          1.0416302212377764,
+          -0.03329044983475396,
+          -24.69786771049005
+        ],
+        [
+          -0.0007605787621134891,
+          1.0262829756419374,
+          -6.902756258711571
+        ],
+        [
+          4.5863427025714336e-6,
+          -0.00006690571119308254,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 416,
+    "spatial_coverage": 0.9984212338924408,
+    "uncertainty_px": 0.7248723554022254,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8788677695236045,
+    "reprojection_error": 0.7242999274270019,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 58,
+    "transform": {
+      "values": [
+        [
+          1.041917922607801,
+          -0.0286442578132321,
+          -24.802777996247496
+        ],
+        [
+          -0.000754977374342923,
+          1.0280503135128392,
+          -6.899751319991689
+        ],
+        [
+          4.8067902122181296e-6,
+          -0.00005942346759310815,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 414,
+    "spatial_coverage": 0.9976871967315675,
+    "uncertainty_px": 0.6794667007059336,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8893959672066475,
+    "reprojection_error": 0.6786805094632821,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 59,
+    "transform": {
+      "values": [
+        [
+          1.0432092452041806,
+          -0.023478942552601235,
+          -25.110291888038798
+        ],
+        [
+          -0.0005561262171983632,
+          1.0305289056725209,
+          -7.020577480582947
+        ],
+        [
+          6.0961576265107604e-6,
+          -0.00005219418194251119,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 431,
+    "spatial_coverage": 0.9985262617468833,
+    "uncertainty_px": 0.682474646743223,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8865723828103684,
+    "reprojection_error": 0.6819715668260091,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 60,
+    "transform": {
+      "values": [
+        [
+          1.0417515633623522,
+          -0.01983612259430551,
+          -24.39270736903345
+        ],
+        [
+          -0.0005559198519975783,
+          1.0314149034834375,
+          -6.955696698717605
+        ],
+        [
+          5.60664834402476e-6,
+          -0.00004563447219661757,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 431,
+    "spatial_coverage": 0.9978570625185966,
+    "uncertainty_px": 0.6655538713705257,
+    "measurement_source": "root",
+    "inlier_ratio": 0.8921810047653953,
+    "reprojection_error": 0.6648403687492186,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 61,
+    "transform": {
+      "values": [
+        [
+          1.0378776941402372,
+          -0.017534833443214357,
+          -22.685261313597312
+        ],
+        [
+          -0.0007664154155203827,
+          1.030305536943629,
+          -6.590031599589538
+        ],
+        [
+          3.6955497525099952e-6,
+          -0.000040295011186740966,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 442,
+    "spatial_coverage": 0.9978589922189712,
+    "uncertainty_px": 0.6321189078283921,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9001821965516341,
+    "reprojection_error": 0.6314418594926767,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 62,
+    "transform": {
+      "values": [
+        [
+          1.037991635708979,
+          -0.012718972376033883,
+          -22.155901551431064
+        ],
+        [
+          -0.0007326462054458032,
+          1.0315877330223322,
+          -6.36732594254733
+        ],
+        [
+          4.865675937739984e-6,
+          -0.000031562905187695335,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 467,
+    "spatial_coverage": 0.9978589922189712,
+    "uncertainty_px": 0.712431215494192,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9155884065800438,
+    "reprojection_error": 0.7116681464532435,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 63,
+    "transform": {
+      "values": [
+        [
+          1.0356545169727949,
+          -0.008714957228511237,
+          -20.80168714559077
+        ],
+        [
+          -0.0009264437229946575,
+          1.0313350857724861,
+          -5.909108989988338
+        ],
+        [
+          4.3155011120898704e-6,
+          -0.00002400741702270735,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 477,
+    "spatial_coverage": 0.996852721273899,
+    "uncertainty_px": 0.6148847251754783,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9220852603325244,
+    "reprojection_error": 0.6139163558356998,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 64,
+    "transform": {
+      "values": [
+        [
+          1.0334149700352668,
+          -0.006349090059583017,
+          -19.311072000036905
+        ],
+        [
+          -0.0010523651854595776,
+          1.0304823163229746,
+          -5.3601158833218125
+        ],
+        [
+          4.287876513744928e-6,
+          -0.00001893998764005153,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 535,
+    "spatial_coverage": 0.9977407172322272,
+    "uncertainty_px": 0.5323088068498465,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9266616983736253,
+    "reprojection_error": 0.5317071487715301,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 65,
+    "transform": {
+      "values": [
+        [
+          1.029480645531698,
+          -0.0035563118356505656,
+          -17.24329547615167
+        ],
+        [
+          -0.0010682001802043686,
+          1.0284308157048516,
+          -4.782994532701801
+        ],
+        [
+          3.189327104958409e-6,
+          -0.000013107655140265358,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 589,
+    "spatial_coverage": 0.9820821270346641,
+    "uncertainty_px": 0.4760774290499603,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9228160520323018,
+    "reprojection_error": 0.47179300290274456,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 66,
+    "transform": {
+      "values": [
+        [
+          1.0250905353724742,
+          -0.002101814258010974,
+          -14.859617824283887
+        ],
+        [
+          -0.0010879766610878932,
+          1.0260584782018851,
+          -4.202331789431101
+        ],
+        [
+          2.0814738122375485e-6,
+          -8.873218677378312e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 620,
+    "spatial_coverage": 0.997859638929367,
+    "uncertainty_px": 0.4138671841215983,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9253654939759134,
+    "reprojection_error": 0.4134240342647503,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 67,
+    "transform": {
+      "values": [
+        [
+          1.0233014335611734,
+          0.0009752071429458709,
+          -13.235159837656
+        ],
+        [
+          -0.0008860870176284079,
+          1.024966537827666,
+          -3.733619298934072
+        ],
+        [
+          3.1997047689821635e-6,
+          -4.307194918741762e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 633,
+    "spatial_coverage": 0.997859638929367,
+    "uncertainty_px": 0.39275325594331456,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9254385964912281,
+    "reprojection_error": 0.3923327139051308,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 68,
+    "transform": {
+      "values": [
+        [
+          1.0178386012026375,
+          0.002100846097723366,
+          -10.496539074506245
+        ],
+        [
+          -0.0007988174681750625,
+          1.0206186619431181,
+          -3.030691515097878
+        ],
+        [
+          1.8026100864382435e-6,
+          -2.732338177155213e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 629,
+    "spatial_coverage": 0.9985301733016967,
+    "uncertainty_px": 0.3022311808014484,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9236417033773862,
+    "reprojection_error": 0.3020089853949385,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 69,
+    "transform": {
+      "values": [
+        [
+          1.0131882857281604,
+          0.0025168273256813024,
+          -7.925976087271868
+        ],
+        [
+          -0.0007185302759674829,
+          1.0162393621528822,
+          -2.344772965777003
+        ],
+        [
+          1.0038819348075048e-6,
+          -1.5506643552848053e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 681,
+    "spatial_coverage": 0.9985301733016967,
+    "uncertainty_px": 0.29385530693600254,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9079925030890108,
+    "reprojection_error": 0.2936392693345658,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 70,
+    "transform": {
+      "values": [
+        [
+          1.0103881475756276,
+          0.005659979192987409,
+          -5.9805952474955735
+        ],
+        [
+          -0.0003582632661614192,
+          1.014401164151368,
+          -1.9624676826355654
+        ],
+        [
+          1.4074215381843208e-6,
+          4.196883665790412e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 702,
+    "spatial_coverage": 0.9985301733016967,
+    "uncertainty_px": 0.24096848545916008,
+    "measurement_source": "root",
+    "inlier_ratio": 0.9023136246786633,
+    "reprojection_error": 0.24079132938135006,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 71,
+    "transform": {
+      "values": [
+        [
+          1.0058703178211978,
+          0.006720769594881823,
+          -3.331223752455947
+        ],
+        [
+          -0.0004007352193961868,
+          1.0117245848700651,
+          -1.339705791676408
+        ],
+        [
+          6.147493861559427e-7,
+          8.452638904292108e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 756,
+    "spatial_coverage": 0.9958031624555588,
+    "uncertainty_px": 0.2049551451971055,
+    "measurement_source": "root",
+    "inlier_ratio": 0.908632175184858,
+    "reprojection_error": 0.20452461127778526,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 72,
+    "transform": {
+      "values": [
+        [
+          1.0005462836406853,
+          0.003494016704276592,
+          -0.22192316042386073
+        ],
+        [
+          -0.0002871932278697938,
+          1.004299272464197,
+          -0.35315835215504654
+        ],
+        [
+          4.13832499414492e-7,
+          3.1059785842011786e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1233,
+    "spatial_coverage": 1.0,
+    "uncertainty_px": 0.25,
+    "measurement_source": "reference-frame",
+    "inlier_ratio": 1.0,
+    "reprojection_error": 0.0,
+    "ecc": 1.0,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 73,
+    "transform": {
+      "values": [
+        [
+          0.99777921979308,
+          0.005159056103519838,
+          1.4005482793836868
+        ],
+        [
+          -0.0004768069015789455,
+          1.0025361647508966,
+          0.18441684094575436
+        ],
+        [
+          2.465528301425491e-7,
+          6.0322237208672255e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1122,
+    "spatial_coverage": 0.9999816522002221,
+    "uncertainty_px": 0.30929201614310575,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9883095969540007,
+    "reprojection_error": 0.30928917871609807,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 74,
+    "transform": {
+      "values": [
+        [
+          0.9955874764598633,
+          0.006780606758566964,
+          2.630329236039758
+        ],
+        [
+          -0.0007751264949311901,
+          1.001617029618332,
+          0.6210706266933532
+        ],
+        [
+          -1.4188935791411717e-7,
+          9.589401545868197e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1052,
+    "spatial_coverage": 0.9999816522002221,
+    "uncertainty_px": 0.2842951965775996,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9221335055541311,
+    "reprojection_error": 0.284292588469964,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.003971172447289135
+  },
+  {
+    "frame": 75,
+    "transform": {
+      "values": [
+        [
+          0.9938568203627577,
+          0.008266530359930222,
+          3.459842888437413
+        ],
+        [
+          -0.0011954027742867063,
+          1.0009742904982233,
+          1.036015008373666
+        ],
+        [
+          -5.041986997418548e-7,
+          0.000011134852749883948,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 961,
+    "spatial_coverage": 0.9984490945935249,
+    "uncertainty_px": 0.5338250915591544,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8955192046783245,
+    "reprojection_error": 0.23662169128064342,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.005347003814117188
+  },
+  {
+    "frame": 76,
+    "transform": {
+      "values": [
+        [
+          0.9922574220937606,
+          0.00772667469958265,
+          4.216925184474697
+        ],
+        [
+          -0.0016752638732702467,
+          1.000415874277859,
+          1.4234498900789871
+        ],
+        [
+          -1.033553015285704e-6,
+          0.000011355787331650502,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 889,
+    "spatial_coverage": 0.9983939990401268,
+    "uncertainty_px": 0.7093420740535643,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8977770302270957,
+    "reprojection_error": 0.24777141991844254,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0054479216976768855
+  },
+  {
+    "frame": 77,
+    "transform": {
+      "values": [
+        [
+          0.9920711796935728,
+          0.0071499874125328135,
+          4.227665960622325
+        ],
+        [
+          -0.002147026943604106,
+          1.0003090337926428,
+          1.664483003731552
+        ],
+        [
+          -1.0139531096754256e-6,
+          9.614515003301179e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 860,
+    "spatial_coverage": 0.9973759204149246,
+    "uncertainty_px": 0.6195877440249502,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8873503587855555,
+    "reprojection_error": 0.2703770998818721,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0051395889800278085
+  },
+  {
+    "frame": 78,
+    "transform": {
+      "values": [
+        [
+          0.9911435228404998,
+          0.004773763360242685,
+          4.545683550627423
+        ],
+        [
+          -0.002601998876404496,
+          0.999610810649279,
+          1.8684626847682084
+        ],
+        [
+          -1.611337614722802e-6,
+          6.330705643029812e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 830,
+    "spatial_coverage": 0.9985301733016967,
+    "uncertainty_px": 0.7234731845442033,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9040129840719578,
+    "reprojection_error": 0.32021532885175674,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.004816421423695193
+  },
+  {
+    "frame": 79,
+    "transform": {
+      "values": [
+        [
+          0.9912978493368436,
+          0.001786678211466562,
+          4.425811485613355
+        ],
+        [
+          -0.0029927846668357755,
+          0.9995448269462904,
+          1.924411750577963
+        ],
+        [
+          -1.6536862684187552e-6,
+          2.0381102676654377e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 819,
+    "spatial_coverage": 0.9985284000635146,
+    "uncertainty_px": 0.40130108568770306,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9047520631534032,
+    "reprojection_error": 0.2785968332772242,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.005780389948034357
+  },
+  {
+    "frame": 80,
+    "transform": {
+      "values": [
+        [
+          0.9896157675808138,
+          -0.0023151660452067676,
+          4.7638121244561855
+        ],
+        [
+          -0.0034436112808896237,
+          0.9983346686787623,
+          1.9493495171856687
+        ],
+        [
+          -3.2741426163871166e-6,
+          -4.3008082914309095e-6,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 838,
+    "spatial_coverage": 0.9985290050506591,
+    "uncertainty_px": 0.7927610321358725,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9057694307193042,
+    "reprojection_error": 0.44107052492543297,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0012584928692400198
+  },
+  {
+    "frame": 81,
+    "transform": {
+      "values": [
+        [
+          0.9885180555396278,
+          -0.0076620829941054,
+          4.9080455101941975
+        ],
+        [
+          -0.003923112552834432,
+          0.995940349592944,
+          2.0580564797429712
+        ],
+        [
+          -4.454609572506901e-6,
+          -0.000013217601612474406,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 831,
+    "spatial_coverage": 0.9978579491376877,
+    "uncertainty_px": 0.6230229344080274,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9130559026910139,
+    "reprojection_error": 0.3585080593209864,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0015177975894048235
+  },
+  {
+    "frame": 82,
+    "transform": {
+      "values": [
+        [
+          0.9893595734783883,
+          -0.014828307194010768,
+          4.648529419364848
+        ],
+        [
+          -0.0039763501473229585,
+          0.9936873816005726,
+          1.9042792207268238
+        ],
+        [
+          -3.880991833152661e-6,
+          -0.000024686737095361097,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 796,
+    "spatial_coverage": 0.9965160876512528,
+    "uncertainty_px": 0.7229766006237162,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8954376357905686,
+    "reprojection_error": 0.4262414502573113,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001430507856672512
+  },
+  {
+    "frame": 83,
+    "transform": {
+      "values": [
+        [
+          0.9888939006768954,
+          -0.02109862434729714,
+          4.598968413685394
+        ],
+        [
+          -0.00399983457116374,
+          0.9909594626491462,
+          1.6727921120188762
+        ],
+        [
+          -4.687449275362515e-6,
+          -0.00003507236193252793,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 774,
+    "spatial_coverage": 0.9984486147761344,
+    "uncertainty_px": 0.5226989954721607,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9059606501848587,
+    "reprojection_error": 0.5222933843472706,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0014872905459504047
+  },
+  {
+    "frame": 84,
+    "transform": {
+      "values": [
+        [
+          0.9906558267581037,
+          -0.026614780134182284,
+          3.842696161210723
+        ],
+        [
+          -0.0037722986204229425,
+          0.9886769636746072,
+          1.291023290939148
+        ],
+        [
+          -3.9578540987704705e-6,
+          -0.000043915055141295625,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 726,
+    "spatial_coverage": 0.9827068388462066,
+    "uncertainty_px": 0.5406552930531048,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.914789271683072,
+    "reprojection_error": 0.5359600862308813,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0012607354336342444
+  },
+  {
+    "frame": 85,
+    "transform": {
+      "values": [
+        [
+          0.9925182881500797,
+          -0.03288480804514421,
+          3.1500944441980057
+        ],
+        [
+          -0.003416550929769075,
+          0.9858526823994832,
+          0.8776229362881953
+        ],
+        [
+          -2.890747512352102e-6,
+          -0.000055327239177781836,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 746,
+    "spatial_coverage": 0.9963720694184303,
+    "uncertainty_px": 0.555876075794184,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.913527416162096,
+    "reprojection_error": 0.5548668196771915,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0012214374667310515
+  },
+  {
+    "frame": 86,
+    "transform": {
+      "values": [
+        [
+          0.9951558456885634,
+          -0.03650306875224857,
+          2.1550383927754915
+        ],
+        [
+          -0.002849283337214992,
+          0.985085936433921,
+          0.20641952289493243
+        ],
+        [
+          -1.532971928366307e-6,
+          -0.00006150247960885707,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 741,
+    "spatial_coverage": 0.9984478533267974,
+    "uncertainty_px": 0.62174568100158,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9444326731533681,
+    "reprojection_error": 0.6212629733754098,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0012842179060226038
+  },
+  {
+    "frame": 87,
+    "transform": {
+      "values": [
+        [
+          0.9943998611882974,
+          -0.04296593753800912,
+          2.3419089049457718
+        ],
+        [
+          -0.0026720910788484535,
+          0.9810535516979618,
+          -0.08238317214805058
+        ],
+        [
+          -2.4689786822070533e-6,
+          -0.00007143997521627638,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 700,
+    "spatial_coverage": 0.996316984295845,
+    "uncertainty_px": 0.614970015386438,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9211937504377096,
+    "reprojection_error": 0.6138364986215448,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0008484089857903795
+  },
+  {
+    "frame": 88,
+    "transform": {
+      "values": [
+        [
+          0.9958162700142225,
+          -0.04889002565244994,
+          1.915526957189087
+        ],
+        [
+          -0.002125208821620024,
+          0.978470532087902,
+          -0.6237908596207852
+        ],
+        [
+          -1.7761341276500657e-6,
+          -0.00007969363450443652,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 693,
+    "spatial_coverage": 0.994715416431427,
+    "uncertainty_px": 0.6309977511985794,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.947023013109804,
+    "reprojection_error": 0.6252685259235087,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0007812369910623786
+  },
+  {
+    "frame": 89,
+    "transform": {
+      "values": [
+        [
+          0.9969373830500017,
+          -0.05314651788290174,
+          1.566151642155674
+        ],
+        [
+          -0.001634288443971118,
+          0.9758761511815719,
+          -1.0756339082621793
+        ],
+        [
+          -1.1635053512018706e-6,
+          -0.00008685455687945201,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 702,
+    "spatial_coverage": 0.9959581643342972,
+    "uncertainty_px": 0.650639943217049,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9569863953429556,
+    "reprojection_error": 0.6493237220189702,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 90,
+    "transform": {
+      "values": [
+        [
+          0.9987798168329228,
+          -0.05657170919257748,
+          0.8316646184936971
+        ],
+        [
+          -0.0011624654226810374,
+          0.9738888937865947,
+          -1.5443039100375655
+        ],
+        [
+          -2.9144992072847195e-7,
+          -0.00009327400554037895,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 666,
+    "spatial_coverage": 0.9957703888416289,
+    "uncertainty_px": 0.6404336642269661,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9507186682550589,
+    "reprojection_error": 0.6390778363654313,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 91,
+    "transform": {
+      "values": [
+        [
+          0.9996276601585576,
+          -0.06067361155830753,
+          0.5740853596852737
+        ],
+        [
+          -0.0007584907115872928,
+          0.9713505008338765,
+          -1.8913531342527112
+        ],
+        [
+          1.399815906230988e-7,
+          -0.00010016766974540179,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 652,
+    "spatial_coverage": 0.9966763153672218,
+    "uncertainty_px": 0.7834165035612326,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9609502663013417,
+    "reprojection_error": 0.5982047474591896,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 92,
+    "transform": {
+      "values": [
+        [
+          0.9993493076178643,
+          -0.06404821193157229,
+          0.642738613090863
+        ],
+        [
+          -0.00055015972115412,
+          0.9687654570115243,
+          -2.1004431854410623
+        ],
+        [
+          -4.300500161818503e-7,
+          -0.00010486972705671255,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 649,
+    "spatial_coverage": 0.9775004237890244,
+    "uncertainty_px": 0.6199792106496469,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9556342249888482,
+    "reprojection_error": 0.6129648966657766,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 93,
+    "transform": {
+      "values": [
+        [
+          1.00131230191788,
+          -0.06715341598224256,
+          0.07305152400687831
+        ],
+        [
+          -0.00008672180047789573,
+          0.9672516747868105,
+          -2.3810549630988938
+        ],
+        [
+          9.094635569930672e-7,
+          -0.00010953876058910756,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 671,
+    "spatial_coverage": 0.9985290050506591,
+    "uncertainty_px": 0.6719077240357249,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9557603275527558,
+    "reprojection_error": 0.664404527274068,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 94,
+    "transform": {
+      "values": [
+        [
+          1.0021757790132984,
+          -0.0695499213479633,
+          -0.19837819622241426
+        ],
+        [
+          0.0003154788702675315,
+          0.9662219869739378,
+          -2.6917443506709393
+        ],
+        [
+          1.4479747297418144e-6,
+          -0.00011375246109899437,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 647,
+    "spatial_coverage": 0.970839661359787,
+    "uncertainty_px": 0.7447298115021673,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9479221431009079,
+    "reprojection_error": 0.7337911913151935,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 95,
+    "transform": {
+      "values": [
+        [
+          1.0043226254533937,
+          -0.07019708447558173,
+          -0.8346368512554392
+        ],
+        [
+          0.0007281408803003639,
+          0.9664385887335862,
+          -2.9546262432262416
+        ],
+        [
+          3.058958211243131e-6,
+          -0.00011539996527166301,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 646,
+    "spatial_coverage": 0.9982071414589881,
+    "uncertainty_px": 0.7531768214498175,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9408159336469072,
+    "reprojection_error": 0.7487008238253854,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 96,
+    "transform": {
+      "values": [
+        [
+          1.0075391079869584,
+          -0.07232212416110681,
+          -1.7416319435686418
+        ],
+        [
+          0.0012867274193979154,
+          0.9681280738297704,
+          -3.3412442455406697
+        ],
+        [
+          5.685197658045696e-6,
+          -0.00011920951899439667,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 572,
+    "spatial_coverage": 0.9894036188721657,
+    "uncertainty_px": 0.805081738770314,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9353180187504527,
+    "reprojection_error": 0.8008049023780122,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 97,
+    "transform": {
+      "values": [
+        [
+          1.0065730445256358,
+          -0.0715275574037939,
+          -1.4909444504976577
+        ],
+        [
+          0.0015776575731808286,
+          0.9682220873002569,
+          -3.4399420851480613
+        ],
+        [
+          4.75934427485883e-6,
+          -0.00011676947940047803,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 620,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.7758678912283253,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9426290985115339,
+    "reprojection_error": 0.7545622724276226,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 98,
+    "transform": {
+      "values": [
+        [
+          1.0069714038722044,
+          -0.07038201542392591,
+          -1.6398119222366816
+        ],
+        [
+          0.0019517978727784022,
+          0.9696073466066907,
+          -3.6183545075249457
+        ],
+        [
+          5.045632347376799e-6,
+          -0.00011399732024941591,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 585,
+    "spatial_coverage": 0.9845572337508202,
+    "uncertainty_px": 0.7567919442145975,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.931758980918067,
+    "reprojection_error": 0.7509257278985699,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 99,
+    "transform": {
+      "values": [
+        [
+          1.0093984179926108,
+          -0.06785835281898367,
+          -2.4496900583264605
+        ],
+        [
+          0.002323625671892917,
+          0.9722740788629112,
+          -3.767643662538334
+        ],
+        [
+          7.139085017648359e-6,
+          -0.00011154936064575837,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 589,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.7441737471961456,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9417302889465275,
+    "reprojection_error": 0.723738461294379,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 100,
+    "transform": {
+      "values": [
+        [
+          1.0110060236084333,
+          -0.06589247408109568,
+          -2.9445475418561173
+        ],
+        [
+          0.0027520470185760054,
+          0.9742932647280982,
+          -3.8895471492864497
+        ],
+        [
+          8.686378027442866e-6,
+          -0.00010927954202198446,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 585,
+    "spatial_coverage": 0.9857194244861602,
+    "uncertainty_px": 0.7587913970119092,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9236520011423018,
+    "reprojection_error": 0.7392725539035967,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 101,
+    "transform": {
+      "values": [
+        [
+          1.0133351524868932,
+          -0.06306489144041671,
+          -3.610345307000891
+        ],
+        [
+          0.003125738647198662,
+          0.9771826921876641,
+          -3.999144596822937
+        ],
+        [
+          0.000010845741828140044,
+          -0.00010505997430726463,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 639,
+    "spatial_coverage": 0.9313958992560704,
+    "uncertainty_px": 0.7338372401434041,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9530348006545738,
+    "reprojection_error": 0.7029999979209018,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 102,
+    "transform": {
+      "values": [
+        [
+          1.0149681034737252,
+          -0.061572029468337015,
+          -4.1090286713167075
+        ],
+        [
+          0.003516038467529136,
+          0.9785973832552968,
+          -4.027129772580348
+        ],
+        [
+          0.000012336758539510551,
+          -0.00010210995198643438,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 601,
+    "spatial_coverage": 0.9430612822373707,
+    "uncertainty_px": 0.753131716956527,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9361112961441083,
+    "reprojection_error": 0.7293295551053424,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 103,
+    "transform": {
+      "values": [
+        [
+          1.0162843118466447,
+          -0.058082871026263964,
+          -4.544027400286659
+        ],
+        [
+          0.0038114267309894236,
+          0.9812670391267461,
+          -4.0762668690658845
+        ],
+        [
+          0.000013745124748911,
+          -0.00009741779701979503,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 621,
+    "spatial_coverage": 0.9299412493904431,
+    "uncertainty_px": 0.7808816181615791,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9440827408704966,
+    "reprojection_error": 0.7504436654453569,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 104,
+    "transform": {
+      "values": [
+        [
+          1.0170504570067818,
+          -0.05501788771077715,
+          -4.845192923437615
+        ],
+        [
+          0.004017286229271501,
+          0.9832172466893038,
+          -4.020125285149529
+        ],
+        [
+          0.000014459364944431273,
+          -0.00009206792445581368,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 631,
+    "spatial_coverage": 0.9446165894468624,
+    "uncertainty_px": 0.7336899563944781,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.938337883861099,
+    "reprojection_error": 0.7130834519760287,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 105,
+    "transform": {
+      "values": [
+        [
+          1.015158893136484,
+          -0.05313491885240221,
+          -4.205487482182111
+        ],
+        [
+          0.004065059934855747,
+          0.9838903234791386,
+          -3.8535824326917067
+        ],
+        [
+          0.00001321227454626679,
+          -0.00008723496859720084,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 616,
+    "spatial_coverage": 0.9446165894468624,
+    "uncertainty_px": 0.7610405321459494,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9379808172123544,
+    "reprojection_error": 0.7396658561651694,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 106,
+    "transform": {
+      "values": [
+        [
+          1.0170673418338452,
+          -0.04975931084238482,
+          -4.770481642363812
+        ],
+        [
+          0.0044740151191739515,
+          0.9866515031911305,
+          -3.941025440881132
+        ],
+        [
+          0.000014978604027781498,
+          -0.00008167180708279695,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 626,
+    "spatial_coverage": 0.9789473965764045,
+    "uncertainty_px": 0.7230142860865946,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9098406294586718,
+    "reprojection_error": 0.7153631362098751,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 107,
+    "transform": {
+      "values": [
+        [
+          1.0170460439936648,
+          -0.04811098549147374,
+          -4.694768637453873
+        ],
+        [
+          0.004705225832418113,
+          0.9876526991518929,
+          -3.8628134700917767
+        ],
+        [
+          0.00001517604712441051,
+          -0.00007750218626422756,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 642,
+    "spatial_coverage": 0.973630404472351,
+    "uncertainty_px": 0.6949977067655757,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9354745202752117,
+    "reprojection_error": 0.6719115745818613,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 108,
+    "transform": {
+      "values": [
+        [
+          1.017933132625334,
+          -0.044051884863975016,
+          -5.011678621345531
+        ],
+        [
+          0.004958231878549846,
+          0.9900772470520585,
+          -3.868476316102581
+        ],
+        [
+          0.000016070537823693292,
+          -0.00007099017571519013,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 588,
+    "spatial_coverage": 0.973630404472351,
+    "uncertainty_px": 0.6883381304250171,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9435304255328245,
+    "reprojection_error": 0.6614965895567855,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 109,
+    "transform": {
+      "values": [
+        [
+          1.0182687640124075,
+          -0.04088133098239509,
+          -5.1480246349028995
+        ],
+        [
+          0.005213664453211821,
+          0.9913751634557069,
+          -3.8233525953992253
+        ],
+        [
+          0.000016499945362044353,
+          -0.00006606599950278147,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 648,
+    "spatial_coverage": 0.9751380532979965,
+    "uncertainty_px": 0.7252523398643337,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9246900895855871,
+    "reprojection_error": 0.7053366427950759,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 110,
+    "transform": {
+      "values": [
+        [
+          1.0199037044810453,
+          -0.03794617328892291,
+          -5.609053087830951
+        ],
+        [
+          0.005607140705393459,
+          0.9935503594915237,
+          -3.897920578813083
+        ],
+        [
+          0.000018121042705432454,
+          -0.000061887970396677,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 624,
+    "spatial_coverage": 0.9730034291744232,
+    "uncertainty_px": 0.6891200543620662,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9263103119960708,
+    "reprojection_error": 0.6629827438691853,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 111,
+    "transform": {
+      "values": [
+        [
+          1.0206142561305196,
+          -0.035852921001409896,
+          -5.822424609809481
+        ],
+        [
+          0.005825130609944302,
+          0.9949983755665371,
+          -3.8684352166521223
+        ],
+        [
+          0.000018830206327656218,
+          -0.00005806362601481261,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 641,
+    "spatial_coverage": 0.9884940937161445,
+    "uncertainty_px": 0.7093645542950147,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9291979742852542,
+    "reprojection_error": 0.7052718065003631,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 112,
+    "transform": {
+      "values": [
+        [
+          1.022170864270975,
+          -0.03292625070104693,
+          -6.331283482748201
+        ],
+        [
+          0.006083097580561416,
+          0.9966506839849294,
+          -3.8415201136356742
+        ],
+        [
+          0.00002013193593185786,
+          -0.00005346646423570501,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 608,
+    "spatial_coverage": 0.9797481805086136,
+    "uncertainty_px": 0.7076148831370769,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9197482756443788,
+    "reprojection_error": 0.7004129893291976,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 113,
+    "transform": {
+      "values": [
+        [
+          1.0230671636492648,
+          -0.030370034811989143,
+          -6.630810520700843
+        ],
+        [
+          0.006298622104131359,
+          0.9984438094244877,
+          -3.8937237159550415
+        ],
+        [
+          0.00002095128909883258,
+          -0.00004972601176951553,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 628,
+    "spatial_coverage": 0.9835108041763305,
+    "uncertainty_px": 0.6377088186667599,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9270320637161533,
+    "reprojection_error": 0.6324293117020818,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 114,
+    "transform": {
+      "values": [
+        [
+          1.0233925598501328,
+          -0.028499862593268022,
+          -6.739275654772239
+        ],
+        [
+          0.0063410474753689714,
+          0.9996316832108589,
+          -3.835768593292052
+        ],
+        [
+          0.00002133275627886065,
+          -0.00004692887715380705,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 615,
+    "spatial_coverage": 0.9817653328180314,
+    "uncertainty_px": 0.7282520154420558,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9189066223573341,
+    "reprojection_error": 0.6273072075857506,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 115,
+    "transform": {
+      "values": [
+        [
+          1.0246959691347324,
+          -0.02740327177316933,
+          -7.124939543901267
+        ],
+        [
+          0.006527767760266377,
+          1.001006913526635,
+          -3.8612196362079203
+        ],
+        [
+          0.000022548925309701922,
+          -0.00004554640380842315,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 601,
+    "spatial_coverage": 0.9957181409001351,
+    "uncertainty_px": 0.6679908934129016,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9200566627615385,
+    "reprojection_error": 0.6665592377891445,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 116,
+    "transform": {
+      "values": [
+        [
+          1.0252762403956304,
+          -0.026838794924365826,
+          -7.267727823523396
+        ],
+        [
+          0.006507294469912346,
+          1.0012807410153324,
+          -3.723800782329588
+        ],
+        [
+          0.000023230379508156857,
+          -0.000044960745808663244,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 602,
+    "spatial_coverage": 0.9958891540765763,
+    "uncertainty_px": 0.6282438084096924,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9257037397053454,
+    "reprojection_error": 0.6269511718348009,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 117,
+    "transform": {
+      "values": [
+        [
+          1.0260242993867568,
+          -0.026517278756632408,
+          -7.477619076849031
+        ],
+        [
+          0.0066204819732191035,
+          1.0015599843946281,
+          -3.7322173151997298
+        ],
+        [
+          0.000023891450530961942,
+          -0.000044488503570658044,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 569,
+    "spatial_coverage": 0.9807241916656495,
+    "uncertainty_px": 0.6694636077602317,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9068378845805473,
+    "reprojection_error": 0.6629799853661138,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 118,
+    "transform": {
+      "values": [
+        [
+          1.0267120897229494,
+          -0.02692896341999616,
+          -7.652891285175086
+        ],
+        [
+          0.006680243752460867,
+          1.001863735889184,
+          -3.7422698450283503
+        ],
+        [
+          0.000024551280896677618,
+          -0.00004537800474018726,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 570,
+    "spatial_coverage": 0.9827242270112038,
+    "uncertainty_px": 0.6638079200865609,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9389570891912916,
+    "reprojection_error": 0.6561352198733879,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 119,
+    "transform": {
+      "values": [
+        [
+          1.0279611021658246,
+          -0.027093306015265082,
+          -8.028963317393774
+        ],
+        [
+          0.0069008229015481495,
+          1.001726373096006,
+          -3.8136746861261
+        ],
+        [
+          0.000025700170005056624,
+          -0.0000469590763903578,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 585,
+    "spatial_coverage": 0.9792649939656258,
+    "uncertainty_px": 0.8832150617110055,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9335701552220226,
+    "reprojection_error": 0.649718345958721,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 120,
+    "transform": {
+      "values": [
+        [
+          1.028029945754203,
+          -0.028663209509194147,
+          -7.918509771944441
+        ],
+        [
+          0.006959532993746021,
+          1.001213999874962,
+          -3.806093927466388
+        ],
+        [
+          0.000026066231723003843,
+          -0.000048963648358466374,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 548,
+    "spatial_coverage": 0.981021699309349,
+    "uncertainty_px": 0.6781363814321623,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9250366172602112,
+    "reprojection_error": 0.6715687649434489,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 121,
+    "transform": {
+      "values": [
+        [
+          1.0278509477541182,
+          -0.029825896661987743,
+          -7.863062054754961
+        ],
+        [
+          0.006860842548048319,
+          1.0003472858938325,
+          -3.730103345691401
+        ],
+        [
+          0.000025838625329872735,
+          -0.00005042085028902783,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 587,
+    "spatial_coverage": 0.984036172926426,
+    "uncertainty_px": 0.6550942365608408,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9422744852045402,
+    "reprojection_error": 0.6482669688429945,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 122,
+    "transform": {
+      "values": [
+        [
+          1.0302738586377587,
+          -0.028656651578157426,
+          -8.747479625038505
+        ],
+        [
+          0.007181334396282546,
+          1.0013620157179668,
+          -4.0369037689560345
+        ],
+        [
+          0.00002751138958682086,
+          -0.000050438273346416195,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 557,
+    "spatial_coverage": 0.9821995571255684,
+    "uncertainty_px": 0.6639267325085431,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9211435226212561,
+    "reprojection_error": 0.6574967336541653,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 123,
+    "transform": {
+      "values": [
+        [
+          1.0326340661377587,
+          -0.030222471241199738,
+          -9.49783775531315
+        ],
+        [
+          0.007453610383053049,
+          1.0013612590626475,
+          -4.282409014849764
+        ],
+        [
+          0.000029373877575040145,
+          -0.00005447116102353095,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 553,
+    "spatial_coverage": 0.9810912311077118,
+    "uncertainty_px": 0.6664886185976705,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.921648771026448,
+    "reprojection_error": 0.6600733579096353,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 124,
+    "transform": {
+      "values": [
+        [
+          1.033281819712005,
+          -0.031746030380007034,
+          -9.751793743597858
+        ],
+        [
+          0.007538010730291666,
+          1.000891141359537,
+          -4.444919886496278
+        ],
+        [
+          0.000029740134550469,
+          -0.000057298041925496684,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 528,
+    "spatial_coverage": 0.9850955680012703,
+    "uncertainty_px": 0.7003958151461261,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.930420211169712,
+    "reprojection_error": 0.6936541820355333,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 125,
+    "transform": {
+      "values": [
+        [
+          1.0328149948306322,
+          -0.03412568311031697,
+          -9.616340459434458
+        ],
+        [
+          0.0075031273446404725,
+          0.9999421768765118,
+          -4.508584475435994
+        ],
+        [
+          0.000029339572175306946,
+          -0.00006082907157177869,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 532,
+    "spatial_coverage": 0.9765730097889901,
+    "uncertainty_px": 0.6754414120573777,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9231839384635291,
+    "reprojection_error": 0.6674827442354009,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 126,
+    "transform": {
+      "values": [
+        [
+          1.0337652170700535,
+          -0.035304554261776616,
+          -10.031795462590566
+        ],
+        [
+          0.0075490726831534604,
+          0.9999624300996182,
+          -4.68651092384031
+        ],
+        [
+          0.000029852229405279236,
+          -0.00006316695006750557,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 527,
+    "spatial_coverage": 0.9812876537442208,
+    "uncertainty_px": 0.7366094009548279,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9187969863728475,
+    "reprojection_error": 0.7287729023718592,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 127,
+    "transform": {
+      "values": [
+        [
+          1.0350926340813285,
+          -0.03592957386788714,
+          -10.51201199356682
+        ],
+        [
+          0.007724265982951418,
+          1.0003783844597745,
+          -4.943007331618819
+        ],
+        [
+          0.00003084223682424727,
+          -0.00006528364204588508,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 553,
+    "spatial_coverage": 0.9733738586306572,
+    "uncertainty_px": 0.6802164106459924,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9219373142572069,
+    "reprojection_error": 0.671089009547189,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 128,
+    "transform": {
+      "values": [
+        [
+          1.0360477586189962,
+          -0.03739523643242837,
+          -10.849900651208007
+        ],
+        [
+          0.007872282827952479,
+          0.9996280496985716,
+          -5.14421666728283
+        ],
+        [
+          0.00003163656146313258,
+          -0.00006889229813919113,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 525,
+    "spatial_coverage": 0.9846506625413894,
+    "uncertainty_px": 0.819964192594631,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9385101013313765,
+    "reprojection_error": 0.8136469037532377,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 129,
+    "transform": {
+      "values": [
+        [
+          1.036509223848362,
+          -0.03689126401212976,
+          -11.151684436926267
+        ],
+        [
+          0.008023826061995984,
+          0.999697144005575,
+          -5.391193297342975
+        ],
+        [
+          0.00003172557037623709,
+          -0.0000692105109302359,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 533,
+    "spatial_coverage": 0.9846506625413894,
+    "uncertainty_px": 0.796350912106256,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.93327316259656,
+    "reprojection_error": 0.7685298757210677,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 130,
+    "transform": {
+      "values": [
+        [
+          1.0356705530694406,
+          -0.038186586638937314,
+          -10.9759225982006
+        ],
+        [
+          0.00786919003641921,
+          0.9984686060314416,
+          -5.4003980655308315
+        ],
+        [
+          0.00003093937787109196,
+          -0.00007164804406214192,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 540,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.825537920582279,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9401772977984236,
+    "reprojection_error": 0.8180760112591872,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0014169562335770247
+  },
+  {
+    "frame": 131,
+    "transform": {
+      "values": [
+        [
+          1.0369601244997906,
+          -0.03799497855955376,
+          -11.540901018225732
+        ],
+        [
+          0.007973631189426175,
+          0.9990427963739109,
+          -5.663409662104718
+        ],
+        [
+          0.000031610277820910656,
+          -0.00007220862028085817,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 509,
+    "spatial_coverage": 0.979242119193077,
+    "uncertainty_px": 0.8104351941658738,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9250311902804035,
+    "reprojection_error": 0.8019796255553309,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0014316321573648494
+  },
+  {
+    "frame": 132,
+    "transform": {
+      "values": [
+        [
+          1.038617660010928,
+          -0.038365090636011415,
+          -12.160961847604046
+        ],
+        [
+          0.00794540127636867,
+          0.9989685416890444,
+          -5.7483076589365805
+        ],
+        [
+          0.00003267502157064323,
+          -0.00007381053142404537,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 516,
+    "spatial_coverage": 0.9775291606783867,
+    "uncertainty_px": 0.8436379149315483,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9191818278548973,
+    "reprojection_error": 0.8336220111941586,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0014819249043487382
+  },
+  {
+    "frame": 133,
+    "transform": {
+      "values": [
+        [
+          1.0386363538191148,
+          -0.0390549599613996,
+          -12.250743217043127
+        ],
+        [
+          0.007806956969283503,
+          0.9982132791820578,
+          -5.7390021293189575
+        ],
+        [
+          0.00003241430212430361,
+          -0.00007501168721230631,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 528,
+    "spatial_coverage": 0.9747690632939339,
+    "uncertainty_px": 0.8551229897012677,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9310108600579092,
+    "reprojection_error": 0.840126583664248,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0014892158132288364
+  },
+  {
+    "frame": 134,
+    "transform": {
+      "values": [
+        [
+          1.0375199543206746,
+          -0.040952296858895926,
+          -11.872566729715086
+        ],
+        [
+          0.0077267506803242484,
+          0.9970732818579406,
+          -5.768982086390248
+        ],
+        [
+          0.000031518713044940034,
+          -0.00007759295371911066,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 528,
+    "spatial_coverage": 0.9844583600759506,
+    "uncertainty_px": 0.8160174134462914,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9330418175431313,
+    "reprojection_error": 0.8096514578358416,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0014659206651030188
+  },
+  {
+    "frame": 135,
+    "transform": {
+      "values": [
+        [
+          1.0382127734233182,
+          -0.04116214978358844,
+          -12.112370119441398
+        ],
+        [
+          0.007837613201637408,
+          0.9973913131906209,
+          -5.969432791779984
+        ],
+        [
+          0.00003192059260939034,
+          -0.0000779427913887212,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 516,
+    "spatial_coverage": 0.9751028388738633,
+    "uncertainty_px": 0.896222331414688,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9282344264336181,
+    "reprojection_error": 0.8649339056199254,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 136,
+    "transform": {
+      "values": [
+        [
+          1.038765929543,
+          -0.04119128071316223,
+          -12.34121917829982
+        ],
+        [
+          0.00799398808485065,
+          0.9976127266811888,
+          -6.18168276646984
+        ],
+        [
+          0.00003223327910156264,
+          -0.00007833846288414018,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 499,
+    "spatial_coverage": 0.9278373440106709,
+    "uncertainty_px": 0.8922204649354497,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9294963831335654,
+    "reprojection_error": 0.8594252409447376,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 137,
+    "transform": {
+      "values": [
+        [
+          1.0385746515559586,
+          -0.042076007927984084,
+          -12.261642889746803
+        ],
+        [
+          0.007996335563147943,
+          0.9971584723195893,
+          -6.233087365549182
+        ],
+        [
+          0.00003212088485427136,
+          -0.00007990590610798414,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 523,
+    "spatial_coverage": 0.9313958992560704,
+    "uncertainty_px": 0.8710957650582956,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9317240295405114,
+    "reprojection_error": 0.8406845442598403,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 138,
+    "transform": {
+      "values": [
+        [
+          1.0378869159588269,
+          -0.04258817468129846,
+          -12.038776890477937
+        ],
+        [
+          0.00802506505168368,
+          0.9965827347766698,
+          -6.288530597630572
+        ],
+        [
+          0.00003163041918116163,
+          -0.00008096252287535415,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 517,
+    "spatial_coverage": 0.9331525941689809,
+    "uncertainty_px": 0.7701373336164878,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9071878982923677,
+    "reprojection_error": 0.7432507185768921,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 139,
+    "transform": {
+      "values": [
+        [
+          1.0391673517594096,
+          -0.041331586341416676,
+          -12.540019934814687
+        ],
+        [
+          0.008189790794362724,
+          0.9977470392741925,
+          -6.482013653132631
+        ],
+        [
+          0.000032355153676973996,
+          -0.00007919996840097247,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 525,
+    "spatial_coverage": 0.9765266969799996,
+    "uncertainty_px": 0.8471401028749177,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9344682906609443,
+    "reprojection_error": 0.8371384733559066,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 140,
+    "transform": {
+      "values": [
+        [
+          1.0399317452241148,
+          -0.04160953649329542,
+          -12.780232348860764
+        ],
+        [
+          0.008251676201177803,
+          0.9982280684694154,
+          -6.572554530472079
+        ],
+        [
+          0.00003288572163901217,
+          -0.000079458894889132,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 495,
+    "spatial_coverage": 0.975004768371582,
+    "uncertainty_px": 0.8202650992718457,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9317087527421805,
+    "reprojection_error": 0.8099488691163547,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0014103180298998695
+  },
+  {
+    "frame": 141,
+    "transform": {
+      "values": [
+        [
+          1.0396663248112155,
+          -0.041779145978329414,
+          -12.700244798175063
+        ],
+        [
+          0.008177181458986979,
+          0.9979266929295897,
+          -6.488777950059608
+        ],
+        [
+          0.000032681644225449965,
+          -0.00007963879208573504,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 501,
+    "spatial_coverage": 0.9851830303668976,
+    "uncertainty_px": 0.8159218804935243,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9311134179754916,
+    "reprojection_error": 0.809854576992953,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0010003358874951917
+  },
+  {
+    "frame": 142,
+    "transform": {
+      "values": [
+        [
+          1.0392334127735998,
+          -0.04152756524054199,
+          -12.561512507102766
+        ],
+        [
+          0.008147672565231402,
+          0.9979214062500624,
+          -6.472974216426511
+        ],
+        [
+          0.00003234229580580237,
+          -0.00007908529470398796,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 495,
+    "spatial_coverage": 0.975004768371582,
+    "uncertainty_px": 0.93200834171554,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9129856978157015,
+    "reprojection_error": 0.8226870500159834,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0015114056594263824
+  },
+  {
+    "frame": 143,
+    "transform": {
+      "values": [
+        [
+          1.0394854804511533,
+          -0.0409622602246986,
+          -12.642782682156227
+        ],
+        [
+          0.008232663778012949,
+          0.9982315915150857,
+          -6.496929270215351
+        ],
+        [
+          0.000032580597854937055,
+          -0.00007854500869694048,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 495,
+    "spatial_coverage": 0.9843888282775879,
+    "uncertainty_px": 0.7724494923884475,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9365852548794548,
+    "reprojection_error": 0.7663963544814157,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0015493458361535968
+  },
+  {
+    "frame": 144,
+    "transform": {
+      "values": [
+        [
+          1.0382172180357354,
+          -0.041666696684532184,
+          -12.169122254998673
+        ],
+        [
+          0.008163780751724333,
+          0.9980362924785484,
+          -6.403487958968016
+        ],
+        [
+          0.00003169276048592091,
+          -0.00007844221705800337,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 503,
+    "spatial_coverage": 0.9937857702374457,
+    "uncertainty_px": 0.8276647200129725,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9454531033754462,
+    "reprojection_error": 0.8221596363643596,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0017082815062141683
+  },
+  {
+    "frame": 145,
+    "transform": {
+      "values": [
+        [
+          1.038275474960819,
+          -0.041253118450507324,
+          -12.144573975392142
+        ],
+        [
+          0.008219100153130703,
+          0.9983190952099223,
+          -6.355898203104056
+        ],
+        [
+          0.00003186101304224295,
+          -0.00007750206338531081,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 502,
+    "spatial_coverage": 0.9931152358651161,
+    "uncertainty_px": 0.818057213700058,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.943555423912767,
+    "reprojection_error": 0.8115379211764184,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001750482555290409
+  },
+  {
+    "frame": 146,
+    "transform": {
+      "values": [
+        [
+          1.0390687455473764,
+          -0.03935753789718778,
+          -12.4389825434321
+        ],
+        [
+          0.008276050540375857,
+          0.9996484287481701,
+          -6.359080767700038
+        ],
+        [
+          0.00003235519552070541,
+          -0.00007443870138712551,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 495,
+    "spatial_coverage": 0.9842546880245209,
+    "uncertainty_px": 0.7940559915074535,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9489694620859486,
+    "reprojection_error": 0.7877279704325317,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0018052011265094834
+  },
+  {
+    "frame": 147,
+    "transform": {
+      "values": [
+        [
+          1.038766236594527,
+          -0.0389948276090661,
+          -12.295253444762736
+        ],
+        [
+          0.008264923367560618,
+          1.0000463247235298,
+          -6.2771839379926595
+        ],
+        [
+          0.000032176822583199694,
+          -0.00007312872249491915,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 488,
+    "spatial_coverage": 0.993501603603363,
+    "uncertainty_px": 0.7216116066347813,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9372105265576613,
+    "reprojection_error": 0.7150890711570633,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0017672227746955915
+  },
+  {
+    "frame": 148,
+    "transform": {
+      "values": [
+        [
+          1.0380176013391849,
+          -0.038595889213408466,
+          -11.997575998630229
+        ],
+        [
+          0.008261496375994212,
+          1.0002083273265507,
+          -6.182714699042317
+        ],
+        [
+          0.00003164337153701462,
+          -0.00007144673749567948,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 464,
+    "spatial_coverage": 0.9904776275157929,
+    "uncertainty_px": 0.780404694538236,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9342693867902291,
+    "reprojection_error": 0.7733507374506534,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0017974142966196414
+  },
+  {
+    "frame": 149,
+    "transform": {
+      "values": [
+        [
+          1.0361636085234962,
+          -0.03955091782239843,
+          -11.280159218032452
+        ],
+        [
+          0.008002914752168487,
+          0.9992068147326489,
+          -5.901997874954189
+        ],
+        [
+          0.00003039741593270307,
+          -0.00007139699193633496,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 479,
+    "spatial_coverage": 0.9904776275157929,
+    "uncertainty_px": 0.7523457331422168,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9267635885863414,
+    "reprojection_error": 0.7455453966581427,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0023208100050261036
+  },
+  {
+    "frame": 150,
+    "transform": {
+      "values": [
+        [
+          1.0353119005736973,
+          -0.03866474081339298,
+          -10.984776406912268
+        ],
+        [
+          0.007801089008967697,
+          0.99925278000173,
+          -5.70913256259079
+        ],
+        [
+          0.00002974361868426198,
+          -0.00006931651385012955,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 465,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.8158374900621235,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.933815465207349,
+    "reprojection_error": 0.8084632614271401,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001761922119520551
+  },
+  {
+    "frame": 151,
+    "transform": {
+      "values": [
+        [
+          1.0344700111443583,
+          -0.038126495835270474,
+          -10.669247810919028
+        ],
+        [
+          0.007691081721005179,
+          0.9994982888257197,
+          -5.598965984553291
+        ],
+        [
+          0.00002931655993339395,
+          -0.00006876246710998447,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 471,
+    "spatial_coverage": 0.994544517993927,
+    "uncertainty_px": 0.7947307973219125,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9309486846320454,
+    "reprojection_error": 0.7868149607872734,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001797048170904607
+  },
+  {
+    "frame": 152,
+    "transform": {
+      "values": [
+        [
+          1.0336027600012754,
+          -0.0384025414234979,
+          -10.302256778998245
+        ],
+        [
+          0.007627613134722041,
+          0.9992147314553987,
+          -5.451782159721733
+        ],
+        [
+          0.000028826734547827926,
+          -0.00006844868993703858,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 469,
+    "spatial_coverage": 0.9924915254116058,
+    "uncertainty_px": 0.8296797312143576,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9264628984802773,
+    "reprojection_error": 0.8220215784741234,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001858591204712126
+  },
+  {
+    "frame": 153,
+    "transform": {
+      "values": [
+        [
+          1.0335029304374603,
+          -0.03799465258121093,
+          -10.26721470448678
+        ],
+        [
+          0.007497680975234524,
+          0.999001949738113,
+          -5.286981562083288
+        ],
+        [
+          0.000028755447696504348,
+          -0.00006763330923213803,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 479,
+    "spatial_coverage": 0.9921144619584084,
+    "uncertainty_px": 0.8298712991811411,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9244718520871298,
+    "reprojection_error": 0.8223702211204769,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0018682296150851817
+  },
+  {
+    "frame": 154,
+    "transform": {
+      "values": [
+        [
+          1.0335940350796773,
+          -0.03738234066439161,
+          -10.270099491412957
+        ],
+        [
+          0.0074908391483819595,
+          0.9993524631590324,
+          -5.250043387341428
+        ],
+        [
+          0.0000289277633851654,
+          -0.00006699018337745404,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 470,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.7844166631233019,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9253969484918084,
+    "reprojection_error": 0.7773264424734498,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0018694474891295166
+  },
+  {
+    "frame": 155,
+    "transform": {
+      "values": [
+        [
+          1.0331785791815764,
+          -0.03714766773951547,
+          -10.107535772370689
+        ],
+        [
+          0.007434255181004559,
+          0.9992135295334508,
+          -5.157009950696116
+        ],
+        [
+          0.000028602177155139565,
+          -0.00006601621540451432,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 478,
+    "spatial_coverage": 0.9900507047772407,
+    "uncertainty_px": 0.8278535172180824,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9152290653216509,
+    "reprojection_error": 0.8181778093728355,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0018789292928679169
+  },
+  {
+    "frame": 156,
+    "transform": {
+      "values": [
+        [
+          1.0325002251044197,
+          -0.03700090546808503,
+          -9.834574616636104
+        ],
+        [
+          0.007349686863274957,
+          0.9987499488885275,
+          -5.002797690825845
+        ],
+        [
+          0.00002815646310090979,
+          -0.00006507219407975253,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 472,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.8030370247724916,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9295983653629977,
+    "reprojection_error": 0.7957784975594577,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0019133147475703957
+  },
+  {
+    "frame": 157,
+    "transform": {
+      "values": [
+        [
+          1.032402153098537,
+          -0.03710795387087265,
+          -9.795753750332175
+        ],
+        [
+          0.007330468718554972,
+          0.9985407516942196,
+          -4.965630079198922
+        ],
+        [
+          0.000028083738013897406,
+          -0.00006486946842758079,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 478,
+    "spatial_coverage": 0.9819372743368149,
+    "uncertainty_px": 0.8015725515560125,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9402204952967167,
+    "reprojection_error": 0.7943002700542001,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0018947380401581285
+  },
+  {
+    "frame": 158,
+    "transform": {
+      "values": [
+        [
+          1.033059221707294,
+          -0.036524839347497576,
+          -10.004944614542833
+        ],
+        [
+          0.007360099727395116,
+          0.998831976367092,
+          -4.960877379759596
+        ],
+        [
+          0.0000285124053822933,
+          -0.00006356872793623653,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 468,
+    "spatial_coverage": 0.9819372743368149,
+    "uncertainty_px": 0.8167233359458502,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9395430565263458,
+    "reprojection_error": 0.8093135986780661,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0019008366434240392
+  },
+  {
+    "frame": 159,
+    "transform": {
+      "values": [
+        [
+          1.032342912073393,
+          -0.03663429937969283,
+          -9.759147985078279
+        ],
+        [
+          0.007364766594927134,
+          0.9990102121853349,
+          -5.006642165226976
+        ],
+        [
+          0.00002797362899046493,
+          -0.00006322707304927627,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 460,
+    "spatial_coverage": 0.9771718949079514,
+    "uncertainty_px": 0.8027557616776256,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9358720165256149,
+    "reprojection_error": 0.7930941101210403,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.00192644289354156
+  },
+  {
+    "frame": 160,
+    "transform": {
+      "values": [
+        [
+          1.031041529330805,
+          -0.03684012139340635,
+          -9.364416863788577
+        ],
+        [
+          0.007278299643770631,
+          0.9982560236876077,
+          -4.906348137483387
+        ],
+        [
+          0.000026943898798667833,
+          -0.00006273660479597878,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 476,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.739443818848004,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9360196416719908,
+    "reprojection_error": 0.7327601007677094,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0019647532798302875
+  },
+  {
+    "frame": 161,
+    "transform": {
+      "values": [
+        [
+          1.031193801177643,
+          -0.03573629294489847,
+          -9.484913379359515
+        ],
+        [
+          0.007267010395213971,
+          0.9987345867823972,
+          -4.91374776738153
+        ],
+        [
+          0.00002691847164382842,
+          -0.000060962015788633486,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 469,
+    "spatial_coverage": 0.9819372743368149,
+    "uncertainty_px": 0.7840116196781794,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9181200344670457,
+    "reprojection_error": 0.7768986600491057,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0019800389396537246
+  },
+  {
+    "frame": 162,
+    "transform": {
+      "values": [
+        [
+          1.0323900754389417,
+          -0.03545188087925309,
+          -9.880707599117567
+        ],
+        [
+          0.007471200557553293,
+          0.9994178949386152,
+          -5.05949953782324
+        ],
+        [
+          0.000027803114435357828,
+          -0.00006074221114779261,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 469,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.8317101310506823,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9159333832670123,
+    "reprojection_error": 0.7939216365257629,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0019811554277701835
+  },
+  {
+    "frame": 163,
+    "transform": {
+      "values": [
+        [
+          1.0331361064123488,
+          -0.03409440012100447,
+          -10.212465646957163
+        ],
+        [
+          0.007520432243212332,
+          1.0001726731317033,
+          -5.122561562528244
+        ],
+        [
+          0.00002811325916996038,
+          -0.00005850925966150493,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 461,
+    "spatial_coverage": 0.985562565922737,
+    "uncertainty_px": 0.883066311684341,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9411651427612661,
+    "reprojection_error": 0.8750958940503331,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002006831458394985
+  },
+  {
+    "frame": 164,
+    "transform": {
+      "values": [
+        [
+          1.0333100440087994,
+          -0.03460717360125118,
+          -10.26546342230209
+        ],
+        [
+          0.007647485571039423,
+          1.0001773365213265,
+          -5.21539573309081
+        ],
+        [
+          0.00002824457573734695,
+          -0.000058854521828469544,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 448,
+    "spatial_coverage": 0.9796722441911697,
+    "uncertainty_px": 0.7793879009314665,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.93924561995513,
+    "reprojection_error": 0.771425625919167,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002008404627083251
+  },
+  {
+    "frame": 165,
+    "transform": {
+      "values": [
+        [
+          1.034417379439711,
+          -0.03400110069982781,
+          -10.672092351727894
+        ],
+        [
+          0.007861269698437057,
+          1.000917480057856,
+          -5.371931694368087
+        ],
+        [
+          0.000028978806119578725,
+          -0.00005794389823135967,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 460,
+    "spatial_coverage": 0.978917908668518,
+    "uncertainty_px": 0.8469957598615683,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9135423818809435,
+    "reprojection_error": 0.8380199798282849,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0020419670979403433
+  },
+  {
+    "frame": 166,
+    "transform": {
+      "values": [
+        [
+          1.0353864709434617,
+          -0.032602157327012576,
+          -11.08795377279931
+        ],
+        [
+          0.007980870390376198,
+          1.0020202028801068,
+          -5.511268028447887
+        ],
+        [
+          0.00002947236516281304,
+          -0.00005580004387581172,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 469,
+    "spatial_coverage": 0.9819576039910316,
+    "uncertainty_px": 0.8332180680793007,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9244110064411707,
+    "reprojection_error": 0.8256672290720155,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002057926237316219
+  },
+  {
+    "frame": 167,
+    "transform": {
+      "values": [
+        [
+          1.0359288761954162,
+          -0.03229695847651332,
+          -11.299028850331062
+        ],
+        [
+          0.008167409482816633,
+          1.0026774524003268,
+          -5.672391872414379
+        ],
+        [
+          0.000029799900018177113,
+          -0.0000550827900627537,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 475,
+    "spatial_coverage": 0.9360033666094143,
+    "uncertainty_px": 0.8518821529918159,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9236455541725476,
+    "reprojection_error": 0.8227447506079599,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002068895448966765
+  },
+  {
+    "frame": 168,
+    "transform": {
+      "values": [
+        [
+          1.0367880173207509,
+          -0.030208154515233,
+          -11.759737475989532
+        ],
+        [
+          0.008305018853291275,
+          1.0040153402718426,
+          -5.856493309340684
+        ],
+        [
+          0.0000300626190745393,
+          -0.00005177354258741899,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 449,
+    "spatial_coverage": 0.9360033666094143,
+    "uncertainty_px": 0.8300790108269147,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9132552154796819,
+    "reprojection_error": 0.7995679116536549,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002122757300217344
+  },
+  {
+    "frame": 169,
+    "transform": {
+      "values": [
+        [
+          1.036085522788922,
+          -0.029559925473648326,
+          -11.635634298223188
+        ],
+        [
+          0.008199903886160917,
+          1.0037214144628077,
+          -5.792137317023387
+        ],
+        [
+          0.00002928972864603158,
+          -0.00005048780074633392,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 454,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.8336768745960368,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.908371497749844,
+    "reprojection_error": 0.8261413985289816,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0021562615318724337
+  },
+  {
+    "frame": 170,
+    "transform": {
+      "values": [
+        [
+          1.0362874456245328,
+          -0.028438097157301234,
+          -11.772914088076815
+        ],
+        [
+          0.008192299456255516,
+          1.004237673975994,
+          -5.817466762613966
+        ],
+        [
+          0.000029268234923075264,
+          -0.00004876301815590254,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 460,
+    "spatial_coverage": 0.9820040106773376,
+    "uncertainty_px": 0.8566468728367265,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9015907987530444,
+    "reprojection_error": 0.8489037745154413,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002125643336770291
+  },
+  {
+    "frame": 171,
+    "transform": {
+      "values": [
+        [
+          1.0355143793165122,
+          -0.027845209423551984,
+          -11.576602771186637
+        ],
+        [
+          0.008098876151718701,
+          1.0040008507077165,
+          -5.7546018965462835
+        ],
+        [
+          0.000028561143658484007,
+          -0.000047699956415612234,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 465,
+    "spatial_coverage": 0.980675458908081,
+    "uncertainty_px": 0.8005820996142609,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9008404043648977,
+    "reprojection_error": 0.7928089223030721,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0021117751267931795
+  },
+  {
+    "frame": 172,
+    "transform": {
+      "values": [
+        [
+          1.035207310482798,
+          -0.027555234237447344,
+          -11.502346833213101
+        ],
+        [
+          0.008087863759328537,
+          1.004068454912991,
+          -5.7605058510271245
+        ],
+        [
+          0.000028272173391392034,
+          -0.00004713021975775752,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 454,
+    "spatial_coverage": 0.9806260481476783,
+    "uncertainty_px": 0.8301253470435457,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9016379975004873,
+    "reprojection_error": 0.8031235856868418,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0021388790832183265
+  },
+  {
+    "frame": 173,
+    "transform": {
+      "values": [
+        [
+          1.0337995020233504,
+          -0.027548880964456852,
+          -11.086990244892542
+        ],
+        [
+          0.007843624387928468,
+          1.00359241594756,
+          -5.618545853234188
+        ],
+        [
+          0.000027131452327944823,
+          -0.000046732995497129526,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 477,
+    "spatial_coverage": 0.9806260481476783,
+    "uncertainty_px": 0.8409098949538583,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9079557511020407,
+    "reprojection_error": 0.8135792040746114,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0021246142074568364
+  },
+  {
+    "frame": 174,
+    "transform": {
+      "values": [
+        [
+          1.0324854650073292,
+          -0.02805158923094194,
+          -10.689182166234337
+        ],
+        [
+          0.00774958429726296,
+          1.003000558355654,
+          -5.564141971680377
+        ],
+        [
+          0.000026074220154379795,
+          -0.000047116974079319464,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 500,
+    "spatial_coverage": 0.9806260481476783,
+    "uncertainty_px": 0.7878669457840666,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8974421723749333,
+    "reprojection_error": 0.7398767031272735,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002140457578662873
+  },
+  {
+    "frame": 175,
+    "transform": {
+      "values": [
+        [
+          1.0335901996657346,
+          -0.0277205385570324,
+          -11.046712695356891
+        ],
+        [
+          0.007808132019084096,
+          1.0037760730525538,
+          -5.613142215869322
+        ],
+        [
+          0.000026905417917715392,
+          -0.00004709740163165098,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 515,
+    "spatial_coverage": 0.980675458908081,
+    "uncertainty_px": 0.7850040323260385,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9012836222760243,
+    "reprojection_error": 0.7515507797279839,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002093093659840723
+  },
+  {
+    "frame": 176,
+    "transform": {
+      "values": [
+        [
+          1.033487573143475,
+          -0.026255900483623296,
+          -11.099887600092817
+        ],
+        [
+          0.007640419608329135,
+          1.0045777557175493,
+          -5.552553418960597
+        ],
+        [
+          0.00002654641597797227,
+          -0.000044573227434410364,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 495,
+    "spatial_coverage": 0.9857188299298286,
+    "uncertainty_px": 0.7794254074703909,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9112565355603547,
+    "reprojection_error": 0.7540930442732934,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0020817656023753945
+  },
+  {
+    "frame": 177,
+    "transform": {
+      "values": [
+        [
+          1.0317061928480706,
+          -0.026613324735731896,
+          -10.548858524960467
+        ],
+        [
+          0.007313339277546248,
+          1.0038434823142668,
+          -5.359290712557863
+        ],
+        [
+          0.000025182738335222778,
+          -0.00004528748527329509,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 524,
+    "spatial_coverage": 0.9875863209366799,
+    "uncertainty_px": 0.7892807578126003,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8979408595149421,
+    "reprojection_error": 0.7636603453461783,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.002056253635844042
+  },
+  {
+    "frame": 178,
+    "transform": {
+      "values": [
+        [
+          1.03002024253476,
+          -0.026434656038218683,
+          -10.056379691409706
+        ],
+        [
+          0.006944920579783683,
+          1.0032366368706622,
+          -5.132276208809186
+        ],
+        [
+          0.000023797493907950637,
+          -0.00004509111645124777,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 511,
+    "spatial_coverage": 0.985562565922737,
+    "uncertainty_px": 0.7601854073264698,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8947708046003333,
+    "reprojection_error": 0.7354783697434548,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.00201236773375618
+  },
+  {
+    "frame": 179,
+    "transform": {
+      "values": [
+        [
+          1.0274857154462171,
+          -0.02672831539066136,
+          -9.287622863833397
+        ],
+        [
+          0.006547206744867673,
+          1.00241265796951,
+          -4.904799464908845
+        ],
+        [
+          0.00002169353369276052,
+          -0.00004471493762176288,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 520,
+    "spatial_coverage": 0.9875863209366799,
+    "uncertainty_px": 0.784519752648359,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.921181817119147,
+    "reprojection_error": 0.7592823735554113,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0019994334817136413
+  },
+  {
+    "frame": 180,
+    "transform": {
+      "values": [
+        [
+          1.0251877902813613,
+          -0.026842396728112727,
+          -8.58911359052839
+        ],
+        [
+          0.006049620780192074,
+          1.0016280080042397,
+          -4.599422323625001
+        ],
+        [
+          0.000019823242150372185,
+          -0.000044302006504970035,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 490,
+    "spatial_coverage": 0.9857188299298286,
+    "uncertainty_px": 0.7711240385055858,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.901782286760201,
+    "reprojection_error": 0.7462878065722052,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001896831988052118
+  },
+  {
+    "frame": 181,
+    "transform": {
+      "values": [
+        [
+          1.0222484594504966,
+          -0.027305803613692503,
+          -7.682871149686395
+        ],
+        [
+          0.005569663422886239,
+          1.0003295973049795,
+          -4.3209924494642316
+        ],
+        [
+          0.000017563777570792677,
+          -0.00004512966212208392,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 519,
+    "spatial_coverage": 0.9857188299298286,
+    "uncertainty_px": 0.7349409841064743,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9113805448285586,
+    "reprojection_error": 0.7112701298376988,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0018562119202400248
+  },
+  {
+    "frame": 182,
+    "transform": {
+      "values": [
+        [
+          1.0211199549742922,
+          -0.028060376980950312,
+          -7.325080996894242
+        ],
+        [
+          0.005206069147968507,
+          0.9995649404739141,
+          -4.109032325266455
+        ],
+        [
+          0.000016715175424038805,
+          -0.00004652833834627944,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 515,
+    "spatial_coverage": 0.9366936673720677,
+    "uncertainty_px": 0.7597562922800581,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9010224731821641,
+    "reprojection_error": 0.7353144450512852,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0017978624543814007
+  },
+  {
+    "frame": 183,
+    "transform": {
+      "values": [
+        [
+          1.0183419463414907,
+          -0.029170901913375603,
+          -6.464787670787196
+        ],
+        [
+          0.004702956899375565,
+          0.9981355266723809,
+          -3.828001370086333
+        ],
+        [
+          0.000014611921617022056,
+          -0.000048436417710745,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 545,
+    "spatial_coverage": 0.9405763914187748,
+    "uncertainty_px": 0.7535934752781761,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9186155378598259,
+    "reprojection_error": 0.7308599543766507,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.00173731250550317
+  },
+  {
+    "frame": 184,
+    "transform": {
+      "values": [
+        [
+          1.0169068780891322,
+          -0.029025808633375998,
+          -6.093926280296284
+        ],
+        [
+          0.004235386703941897,
+          0.9977012142887969,
+          -3.5896245607985837
+        ],
+        [
+          0.000013281110047746129,
+          -0.00004820143819092837,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 515,
+    "spatial_coverage": 0.9853091910481453,
+    "uncertainty_px": 0.7940053141346677,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9244817609243534,
+    "reprojection_error": 0.7090615578601607,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001731385423789503
+  },
+  {
+    "frame": 185,
+    "transform": {
+      "values": [
+        [
+          1.0172663082353954,
+          -0.02727713415236806,
+          -6.338081683504184
+        ],
+        [
+          0.003924589648898309,
+          0.9984864254724667,
+          -3.482213559965301
+        ],
+        [
+          0.000013119976537026375,
+          -0.000045410280792484927,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 536,
+    "spatial_coverage": 0.9868555903434754,
+    "uncertainty_px": 0.7192359378485793,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.918344020544281,
+    "reprojection_error": 0.6380155411059049,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0017259853358305526
+  },
+  {
+    "frame": 186,
+    "transform": {
+      "values": [
+        [
+          1.0190503498434966,
+          -0.02659717627000794,
+          -7.0113661750577645
+        ],
+        [
+          0.0037931382699166734,
+          0.9992791660255282,
+          -3.4654487521364645
+        ],
+        [
+          0.000014249752158396373,
+          -0.00004578910566274424,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 536,
+    "spatial_coverage": 0.9845619902014732,
+    "uncertainty_px": 0.6852102446900052,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9136717859096133,
+    "reprojection_error": 0.6631675738136682,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0017078491511627082
+  },
+  {
+    "frame": 187,
+    "transform": {
+      "values": [
+        [
+          1.0207927439316598,
+          -0.02519498211682082,
+          -7.6047612064952705
+        ],
+        [
+          0.0035615878238835787,
+          1.0007256258026922,
+          -3.4141712239619713
+        ],
+        [
+          0.000015117179408654026,
+          -0.00004295345811898442,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 544,
+    "spatial_coverage": 0.983748199045658,
+    "uncertainty_px": 0.7726609237967399,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9249649566279399,
+    "reprojection_error": 0.6608323724518204,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001644487740319461
+  },
+  {
+    "frame": 188,
+    "transform": {
+      "values": [
+        [
+          1.0182040433329698,
+          -0.025677707573975,
+          -6.861126303279679
+        ],
+        [
+          0.0030723626193136927,
+          0.9996243239088387,
+          -3.174695764461001
+        ],
+        [
+          0.00001286357188418159,
+          -0.00004350717567507002,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 513,
+    "spatial_coverage": 0.9822965011000633,
+    "uncertainty_px": 0.6884313792419845,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9066100141272182,
+    "reprojection_error": 0.6620855691205316,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.001725340443203489
+  },
+  {
+    "frame": 189,
+    "transform": {
+      "values": [
+        [
+          1.0160569758767033,
+          -0.026652925784605066,
+          -6.218997691450221
+        ],
+        [
+          0.0025924636043469285,
+          0.9983546542159932,
+          -2.914529339309026
+        ],
+        [
+          0.000011013442695232063,
+          -0.000045120951805639867,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 544,
+    "spatial_coverage": 0.9845619902014732,
+    "uncertainty_px": 0.6910290398395893,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.903594523565022,
+    "reprojection_error": 0.6692016666785907,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0016939257204788203
+  },
+  {
+    "frame": 190,
+    "transform": {
+      "values": [
+        [
+          1.0165338014085699,
+          -0.026405523761983286,
+          -6.459687823436891
+        ],
+        [
+          0.0023412221054980474,
+          0.9988249302479045,
+          -2.860067621768871
+        ],
+        [
+          0.000011048933885819838,
+          -0.000045809905941583166,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 560,
+    "spatial_coverage": 0.936696441968282,
+    "uncertainty_px": 0.675466763094311,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9311162102062595,
+    "reprojection_error": 0.6537375323039445,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0016927501053676432
+  },
+  {
+    "frame": 191,
+    "transform": {
+      "values": [
+        [
+          1.0129330692670928,
+          -0.028262881280682932,
+          -5.324626068238448
+        ],
+        [
+          0.0015629881709489286,
+          0.9970186137319713,
+          -2.454447358999651
+        ],
+        [
+          8.000542072283817e-6,
+          -0.000048282659991690785,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 587,
+    "spatial_coverage": 0.9330906768639882,
+    "uncertainty_px": 0.7021970984534421,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9144824782214288,
+    "reprojection_error": 0.6753244834310714,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0016643831750283184
+  },
+  {
+    "frame": 192,
+    "transform": {
+      "values": [
+        [
+          1.0167993007375766,
+          -0.027686134993730672,
+          -6.502055914782595
+        ],
+        [
+          0.0009019832104000485,
+          0.9983176715881844,
+          -2.1203110594519714
+        ],
+        [
+          0.00001057578371413954,
+          -0.0000499737249618278,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 637,
+    "spatial_coverage": 0.9867221280932426,
+    "uncertainty_px": 0.6835434299468546,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9512641018282982,
+    "reprojection_error": 0.6635017416749359,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0016183319465123006
+  },
+  {
+    "frame": 193,
+    "transform": {
+      "values": [
+        [
+          1.0126157392045187,
+          -0.027656207206154533,
+          -5.273191270257245
+        ],
+        [
+          -0.0001689494563392482,
+          0.9965675413963692,
+          -1.5802390874933208
+        ],
+        [
+          6.631272045324878e-6,
+          -0.0000487949741545116,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 639,
+    "spatial_coverage": 0.9886798977851867,
+    "uncertainty_px": 0.6808826578637748,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9320607520042256,
+    "reprojection_error": 0.6673846892329304,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0016381718053972943
+  },
+  {
+    "frame": 194,
+    "transform": {
+      "values": [
+        [
+          1.0097393791288773,
+          -0.026685223011644034,
+          -4.522004679355607
+        ],
+        [
+          -0.0012418033168850172,
+          0.9953973153877123,
+          -1.0408820414648794
+        ],
+        [
+          3.817002761940348e-6,
+          -0.00004894078991606919,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 650,
+    "spatial_coverage": 0.9857194244861602,
+    "uncertainty_px": 0.69177612564572,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9424724105415085,
+    "reprojection_error": 0.6727796977807894,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 195,
+    "transform": {
+      "values": [
+        [
+          1.0071688125552842,
+          -0.028057516468396194,
+          -3.7187918814976335
+        ],
+        [
+          -0.002212411893978098,
+          0.9937710109003425,
+          -0.5361242807696285
+        ],
+        [
+          1.3477640851471263e-6,
+          -0.000051099694030941997,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 690,
+    "spatial_coverage": 0.994615238904953,
+    "uncertainty_px": 0.680368560880637,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9394901037789599,
+    "reprojection_error": 0.6785342771741696,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 196,
+    "transform": {
+      "values": [
+        [
+          1.0064017169378607,
+          -0.026998957397302042,
+          -3.5446390963028076
+        ],
+        [
+          -0.0030513363012380033,
+          0.9941476977466936,
+          -0.20102198793919374
+        ],
+        [
+          3.629308028931953e-8,
+          -0.000049935234135638376,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 643,
+    "spatial_coverage": 0.9975514292716979,
+    "uncertainty_px": 0.6738337522625897,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9464440865313841,
+    "reprojection_error": 0.6730082818464507,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 197,
+    "transform": {
+      "values": [
+        [
+          1.002398736547297,
+          -0.02911838246708864,
+          -2.2588845996336353
+        ],
+        [
+          -0.004202344946192095,
+          0.9913803311887202,
+          0.4438307476383778
+        ],
+        [
+          -3.3824081580692608e-6,
+          -0.000054156421056432946,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 652,
+    "spatial_coverage": 0.9973476946353912,
+    "uncertainty_px": 0.6916060941483338,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9325726122818196,
+    "reprojection_error": 0.6906883099064054,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 198,
+    "transform": {
+      "values": [
+        [
+          1.0003552696061735,
+          -0.029869737006006144,
+          -1.6261748773054379
+        ],
+        [
+          -0.005232739128893811,
+          0.9899947802415349,
+          0.9560716053291985
+        ],
+        [
+          -5.3663483349532415e-6,
+          -0.00005720003392128657,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 675,
+    "spatial_coverage": 0.9933215364813804,
+    "uncertainty_px": 0.6535751983219927,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9264263882710875,
+    "reprojection_error": 0.651389103209113,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 199,
+    "transform": {
+      "values": [
+        [
+          0.9987025892374894,
+          -0.030871975059697278,
+          -1.077719094142875
+        ],
+        [
+          -0.006260497416860033,
+          0.9886442356698857,
+          1.4732356972516238
+        ],
+        [
+          -7.170555270312829e-6,
+          -0.000059647877330155146,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 676,
+    "spatial_coverage": 0.9926273137331009,
+    "uncertainty_px": 0.6513090799922773,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.940489521054026,
+    "reprojection_error": 0.6489036894880582,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 200,
+    "transform": {
+      "values": [
+        [
+          0.9961743118367982,
+          -0.030736403822175015,
+          -0.3088184197698176
+        ],
+        [
+          -0.007457877134722469,
+          0.987643950298277,
+          2.02633664634537
+        ],
+        [
+          -9.839890510615569e-6,
+          -0.0000596197091303795,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 659,
+    "spatial_coverage": 0.99544198513031,
+    "uncertainty_px": 0.6560092783629855,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9460008687254501,
+    "reprojection_error": 0.6510404131128115,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 201,
+    "transform": {
+      "values": [
+        [
+          0.9927269257754079,
+          -0.03283928548494925,
+          0.8580511571247946
+        ],
+        [
+          -0.008738036083847123,
+          0.985547144132606,
+          2.6632761245477417
+        ],
+        [
+          -0.000013069167003301368,
+          -0.00006225690572708573,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 677,
+    "spatial_coverage": 0.9926273137331009,
+    "uncertainty_px": 0.6479152640484405,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9428846401753114,
+    "reprojection_error": 0.6455224074592169,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 202,
+    "transform": {
+      "values": [
+        [
+          0.9898278616649817,
+          -0.035106541933416245,
+          1.8550348883702803
+        ],
+        [
+          -0.009976381807957227,
+          0.9836454527630938,
+          3.26226949450154
+        ],
+        [
+          -0.00001584207777441857,
+          -0.00006579781883519208,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 665,
+    "spatial_coverage": 0.9895610824227333,
+    "uncertainty_px": 0.5636732521791274,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9423312062646996,
+    "reprojection_error": 0.5595793246005031,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 203,
+    "transform": {
+      "values": [
+        [
+          0.9870019882302374,
+          -0.03730924874000026,
+          2.843379491951385
+        ],
+        [
+          -0.011105801085401944,
+          0.9815556395297703,
+          3.8384728569461206
+        ],
+        [
+          -0.00001852942867259457,
+          -0.00006940585815073932,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 676,
+    "spatial_coverage": 0.9966920971870422,
+    "uncertainty_px": 0.6454500706040568,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9462477593513889,
+    "reprojection_error": 0.6437566514162951,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 204,
+    "transform": {
+      "values": [
+        [
+          0.985256273227327,
+          -0.03953228348457142,
+          3.5556297023739916
+        ],
+        [
+          -0.012220699068952708,
+          0.9801553061217707,
+          4.382819431339045
+        ],
+        [
+          -0.000020289832904021738,
+          -0.00007297067062181871,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 626,
+    "spatial_coverage": 0.9833503782749176,
+    "uncertainty_px": 0.5434867648107597,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9180283238335675,
+    "reprojection_error": 0.5389433493706186,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 205,
+    "transform": {
+      "values": [
+        [
+          0.9811937868937867,
+          -0.04290879832324666,
+          4.914377547960083
+        ],
+        [
+          -0.013455175122164105,
+          0.9772566883070772,
+          4.9901532650698694
+        ],
+        [
+          -0.000023963504969101697,
+          -0.00007810253491575616,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 693,
+    "spatial_coverage": 0.9850457713007926,
+    "uncertainty_px": 0.6158945078757534,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9352657750181559,
+    "reprojection_error": 0.6112720477868591,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 206,
+    "transform": {
+      "values": [
+        [
+          0.9770955037145799,
+          -0.04498512744716907,
+          6.239179391552298
+        ],
+        [
+          -0.014736395426453028,
+          0.9745878743901946,
+          5.636006935633677
+        ],
+        [
+          -0.000027822906819589602,
+          -0.00008076470794752732,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 665,
+    "spatial_coverage": 0.9850457713007926,
+    "uncertainty_px": 0.5175603109363495,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9321196103236505,
+    "reprojection_error": 0.5136758764263707,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 207,
+    "transform": {
+      "values": [
+        [
+          0.9746626527851172,
+          -0.046762740638716944,
+          6.985972520918999
+        ],
+        [
+          -0.015772689116154075,
+          0.9729249887920373,
+          6.10169425400994
+        ],
+        [
+          -0.000030504777895373162,
+          -0.00008291798005201457,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 686,
+    "spatial_coverage": 0.9847951501607894,
+    "uncertainty_px": 0.5939078847612714,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9329281542807737,
+    "reprojection_error": 0.5893754499176144,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 208,
+    "transform": {
+      "values": [
+        [
+          0.9723506030365061,
+          -0.0494620336949751,
+          7.77534900415073
+        ],
+        [
+          -0.01683760900371065,
+          0.9711526297969458,
+          6.604597444882582
+        ],
+        [
+          -0.00003271638265457418,
+          -0.00008775713990744427,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 677,
+    "spatial_coverage": 0.9769804999232292,
+    "uncertainty_px": 0.5323116111813767,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9425259607427575,
+    "reprojection_error": 0.513802527851025,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 209,
+    "transform": {
+      "values": [
+        [
+          0.9701163563615062,
+          -0.05214872097523023,
+          8.442259296101977
+        ],
+        [
+          -0.017764679874338187,
+          0.9690936040071029,
+          7.067444842277484
+        ],
+        [
+          -0.00003502692484697742,
+          -0.00009251401393031957,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 686,
+    "spatial_coverage": 0.9807340383529662,
+    "uncertainty_px": 0.5041908280087025,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9202250378325347,
+    "reprojection_error": 0.48663279412826227,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 210,
+    "transform": {
+      "values": [
+        [
+          0.9696859571569812,
+          -0.05366086979026501,
+          8.480978613245835
+        ],
+        [
+          -0.01841129455322729,
+          0.9684813007671901,
+          7.266166766572587
+        ],
+        [
+          -0.00003614903823594496,
+          -0.00009518676264371731,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 706,
+    "spatial_coverage": 0.9854804024100303,
+    "uncertainty_px": 0.5349249694805335,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9323127928823621,
+    "reprojection_error": 0.5310273220312468,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 211,
+    "transform": {
+      "values": [
+        [
+          0.9691926522492208,
+          -0.05584867579256734,
+          8.546696679646686
+        ],
+        [
+          -0.018901888178939053,
+          0.9675333443214117,
+          7.408847765223631
+        ],
+        [
+          -0.0000373552185362533,
+          -0.00009843811173322739,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 722,
+    "spatial_coverage": 0.9814845353364945,
+    "uncertainty_px": 0.5692922392543535,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9276618075220272,
+    "reprojection_error": 0.5493939784158018,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 212,
+    "transform": {
+      "values": [
+        [
+          0.9677400729406007,
+          -0.06179099344082382,
+          9.151040651730192
+        ],
+        [
+          -0.01930935663968146,
+          0.9649885669144349,
+          7.565099018854765
+        ],
+        [
+          -0.00003864666975855777,
+          -0.00010777470735321563,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 679,
+    "spatial_coverage": 0.984580536186695,
+    "uncertainty_px": 0.53316340813773,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9239606289800846,
+    "reprojection_error": 0.529036892235536,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 213,
+    "transform": {
+      "values": [
+        [
+          0.9681284970758501,
+          -0.06451945115116053,
+          8.953853463526485
+        ],
+        [
+          -0.0194503954491083,
+          0.963992899910793,
+          7.534947403449571
+        ],
+        [
+          -0.0000389882305910341,
+          -0.00011238235406063729,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 702,
+    "spatial_coverage": 0.9850457713007926,
+    "uncertainty_px": 0.5220702192685103,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9391987546340044,
+    "reprojection_error": 0.518151936638434,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 214,
+    "transform": {
+      "values": [
+        [
+          0.9666917472177966,
+          -0.06648073210755227,
+          9.26764690840222
+        ],
+        [
+          -0.01954390107344225,
+          0.9624277434491142,
+          7.479890569737065
+        ],
+        [
+          -0.00004090870872578604,
+          -0.00011503725419052571,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 695,
+    "spatial_coverage": 0.9848837494850158,
+    "uncertainty_px": 0.49420250191788156,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9308812057968201,
+    "reprojection_error": 0.49045303407611085,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 215,
+    "transform": {
+      "values": [
+        [
+          0.9682137932869024,
+          -0.06948089406208785,
+          8.767852937146454
+        ],
+        [
+          -0.019481894647509147,
+          0.962390490040026,
+          7.279582871855713
+        ],
+        [
+          -0.00004053960112173054,
+          -0.00011900536765994125,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 689,
+    "spatial_coverage": 0.9839857816696167,
+    "uncertainty_px": 0.5356687480362076,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9242353346325458,
+    "reprojection_error": 0.5313622791266503,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 216,
+    "transform": {
+      "values": [
+        [
+          0.9685328132461113,
+          -0.07380735427451088,
+          8.549350476995315
+        ],
+        [
+          -0.019100184935832234,
+          0.9614403375063395,
+          6.7955830453765955
+        ],
+        [
+          -0.00004119131733436003,
+          -0.0001261312209018469,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 674,
+    "spatial_coverage": 0.9843644201755524,
+    "uncertainty_px": 0.5493122574196955,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9225685663560882,
+    "reprojection_error": 0.5450009306767927,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 217,
+    "transform": {
+      "values": [
+        [
+          0.9698795320155623,
+          -0.07681315951548899,
+          7.986689162097093
+        ],
+        [
+          -0.01884490827723691,
+          0.9611600366576436,
+          6.550860533687658
+        ],
+        [
+          -0.000040819250164323986,
+          -0.00013127477921715536,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 689,
+    "spatial_coverage": 0.9862216368317603,
+    "uncertainty_px": 0.5231249436301803,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9209467673530947,
+    "reprojection_error": 0.5189282364879368,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 218,
+    "transform": {
+      "values": [
+        [
+          0.9699000595541505,
+          -0.07962033562394472,
+          8.01855705563213
+        ],
+        [
+          -0.018589753437907353,
+          0.9606057459990204,
+          6.327300460059162
+        ],
+        [
+          -0.00004138522259954667,
+          -0.00013368580143596702,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 702,
+    "spatial_coverage": 0.983528807759285,
+    "uncertainty_px": 0.565573827753693,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9204463158755801,
+    "reprojection_error": 0.5608966504932347,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 219,
+    "transform": {
+      "values": [
+        [
+          0.96943557454365,
+          -0.08035556973814074,
+          8.010634249545447
+        ],
+        [
+          -0.018326101797438064,
+          0.9605995955479882,
+          6.070737513951812
+        ],
+        [
+          -0.00004243882577717495,
+          -0.00013417293231224387,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 684,
+    "spatial_coverage": 0.9823380261659622,
+    "uncertainty_px": 0.5539729023466268,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9086768310143668,
+    "reprojection_error": 0.5490589808451936,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 220,
+    "transform": {
+      "values": [
+        [
+          0.9702138747577991,
+          -0.08244604774428205,
+          7.742598960365008
+        ],
+        [
+          -0.017993702809350948,
+          0.9604643455733863,
+          5.832096318138416
+        ],
+        [
+          -0.00004239450932255356,
+          -0.00013663768352568763,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 685,
+    "spatial_coverage": 0.988365377485752,
+    "uncertainty_px": 0.5201055877240891,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9209339777601177,
+    "reprojection_error": 0.5170711195880229,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 221,
+    "transform": {
+      "values": [
+        [
+          0.968242222865926,
+          -0.08300503584413128,
+          8.298906883725437
+        ],
+        [
+          -0.017912509924991393,
+          0.9595414796386796,
+          5.748405977283971
+        ],
+        [
+          -0.00004445981620427628,
+          -0.00013618090350599855,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 722,
+    "spatial_coverage": 0.983352068066597,
+    "uncertainty_px": 0.5907134913520802,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9286527182135667,
+    "reprojection_error": 0.5091890346023451,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 222,
+    "transform": {
+      "values": [
+        [
+          0.9677253814925658,
+          -0.0832866074023367,
+          8.366404738209262
+        ],
+        [
+          -0.01797172623766527,
+          0.9592926955350987,
+          5.78676362874085
+        ],
+        [
+          -0.000045459402699545815,
+          -0.00013595885298803,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 731,
+    "spatial_coverage": 0.9848013877868652,
+    "uncertainty_px": 0.4940337720649385,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9030432376609282,
+    "reprojection_error": 0.49026508366829036,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 223,
+    "transform": {
+      "values": [
+        [
+          0.9665876232027861,
+          -0.08535030164019772,
+          8.865781007895364
+        ],
+        [
+          -0.01802099933027996,
+          0.9589416004013716,
+          5.804768966256307
+        ],
+        [
+          -0.00004659086000429659,
+          -0.00013686083720792147,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 747,
+    "spatial_coverage": 0.9877438053488732,
+    "uncertainty_px": 0.4940168495826616,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9072197116253747,
+    "reprojection_error": 0.4842302849793779,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 224,
+    "transform": {
+      "values": [
+        [
+          0.9672929685210362,
+          -0.08411007393735019,
+          8.478480331715012
+        ],
+        [
+          -0.017948060569720693,
+          0.9604268890303627,
+          5.649840560664669
+        ],
+        [
+          -0.000046858142613027654,
+          -0.00013441386601738007,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 792,
+    "spatial_coverage": 0.9887852489948272,
+    "uncertainty_px": 0.3990227943249798,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.916009412153191,
+    "reprojection_error": 0.38027101295488697,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 225,
+    "transform": {
+      "values": [
+        [
+          0.9669382179784706,
+          -0.08411752084037263,
+          8.591350962316135
+        ],
+        [
+          -0.01813710196302191,
+          0.960623525356276,
+          5.766844495529341
+        ],
+        [
+          -0.00004756576953533116,
+          -0.0001340534938804154,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 807,
+    "spatial_coverage": 0.9840219974517822,
+    "uncertainty_px": 0.7181483153518197,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9145687572501905,
+    "reprojection_error": 0.5164344886900433,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 226,
+    "transform": {
+      "values": [
+        [
+          0.965328263991501,
+          -0.0837685547481539,
+          9.144780416019422
+        ],
+        [
+          -0.018409340035324562,
+          0.9607777198691868,
+          5.910460942851577
+        ],
+        [
+          -0.00004909329345374865,
+          -0.00013342432750686387,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 802,
+    "spatial_coverage": 0.989570428431034,
+    "uncertainty_px": 0.4265988493938603,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9121928421550609,
+    "reprojection_error": 0.3557787190666448,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 227,
+    "transform": {
+      "values": [
+        [
+          0.9644573761941031,
+          -0.08265126166163095,
+          9.312622610975232
+        ],
+        [
+          -0.018830916927070136,
+          0.961528229843883,
+          6.1134902483474916
+        ],
+        [
+          -0.000050308874939292316,
+          -0.0001320445344309373,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 773,
+    "spatial_coverage": 0.984841202199459,
+    "uncertainty_px": 1.001244500580405,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9100822682404135,
+    "reprojection_error": 0.5192166943596457,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 228,
+    "transform": {
+      "values": [
+        [
+          0.9648373383672134,
+          -0.08074065725482374,
+          9.253328611993886
+        ],
+        [
+          -0.019280562563507245,
+          0.9632732599013931,
+          6.340990586496188
+        ],
+        [
+          -0.00005070013045269504,
+          -0.00012800680688374803,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 802,
+    "spatial_coverage": 0.989570428431034,
+    "uncertainty_px": 0.7878545110845104,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8982017226023885,
+    "reprojection_error": 0.4855528523217505,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 229,
+    "transform": {
+      "values": [
+        [
+          0.9646650479379507,
+          -0.0779412529141147,
+          9.307710174695217
+        ],
+        [
+          -0.019833846205592948,
+          0.9645576671377553,
+          6.64930052526121
+        ],
+        [
+          -0.00005144341085162183,
+          -0.00012424905273323395,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 844,
+    "spatial_coverage": 0.9969076916575432,
+    "uncertainty_px": 1.1813503752040035,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.8913697605485781,
+    "reprojection_error": 0.48880710493241203,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 230,
+    "transform": {
+      "values": [
+        [
+          0.9645028857977898,
+          -0.07809062271658743,
+          9.57052404980005
+        ],
+        [
+          -0.020438069270758162,
+          0.9646743101520687,
+          7.071899608172678
+        ],
+        [
+          -0.000051536728198995206,
+          -0.00012645799285283585,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 879,
+    "spatial_coverage": 0.9978209719061851,
+    "uncertainty_px": 1.1836888222871604,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9531928576624723,
+    "reprojection_error": 0.5226999691085474,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 231,
+    "transform": {
+      "values": [
+        [
+          0.9643479746840916,
+          -0.07568217965899615,
+          9.659423018385265
+        ],
+        [
+          -0.021181316352444367,
+          0.9661001619544658,
+          7.462639086599744
+        ],
+        [
+          -0.00005220823470003521,
+          -0.00012374206900933306,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 923,
+    "spatial_coverage": 0.9982856854796409,
+    "uncertainty_px": 0.592956848639018,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9393332793765119,
+    "reprojection_error": 0.39345662775473883,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 232,
+    "transform": {
+      "values": [
+        [
+          0.9657359249386807,
+          -0.07212262560774943,
+          9.221290385021398
+        ],
+        [
+          -0.021841500399077316,
+          0.968438241995723,
+          7.792138393786046
+        ],
+        [
+          -0.00005179057754407054,
+          -0.00011931815738785543,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 917,
+    "spatial_coverage": 0.9954246595501899,
+    "uncertainty_px": 0.678254084621131,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9657432012721188,
+    "reprojection_error": 0.4060937203388567,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 233,
+    "transform": {
+      "values": [
+        [
+          0.9662045528833549,
+          -0.06957405084640209,
+          9.174136120079943
+        ],
+        [
+          -0.022538557167168204,
+          0.9695029398588739,
+          8.219858297423993
+        ],
+        [
+          -0.00005180341537805321,
+          -0.00011742416967668367,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 981,
+    "spatial_coverage": 0.9982856854796409,
+    "uncertainty_px": 1.1176704273224949,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9751336854248183,
+    "reprojection_error": 0.4046711144305789,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 234,
+    "transform": {
+      "values": [
+        [
+          0.9646897865281714,
+          -0.06707881656463255,
+          9.717010397153476
+        ],
+        [
+          -0.023273059895507674,
+          0.9694182729657436,
+          8.697701138231793
+        ],
+        [
+          -0.00005298259251849232,
+          -0.00011715896373014817,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 977,
+    "spatial_coverage": 0.9974219411611557,
+    "uncertainty_px": 0.9824873509789855,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9630687485754326,
+    "reprojection_error": 0.3789851363488209,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 235,
+    "transform": {
+      "values": [
+        [
+          0.9635304043150191,
+          -0.06419748350030832,
+          10.120244247495528
+        ],
+        [
+          -0.024061793671841882,
+          0.9699734480284669,
+          9.182807735487884
+        ],
+        [
+          -0.00005417638104479663,
+          -0.00011522588285671559,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1015,
+    "spatial_coverage": 0.9989971294999123,
+    "uncertainty_px": 0.8945692194267967,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9769025523109385,
+    "reprojection_error": 0.3217169620085428,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 236,
+    "transform": {
+      "values": [
+        [
+          0.9634115750529286,
+          -0.0606125545984949,
+          10.208637209214928
+        ],
+        [
+          -0.02474113564854308,
+          0.9715453679720838,
+          9.571709897510711
+        ],
+        [
+          -0.00005471557802695303,
+          -0.00011113230919376229,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1080,
+    "spatial_coverage": 0.9989971294999123,
+    "uncertainty_px": 0.7154914276231185,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9668405226139934,
+    "reprojection_error": 0.25663268957119884,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 237,
+    "transform": {
+      "values": [
+        [
+          0.9629324487906737,
+          -0.05683813584787173,
+          10.376863603350088
+        ],
+        [
+          -0.02536638149129505,
+          0.9730479518545871,
+          9.934158433674678
+        ],
+        [
+          -0.00005562134553896415,
+          -0.00010669300622259547,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1132,
+    "spatial_coverage": 0.9992233216762543,
+    "uncertainty_px": 0.5532615885245002,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9934721851452026,
+    "reprojection_error": 0.3064728032118732,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 238,
+    "transform": {
+      "values": [
+        [
+          0.961142110149054,
+          -0.05444846240877045,
+          11.049087340538726
+        ],
+        [
+          -0.02610949646899597,
+          0.9732822457196703,
+          10.45624435780621
+        ],
+        [
+          -0.000057215604426586466,
+          -0.00010508823279454225,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1109,
+    "spatial_coverage": 0.9996402204036712,
+    "uncertainty_px": 0.3184698018422593,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 0.9901191383147587,
+    "reprojection_error": 0.20347498389662982,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.0
+  },
+  {
+    "frame": 239,
+    "transform": {
+      "values": [
+        [
+          0.9602010278555244,
+          -0.05153063739147182,
+          11.46372396557529
+        ],
+        [
+          -0.026835917632782084,
+          0.9742278489305077,
+          10.924638116245397
+        ],
+        [
+          -0.000058194876815433836,
+          -0.00010253517507442685,
+          1.0
+        ]
+      ]
+    },
+    "measurement_valid": true,
+    "tracked_points": 1418,
+    "spatial_coverage": 1.0,
+    "uncertainty_px": 0.35,
+    "measurement_source": "bidirectional-fused",
+    "inlier_ratio": 1.0,
+    "reprojection_error": 0.0,
+    "ecc": null,
+    "plaque_visibility": 1.0,
+    "occluder_coverage": 0.005458614095559371
+  }
+]

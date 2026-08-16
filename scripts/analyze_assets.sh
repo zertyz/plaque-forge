@@ -5,9 +5,11 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 force=false
 force_ml=false
 use_ml=true
-backend="sam2-cutie-vitmatte"
-model="facebook/sam2.1-hiera-large"
+backend="auto"
+model="auto"
 device="auto"
+profile="balanced"
+precision="auto"
 cases=()
 
 usage() {
@@ -28,9 +30,11 @@ Options:
   --force          Rebuild selected scene-analysis caches. Valid human-prompted ML artifacts are reused.
   --force-ml       Regenerate all ML layer artifacts instead of reusing valid results.
   --no-ml          Do not invoke optional Python ML segmentation layers.
-  --backend NAME   Segmentation backend (default: sam2-cutie-vitmatte).
-  --model NAME     Segmentation model (default: facebook/sam2.1-hiera-large).
-  --device NAME    auto, cpu, cuda, or xpu (default: auto).
+  --backend NAME   Segmentation backend or auto (default: auto; Rust plans the strategy).
+  --model NAME     Model override or auto (default: auto).
+  --device NAME    auto, cpu, cuda, or xpu (default: auto; execution only).
+  --profile NAME   preview, balanced, or canonical (default: balanced).
+  --precision NAME auto, fp32, or bf16 (default: auto; resolved independently of device).
 
 For the full workflow, run ./scripts/setup_segmentation.sh once first. Its Python,
 model, source, and cache files live under /tmp/plaque-forge-python, not $HOME.
@@ -45,6 +49,8 @@ while (( $# )); do
     --backend) (( $# >= 2 )) || { usage >&2; exit 2; }; backend="$2"; shift 2 ;;
     --model) (( $# >= 2 )) || { usage >&2; exit 2; }; model="$2"; shift 2 ;;
     --device) (( $# >= 2 )) || { usage >&2; exit 2; }; device="$2"; shift 2 ;;
+    --profile) (( $# >= 2 )) || { usage >&2; exit 2; }; profile="$2"; shift 2 ;;
+    --precision) (( $# >= 2 )) || { usage >&2; exit 2; }; precision="$2"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
     -*) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     *) cases+=("$1"); shift ;;
@@ -59,7 +65,7 @@ fi
 cd "$root"
 
 if [[ "$use_ml" == true ]]; then
-  printf '[ml] enabled: runtime=/tmp/plaque-forge-python, backend=%s, model=%s, device=%s, force_ml=%s\n' "$backend" "$model" "$device" "$force_ml"
+  printf '[ml] enabled: runtime=/tmp/plaque-forge-python, backend=%s, model=%s, device=%s, profile=%s, precision=%s, force_ml=%s\n' "$backend" "$model" "$device" "$profile" "$precision" "$force_ml"
   printf '[ml] inspect workers/history: ./scripts/ml_status.sh (log: /tmp/plaque-forge-python/worker-runs.jsonl)\n'
   [[ -x tools/segmentation-worker ]] || {
     printf 'segmentation worker is not executable: tools/segmentation-worker\n' >&2
@@ -101,6 +107,8 @@ for name in "${cases[@]}"; do
       --segmentation-backend "$backend"
       --segmentation-model "$model"
       --segmentation-device "$device"
+      --segmentation-profile "$profile"
+      --segmentation-precision "$precision"
     )
     [[ "$force_ml" == true ]] && args+=(--force-ml)
   fi

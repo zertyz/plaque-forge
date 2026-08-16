@@ -1,0 +1,17 @@
+version = 4
+
+[material]
+type = "holographic"
+
+[[effects]]
+type = "glow"
+radius = 5
+color = "#77E8FF68"
+
+[[animations]]
+type = "confetti-converge"
+period_seconds = 4.5
+hold_fraction = 0.35
+pieces = 900
+spread = 0.52
+seed = 1129270854

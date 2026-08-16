@@ -1,0 +1,15 @@
+version = 4
+fill = "#F7E8BEFF"
+
+[[effects]]
+type = "shadow"
+offset_x = 0.020
+offset_y = 0.035
+blur_radius = 3
+color = "#000000B0"
+
+[[animations]]
+type = "split-flap"
+period_seconds = 4.4
+hold_fraction = 0.30
+steps_per_second = 16.0

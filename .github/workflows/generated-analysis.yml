@@ -1,0 +1,156 @@
+name: Produce generated analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Branch whose stale analysis should be refreshed
+        required: true
+        default: main
+        type: string
+      assets:
+        description: Optional space-separated asset stems; blank lets --if-needed inspect all assets
+        required: false
+        default: ""
+        type: string
+      runs_on:
+        description: JSON runner labels, e.g. ["ubuntu-24.04"] or ["self-hosted","linux","x64","xpu"]
+        required: true
+        default: '["ubuntu-24.04"]'
+        type: string
+      torch_profile:
+        description: setup_segmentation profile for the selected runner
+        required: true
+        default: cpu
+        type: choice
+        options: [cpu, xpu]
+      device:
+        description: ML execution device
+        required: true
+        default: cpu
+        type: choice
+        options: [cpu, xpu, auto]
+      bootstrap_ubuntu:
+        description: Install apt dependencies (disable on a prepared self-hosted runner)
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: generated-analysis-${{ inputs.target_ref }}
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Bootstrap Ubuntu dependencies
+        if: inputs.bootstrap_ubuntu
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            clang ffmpeg fontconfig fonts-noto-core libclang-dev libopencv-dev pkg-config python3
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal --component clippy,rustfmt
+          rustup override set 1.89.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+
+      - name: Restore segmentation runtime
+        uses: actions/cache@v4
+        with:
+          path: /tmp/plaque-forge-python
+          key: generated-analysis-${{ inputs.torch_profile }}-v2-${{ runner.os }}-${{ hashFiles('scripts/setup_segmentation.sh', 'tools/segmentation-requirements.txt', 'tools/segmentation_runtime.py') }}
+
+      - name: Build or verify ML runtime
+        run: ./scripts/setup_segmentation.sh --torch-profile "${{ inputs.torch_profile }}"
+
+      - name: Regenerate stale analysis only
+        env:
+          ASSETS: ${{ inputs.assets }}
+        run: |
+          read -r -a selected <<< "$ASSETS"
+          ./scripts/analyze_assets.sh \
+            --device "${{ inputs.device }}" \
+            --profile canonical \
+            --precision fp32 \
+            "${selected[@]}"
+
+      - name: Validate exact generated working tree
+        run: |
+          cargo fmt --all --check
+          ./scripts/check.sh
+          ./scripts/check_homologated_assets.sh
+
+      - name: Reject unexpected repository mutations
+        run: |
+          unexpected="$(git status --porcelain --untracked-files=all | grep -Ev '^.. (assets/analysis/|assets/scenes/)' || true)"
+          if [[ -n "$unexpected" ]]; then
+            printf 'canonical analysis modified paths outside generated ownership:\n%s\n' "$unexpected" >&2
+            exit 1
+          fi
+
+      - name: Detect whether anything changed
+        id: changed
+        run: |
+          if [[ -z "$(git status --porcelain -- assets/analysis assets/scenes)" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No generated-analysis update is required." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Generated analysis changed and will be proposed as a bot PR." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit and push generated branch
+        if: steps.changed.outputs.changed == 'true'
+        id: commit
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          branch="generated/analysis-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "plaque-forge-analysis[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add assets/analysis assets/scenes
+          git commit -m "chore: refresh generated analysis"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Open generated-analysis PR
+        if: steps.changed.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          gh pr create \
+            --base "$TARGET_REF" \
+            --head "$BRANCH" \
+            --title "chore: refresh generated analysis" \
+            --body "Generated by the trusted Plaque Forge canonical-analysis producer. Candidate commit: \`$SHA\`. The producer validated the exact working tree before publication and explicitly dispatches an independent validation run on this commit."
+
+      - name: Dispatch independent validation on generated commit
+        if: steps.changed.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+        run: gh workflow run generated-analysis-validate.yml --ref "$BRANCH"

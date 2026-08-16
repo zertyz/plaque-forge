@@ -12,6 +12,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  change-scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      needs_analysis: ${{ steps.scope.outputs.needs_analysis }}
+      needs_ml_analysis: ${{ steps.scope.outputs.needs_ml_analysis }}
+      needs_ml_runtime: ${{ steps.scope.outputs.needs_ml_runtime }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect analysis-affecting changes
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: ./scripts/analysis_change_scope.sh "$BASE_SHA" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+
   code-gate:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -30,7 +48,9 @@ jobs:
             libclang-dev \
             libopencv-dev \
             pkg-config \
-            python3
+            python3 \
+            python3-numpy \
+            python3-pil
 
       - name: Install the minimum supported Rust toolchain
         run: |
@@ -53,3 +73,108 @@ jobs:
 
       - name: Reject new RustSec findings
         run: ./scripts/audit_dependencies.sh
+
+  homologation-gate:
+    needs: code-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install render dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            clang \
+            ffmpeg \
+            fontconfig \
+            fonts-noto-core \
+            libclang-dev \
+            libopencv-dev \
+            pkg-config
+
+      - name: Install the minimum supported Rust toolchain
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup override set 1.89.0
+
+      - name: Render and enforce homologated behavior
+        run: ./scripts/check_homologated_assets.sh
+
+      - name: Retain homologation failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: homologation-failure-${{ github.run_id }}
+          path: |
+            output/regressions/
+            output/*.homologation.json
+            output/*.decision-trace.json
+            output/*.render-manifest.json
+            output/homologation-coverage.json
+          if-no-files-found: ignore
+
+  analysis-no-ml-gate:
+    needs: [code-gate, change-scope]
+    if: needs.change-scope.outputs.needs_analysis == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install analysis dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            clang \
+            ffmpeg \
+            libclang-dev \
+            libopencv-dev \
+            pkg-config
+
+      - name: Install the minimum supported Rust toolchain
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup override set 1.89.0
+
+      - name: Exercise captured pure-Rust analysis regressions
+        run: ./scripts/check_analysis_regressions.sh
+
+      - name: Retain analysis failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: analysis-no-ml-failure-${{ github.run_id }}
+          path: /tmp/plaque-forge/failures/
+          if-no-files-found: ignore
+
+  segmentation-runtime-gate:
+    needs: change-scope
+    if: needs.change-scope.outputs.needs_ml_runtime == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+
+      - name: Restore pinned CPU segmentation runtime
+        uses: actions/cache@v4
+        with:
+          path: /tmp/plaque-forge-python
+          key: segmentation-runtime-cpu-v1-${{ runner.os }}-${{ hashFiles('scripts/setup_segmentation.sh', 'tools/segmentation-requirements.txt') }}
+
+      - name: Build or verify the complete ML runtime
+        run: ./scripts/setup_segmentation.sh --torch-profile cpu
+
+      - name: Prove the completed runtime is offline-capable
+        run: ./scripts/setup_segmentation.sh --verify --torch-profile cpu

@@ -4,19 +4,63 @@
 //! coverage, which lets static material/effect work be cached while animations such as a
 //! moving shine reevaluate only presentation state.
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use crate::{color::Rgba, surface::Surface};
 
+mod advanced;
+
 #[derive(Clone, Debug)]
 pub struct Style {
     fill: FillStyle,
+    texture: Option<TextureMaterial>,
+    layouts: Vec<LayoutEffect>,
     underlays: Vec<MaskEffect>,
     overlays: Vec<OverlayEffect>,
+    surface_effects: Vec<SurfaceEffect>,
     animations: Vec<AnimationEffect>,
+}
+
+#[derive(Clone, Debug)]
+struct TextureMaterial {
+    image: Surface,
+    path: PathBuf,
+    sha256: String,
+    tile: bool,
+    scale: f32,
+    offset_x: f32,
+    offset_y: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LayoutEffect {
+    Arc {
+        sweep_degrees: f32,
+        radius_scale: f32,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SurfaceEffect {
+    LaserBurn {
+        depth: f32,
+        warmth: f32,
+        edge_width: u32,
+        seed: u32,
+    },
+    Emboss {
+        depth: f32,
+        highlight_strength: f32,
+        shadow_strength: f32,
+        light_angle_degrees: Option<f32>,
+        cast_shadow: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,6 +119,18 @@ enum FillStyle {
         foreground: Rgba,
         background: Rgba,
         cell: u32,
+    },
+    Blueprint {
+        dark: Rgba,
+        light: Rgba,
+        grid: Rgba,
+        cell: u32,
+    },
+    Paper {
+        light: Rgba,
+        mid: Rgba,
+        dark: Rgba,
+        seed: u32,
     },
 }
 
@@ -161,6 +217,36 @@ enum AnimationEffect {
         hold_fraction: f32,
         seed: u32,
     },
+    Scramble {
+        period_seconds: f32,
+        hold_fraction: f32,
+        steps_per_second: f32,
+        seed: u32,
+    },
+    SplitFlap {
+        period_seconds: f32,
+        hold_fraction: f32,
+        steps_per_second: f32,
+    },
+    ConfettiConverge {
+        period_seconds: f32,
+        hold_fraction: f32,
+        pieces: u32,
+        spread_ratio: f32,
+        seed: u32,
+    },
+    Glitch {
+        period_seconds: f32,
+        ripple_ratio: f32,
+        slice_ratio: f32,
+        burst_fraction: f32,
+        seed: u32,
+    },
+    Orbit {
+        period_seconds: f32,
+        degrees_per_cycle: f32,
+        phase: f32,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,9 +258,51 @@ struct StyleFile {
     #[serde(default)]
     material: Option<MaterialFile>,
     #[serde(default)]
+    layouts: Vec<LayoutFile>,
+    #[serde(default)]
     effects: Vec<EffectFile>,
     #[serde(default)]
+    surface_effects: Vec<SurfaceEffectFile>,
+    #[serde(default)]
     animations: Vec<AnimationFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+enum LayoutFile {
+    Arc {
+        #[serde(default = "default_arc_sweep")]
+        sweep_degrees: f32,
+        #[serde(default = "default_arc_radius_scale")]
+        radius_scale: f32,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+enum SurfaceEffectFile {
+    LaserBurn {
+        #[serde(default = "default_laser_depth")]
+        depth: f32,
+        #[serde(default = "default_laser_warmth")]
+        warmth: f32,
+        #[serde(default = "default_laser_edge_width")]
+        edge_width: u32,
+        #[serde(default = "default_surface_seed")]
+        seed: u32,
+    },
+    Emboss {
+        #[serde(default = "default_emboss_depth")]
+        depth: f32,
+        #[serde(default = "default_emboss_highlight")]
+        highlight_strength: f32,
+        #[serde(default = "default_emboss_shadow")]
+        shadow_strength: f32,
+        #[serde(default)]
+        light_angle_degrees: Option<f32>,
+        #[serde(default = "default_emboss_cast_shadow")]
+        cast_shadow: u32,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -242,6 +370,37 @@ enum MaterialFile {
         background: String,
         #[serde(default = "default_halftone_cell")]
         cell: u32,
+    },
+    ImageTexture {
+        path: String,
+        #[serde(default)]
+        tile: bool,
+        #[serde(default = "default_texture_scale")]
+        scale: f32,
+        #[serde(default)]
+        offset_x: f32,
+        #[serde(default)]
+        offset_y: f32,
+    },
+    Blueprint {
+        #[serde(default = "default_blueprint_dark")]
+        dark: String,
+        #[serde(default = "default_blueprint_light")]
+        light: String,
+        #[serde(default = "default_blueprint_grid")]
+        grid: String,
+        #[serde(default = "default_blueprint_cell")]
+        cell: u32,
+    },
+    Paper {
+        #[serde(default = "default_paper_light")]
+        light: String,
+        #[serde(default = "default_paper_mid")]
+        mid: String,
+        #[serde(default = "default_paper_dark")]
+        dark: String,
+        #[serde(default = "default_paper_seed")]
+        seed: u32,
     },
 }
 
@@ -363,6 +522,56 @@ enum AnimationFile {
         hold_fraction: f32,
         #[serde(default = "default_dissolve_seed")]
         seed: u32,
+    },
+    Scramble {
+        #[serde(default = "default_scramble_period")]
+        period_seconds: f32,
+        #[serde(default = "default_reveal_hold")]
+        hold_fraction: f32,
+        #[serde(default = "default_character_steps")]
+        steps_per_second: f32,
+        #[serde(default = "default_scramble_seed")]
+        seed: u32,
+    },
+    SplitFlap {
+        #[serde(default = "default_split_flap_period")]
+        period_seconds: f32,
+        #[serde(default = "default_reveal_hold")]
+        hold_fraction: f32,
+        #[serde(default = "default_character_steps")]
+        steps_per_second: f32,
+    },
+    ConfettiConverge {
+        #[serde(default = "default_confetti_period")]
+        period_seconds: f32,
+        #[serde(default = "default_reveal_hold")]
+        hold_fraction: f32,
+        #[serde(default = "default_confetti_pieces")]
+        pieces: u32,
+        #[serde(default = "default_confetti_spread")]
+        spread: f32,
+        #[serde(default = "default_confetti_seed")]
+        seed: u32,
+    },
+    Glitch {
+        #[serde(default = "default_glitch_period")]
+        period_seconds: f32,
+        #[serde(default = "default_glitch_ripple")]
+        ripple: f32,
+        #[serde(default = "default_glitch_slice")]
+        slice: f32,
+        #[serde(default = "default_glitch_burst")]
+        burst_fraction: f32,
+        #[serde(default = "default_glitch_seed")]
+        seed: u32,
+    },
+    Orbit {
+        #[serde(default = "default_orbit_period")]
+        period_seconds: f32,
+        #[serde(default = "default_orbit_degrees")]
+        degrees_per_cycle: f32,
+        #[serde(default)]
+        phase: f32,
     },
 }
 
@@ -558,6 +767,109 @@ fn default_dissolve_seed() -> u32 {
     0x504C_4151
 }
 
+fn default_arc_sweep() -> f32 {
+    58.0
+}
+fn default_arc_radius_scale() -> f32 {
+    1.0
+}
+fn default_texture_scale() -> f32 {
+    1.0
+}
+fn default_blueprint_dark() -> String {
+    "#082E5EFF".to_string()
+}
+fn default_blueprint_light() -> String {
+    "#5FD8FFFF".to_string()
+}
+fn default_blueprint_grid() -> String {
+    "#D7F6FFB8".to_string()
+}
+fn default_blueprint_cell() -> u32 {
+    8
+}
+fn default_paper_light() -> String {
+    "#FFF3D2FF".to_string()
+}
+fn default_paper_mid() -> String {
+    "#D6B988FF".to_string()
+}
+fn default_paper_dark() -> String {
+    "#7B5B38FF".to_string()
+}
+fn default_paper_seed() -> u32 {
+    0x5041_5045
+}
+fn default_laser_depth() -> f32 {
+    0.72
+}
+fn default_laser_warmth() -> f32 {
+    0.65
+}
+fn default_laser_edge_width() -> u32 {
+    2
+}
+fn default_surface_seed() -> u32 {
+    0x4255_524E
+}
+fn default_emboss_depth() -> f32 {
+    0.65
+}
+fn default_emboss_highlight() -> f32 {
+    0.72
+}
+fn default_emboss_shadow() -> f32 {
+    0.68
+}
+fn default_emboss_cast_shadow() -> u32 {
+    2
+}
+fn default_scramble_period() -> f32 {
+    3.8
+}
+fn default_split_flap_period() -> f32 {
+    4.2
+}
+fn default_character_steps() -> f32 {
+    14.0
+}
+fn default_scramble_seed() -> u32 {
+    0x5343_524D
+}
+fn default_confetti_period() -> f32 {
+    4.4
+}
+fn default_confetti_pieces() -> u32 {
+    720
+}
+fn default_confetti_spread() -> f32 {
+    0.48
+}
+fn default_confetti_seed() -> u32 {
+    0x434F_4E46
+}
+fn default_glitch_period() -> f32 {
+    2.6
+}
+fn default_glitch_ripple() -> f32 {
+    0.018
+}
+fn default_glitch_slice() -> f32 {
+    0.085
+}
+fn default_glitch_burst() -> f32 {
+    0.20
+}
+fn default_glitch_seed() -> u32 {
+    0x474C_4954
+}
+fn default_orbit_period() -> f32 {
+    8.0
+}
+fn default_orbit_degrees() -> f32 {
+    360.0
+}
+
 impl Style {
     pub fn has_frame_variation(&self) -> bool {
         !self.animations.is_empty()
@@ -629,8 +941,11 @@ impl Style {
 
         Ok(Self {
             fill: FillStyle::Flat(Rgba::parse(text_color).context("invalid --text-color")?),
+            texture: None,
+            layouts: Vec::new(),
             underlays,
             overlays: Vec::new(),
+            surface_effects: Vec::new(),
             animations: Vec::new(),
         })
     }
@@ -640,12 +955,13 @@ impl Style {
             .with_context(|| format!("failed to read text style {}", path.display()))?;
         let parsed: StyleFile = toml::from_str(&source)
             .with_context(|| format!("invalid text style TOML {}", path.display()))?;
-        if !matches!(parsed.version, 1..=3) {
+        if !matches!(parsed.version, 1..=4) {
             bail!(
-                "unsupported text style version {}; this build supports versions 1, 2, and 3",
+                "unsupported text style version {}; this build supports versions 1 through 4",
                 parsed.version
             );
         }
+
         let uses_v2_features = parsed.material.is_some()
             || !parsed.animations.is_empty()
             || parsed.effects.iter().any(|effect| {
@@ -681,6 +997,26 @@ impl Style {
                     | AnimationFile::Dissolve { .. }
             )
         });
+        let uses_v4_features = !parsed.layouts.is_empty()
+            || !parsed.surface_effects.is_empty()
+            || matches!(
+                parsed.material.as_ref(),
+                Some(
+                    MaterialFile::ImageTexture { .. }
+                        | MaterialFile::Blueprint { .. }
+                        | MaterialFile::Paper { .. }
+                )
+            )
+            || parsed.animations.iter().any(|animation| {
+                matches!(
+                    animation,
+                    AnimationFile::Scramble { .. }
+                        | AnimationFile::SplitFlap { .. }
+                        | AnimationFile::ConfettiConverge { .. }
+                        | AnimationFile::Glitch { .. }
+                        | AnimationFile::Orbit { .. }
+                )
+            });
         if parsed.version == 1 && uses_v2_features {
             bail!(
                 "text style uses material, animation, extrusion, or bevel features that require version >= 2"
@@ -688,12 +1024,19 @@ impl Style {
         }
         if parsed.version < 3 && uses_v3_features {
             bail!(
-                "text style uses advanced material/effect/animation features that require version = 3"
+                "text style uses advanced material/effect/animation features that require version >= 3"
+            );
+        }
+        if parsed.version < 4 && uses_v4_features {
+            bail!(
+                "text style uses layout, texture, character, particle, or plaque-surface features that require version = 4"
             );
         }
         if parsed.fill.is_some() && parsed.material.is_some() {
             bail!("style must declare either fill or material, not both");
         }
+
+        let mut texture = None;
         let fill = match parsed.material {
             None => FillStyle::Flat(
                 Rgba::parse(parsed.fill.as_deref().unwrap_or("#EBFFFFFF"))
@@ -763,7 +1106,85 @@ impl Style {
                     cell,
                 }
             }
+            Some(MaterialFile::ImageTexture {
+                path: texture_path,
+                tile,
+                scale,
+                offset_x,
+                offset_y,
+            }) => {
+                if !(0.05..=20.0).contains(&scale) || !offset_x.is_finite() || !offset_y.is_finite()
+                {
+                    bail!("image-texture scale must be 0.05..20 and offsets must be finite");
+                }
+                let resolved = path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(&texture_path);
+                let image = image::open(&resolved)
+                    .with_context(|| format!("failed to load text texture {}", resolved.display()))?
+                    .to_rgba8();
+                let surface = Surface::from_rgba(image.width(), image.height(), image.into_raw())?;
+                texture = Some(TextureMaterial {
+                    image: surface,
+                    sha256: crate::digest::file_sha256(&resolved)?,
+                    path: resolved,
+                    tile,
+                    scale,
+                    offset_x,
+                    offset_y,
+                });
+                FillStyle::Flat(Rgba::new(255, 255, 255, 255))
+            }
+            Some(MaterialFile::Blueprint {
+                dark,
+                light,
+                grid,
+                cell,
+            }) => {
+                if !(3..=64).contains(&cell) {
+                    bail!("blueprint cell must be between 3 and 64 pixels");
+                }
+                FillStyle::Blueprint {
+                    dark: Rgba::parse(&dark).context("invalid blueprint dark color")?,
+                    light: Rgba::parse(&light).context("invalid blueprint light color")?,
+                    grid: Rgba::parse(&grid).context("invalid blueprint grid color")?,
+                    cell,
+                }
+            }
+            Some(MaterialFile::Paper {
+                light,
+                mid,
+                dark,
+                seed,
+            }) => FillStyle::Paper {
+                light: Rgba::parse(&light).context("invalid paper light color")?,
+                mid: Rgba::parse(&mid).context("invalid paper mid color")?,
+                dark: Rgba::parse(&dark).context("invalid paper dark color")?,
+                seed,
+            },
         };
+
+        let mut layouts = Vec::new();
+        for layout in parsed.layouts {
+            match layout {
+                LayoutFile::Arc {
+                    sweep_degrees,
+                    radius_scale,
+                } => {
+                    if !sweep_degrees.is_finite() || !(1.0..=330.0).contains(&sweep_degrees.abs()) {
+                        bail!("arc sweep_degrees magnitude must be between 1 and 330");
+                    }
+                    if !(0.2..=5.0).contains(&radius_scale) {
+                        bail!("arc radius_scale must be between 0.2 and 5");
+                    }
+                    layouts.push(LayoutEffect::Arc {
+                        sweep_degrees,
+                        radius_scale,
+                    });
+                }
+            }
+        }
 
         let mut underlays = Vec::new();
         let mut overlays = Vec::new();
@@ -888,120 +1309,121 @@ impl Style {
             }
         }
 
+        let mut surface_effects = Vec::new();
+        for effect in parsed.surface_effects {
+            surface_effects.push(match effect {
+                SurfaceEffectFile::LaserBurn {
+                    depth,
+                    warmth,
+                    edge_width,
+                    seed,
+                } => {
+                    if !(0.0..=1.0).contains(&depth)
+                        || !(0.0..=1.0).contains(&warmth)
+                        || edge_width > 24
+                    {
+                        bail!("laser-burn depth/warmth must be 0..1 and edge_width <= 24");
+                    }
+                    SurfaceEffect::LaserBurn {
+                        depth,
+                        warmth,
+                        edge_width,
+                        seed,
+                    }
+                }
+                SurfaceEffectFile::Emboss {
+                    depth,
+                    highlight_strength,
+                    shadow_strength,
+                    light_angle_degrees,
+                    cast_shadow,
+                } => {
+                    if !(0.0..=2.0).contains(&depth)
+                        || !(0.0..=1.5).contains(&highlight_strength)
+                        || !(0.0..=1.5).contains(&shadow_strength)
+                        || light_angle_degrees.is_some_and(|angle| !angle.is_finite())
+                        || cast_shadow > 32
+                    {
+                        bail!("emboss parameters are outside their supported ranges");
+                    }
+                    SurfaceEffect::Emboss {
+                        depth,
+                        highlight_strength,
+                        shadow_strength,
+                        light_angle_degrees,
+                        cast_shadow,
+                    }
+                }
+            });
+        }
+
         let mut animations = Vec::new();
         for animation in parsed.animations {
             animations.push(match animation {
-                AnimationFile::Pulse {
-                    period_seconds,
-                    minimum_opacity,
-                    maximum_opacity,
-                    phase,
-                } => {
-                    if !period_seconds.is_finite() || period_seconds <= 0.0 {
-                        bail!("pulse period_seconds must be positive");
-                    }
-                    if !(0.0..=1.0).contains(&minimum_opacity)
-                        || !(0.0..=1.0).contains(&maximum_opacity)
-                        || minimum_opacity > maximum_opacity
-                    {
-                        bail!("pulse opacity range must satisfy 0 <= minimum <= maximum <= 1");
-                    }
-                    AnimationEffect::Pulse {
-                        period_seconds,
-                        minimum_opacity,
-                        maximum_opacity,
-                        phase,
-                    }
+                AnimationFile::Pulse { period_seconds, minimum_opacity, maximum_opacity, phase } => {
+                    if !period_seconds.is_finite() || period_seconds <= 0.0 { bail!("pulse period_seconds must be positive"); }
+                    if !(0.0..=1.0).contains(&minimum_opacity) || !(0.0..=1.0).contains(&maximum_opacity) || minimum_opacity > maximum_opacity { bail!("pulse opacity range must satisfy 0 <= minimum <= maximum <= 1"); }
+                    AnimationEffect::Pulse { period_seconds, minimum_opacity, maximum_opacity, phase }
                 }
-                AnimationFile::Shine {
-                    period_seconds,
-                    width,
-                    angle_degrees,
-                    color,
-                } => {
-                    if !period_seconds.is_finite() || period_seconds <= 0.0 {
-                        bail!("shine period_seconds must be positive");
-                    }
-                    if !(0.01..=0.75).contains(&width) {
-                        bail!("shine width must be between 0.01 and 0.75");
-                    }
-                    if !angle_degrees.is_finite() {
-                        bail!("shine angle must be finite");
-                    }
-                    AnimationEffect::Shine {
-                        period_seconds,
-                        width_ratio: width,
-                        angle_degrees,
-                        color: Rgba::parse(&color).context("invalid shine color")?,
-                    }
+                AnimationFile::Shine { period_seconds, width, angle_degrees, color } => {
+                    if !period_seconds.is_finite() || period_seconds <= 0.0 { bail!("shine period_seconds must be positive"); }
+                    if !(0.01..=0.75).contains(&width) { bail!("shine width must be between 0.01 and 0.75"); }
+                    if !angle_degrees.is_finite() { bail!("shine angle must be finite"); }
+                    AnimationEffect::Shine { period_seconds, width_ratio: width, angle_degrees, color: Rgba::parse(&color).context("invalid shine color")? }
                 }
-                AnimationFile::Flicker {
-                    period_seconds,
-                    minimum_opacity,
-                    strength,
-                    phase,
-                } => {
-                    if !period_seconds.is_finite() || period_seconds <= 0.0 {
-                        bail!("flicker period_seconds must be positive");
-                    }
-                    if !(0.0..=1.0).contains(&minimum_opacity) || !(0.0..=1.0).contains(&strength) {
-                        bail!("flicker minimum_opacity and strength must be between 0 and 1");
-                    }
-                    AnimationEffect::Flicker {
-                        period_seconds,
-                        minimum_opacity,
-                        strength,
-                        phase,
-                    }
+                AnimationFile::Flicker { period_seconds, minimum_opacity, strength, phase } => {
+                    if !period_seconds.is_finite() || period_seconds <= 0.0 { bail!("flicker period_seconds must be positive"); }
+                    if !(0.0..=1.0).contains(&minimum_opacity) || !(0.0..=1.0).contains(&strength) { bail!("flicker minimum_opacity and strength must be between 0 and 1"); }
+                    AnimationEffect::Flicker { period_seconds, minimum_opacity, strength, phase }
                 }
-                AnimationFile::Wave {
-                    period_seconds,
-                    amplitude,
-                    wavelength,
-                    phase,
-                } => {
-                    if !period_seconds.is_finite() || period_seconds <= 0.0 {
-                        bail!("wave period_seconds must be positive");
-                    }
-                    if !(0.0..=0.20).contains(&amplitude) || !(0.05..=4.0).contains(&wavelength) {
-                        bail!("wave amplitude must be 0..0.20 and wavelength 0.05..4.0");
-                    }
-                    AnimationEffect::Wave {
-                        period_seconds,
-                        amplitude_ratio: amplitude,
-                        wavelength_ratio: wavelength,
-                        phase,
-                    }
+                AnimationFile::Wave { period_seconds, amplitude, wavelength, phase } => {
+                    if !period_seconds.is_finite() || period_seconds <= 0.0 { bail!("wave period_seconds must be positive"); }
+                    if !(0.0..=0.20).contains(&amplitude) || !(0.05..=4.0).contains(&wavelength) { bail!("wave amplitude must be 0..0.20 and wavelength 0.05..4.0"); }
+                    AnimationEffect::Wave { period_seconds, amplitude_ratio: amplitude, wavelength_ratio: wavelength, phase }
                 }
-                AnimationFile::Typewriter {
-                    period_seconds,
-                    hold_fraction,
-                } => {
+                AnimationFile::Typewriter { period_seconds, hold_fraction } => {
                     validate_reveal_animation("typewriter", period_seconds, hold_fraction)?;
-                    AnimationEffect::Typewriter {
-                        period_seconds,
-                        hold_fraction,
-                    }
+                    AnimationEffect::Typewriter { period_seconds, hold_fraction }
                 }
-                AnimationFile::Dissolve {
-                    period_seconds,
-                    hold_fraction,
-                    seed,
-                } => {
+                AnimationFile::Dissolve { period_seconds, hold_fraction, seed } => {
                     validate_reveal_animation("dissolve", period_seconds, hold_fraction)?;
-                    AnimationEffect::Dissolve {
-                        period_seconds,
-                        hold_fraction,
-                        seed,
+                    AnimationEffect::Dissolve { period_seconds, hold_fraction, seed }
+                }
+                AnimationFile::Scramble { period_seconds, hold_fraction, steps_per_second, seed } => {
+                    validate_reveal_animation("scramble", period_seconds, hold_fraction)?;
+                    if !(1.0..=60.0).contains(&steps_per_second) { bail!("scramble steps_per_second must be between 1 and 60"); }
+                    AnimationEffect::Scramble { period_seconds, hold_fraction, steps_per_second, seed }
+                }
+                AnimationFile::SplitFlap { period_seconds, hold_fraction, steps_per_second } => {
+                    validate_reveal_animation("split-flap", period_seconds, hold_fraction)?;
+                    if !(1.0..=60.0).contains(&steps_per_second) { bail!("split-flap steps_per_second must be between 1 and 60"); }
+                    AnimationEffect::SplitFlap { period_seconds, hold_fraction, steps_per_second }
+                }
+                AnimationFile::ConfettiConverge { period_seconds, hold_fraction, pieces, spread, seed } => {
+                    validate_reveal_animation("confetti-converge", period_seconds, hold_fraction)?;
+                    if !(32..=10_000).contains(&pieces) || !(0.05..=2.0).contains(&spread) { bail!("confetti pieces must be 32..10000 and spread 0.05..2.0"); }
+                    AnimationEffect::ConfettiConverge { period_seconds, hold_fraction, pieces, spread_ratio: spread, seed }
+                }
+                AnimationFile::Glitch { period_seconds, ripple, slice, burst_fraction, seed } => {
+                    if !period_seconds.is_finite() || period_seconds <= 0.0 || !(0.0..=0.15).contains(&ripple) || !(0.0..=0.30).contains(&slice) || !(0.01..=0.95).contains(&burst_fraction) {
+                        bail!("glitch period/ripple/slice/burst parameters are outside their supported ranges");
                     }
+                    AnimationEffect::Glitch { period_seconds, ripple_ratio: ripple, slice_ratio: slice, burst_fraction, seed }
+                }
+                AnimationFile::Orbit { period_seconds, degrees_per_cycle, phase } => {
+                    if !period_seconds.is_finite() || period_seconds <= 0.0 || !degrees_per_cycle.is_finite() { bail!("orbit period must be positive and degrees_per_cycle finite"); }
+                    AnimationEffect::Orbit { period_seconds, degrees_per_cycle, phase }
                 }
             });
         }
 
         Ok(Self {
             fill,
+            texture,
+            layouts,
             underlays,
             overlays,
+            surface_effects,
             animations,
         })
     }
@@ -1069,31 +1491,56 @@ impl Style {
                 format_color(foreground),
                 format_color(background)
             ),
+            FillStyle::Blueprint {
+                dark,
+                light,
+                grid,
+                cell,
+            } => format!(
+                "blueprint(dark={},light={},grid={},cell={cell})",
+                format_color(dark),
+                format_color(light),
+                format_color(grid)
+            ),
+            FillStyle::Paper {
+                light,
+                mid,
+                dark,
+                seed,
+            } => format!(
+                "paper(light={},mid={},dark={},seed={seed})",
+                format_color(light),
+                format_color(mid),
+                format_color(dark)
+            ),
         }];
+        if let Some(texture) = &self.texture {
+            parts.push(format!(
+                "image-texture(path={},sha256={},tile={},scale={:.3},offset=({:.3},{:.3}))",
+                texture.path.display(),
+                texture.sha256,
+                texture.tile,
+                texture.scale,
+                texture.offset_x,
+                texture.offset_y
+            ));
+        }
+        for layout in &self.layouts {
+            parts.push(match *layout {
+                LayoutEffect::Arc {
+                    sweep_degrees,
+                    radius_scale,
+                } => format!("arc(sweep={sweep_degrees:.2},radius-scale={radius_scale:.3})"),
+            });
+        }
         for effect in &self.underlays {
             parts.push(match *effect {
-                MaskEffect::Stroke { width_ratio, color } => format!(
-                    "stroke(width={width_ratio:.5},color={})", format_color(color)
-                ),
-                MaskEffect::Glow { radius, color } => {
-                    format!("glow(radius={radius},color={})", format_color(color))
-                }
-                MaskEffect::Shadow { offset_x_ratio, offset_y_ratio, blur_radius, color } => format!(
-                    "shadow(x={offset_x_ratio:.5},y={offset_y_ratio:.5},blur={blur_radius},color={})",
-                    format_color(color)
-                ),
-                MaskEffect::Extrude { depth_ratio, angle_degrees, color } => format!(
-                    "extrude(depth={depth_ratio:.5},angle={angle_degrees:.2},color={})",
-                    format_color(color)
-                ),
-                MaskEffect::ChromaticSplit { offset_ratio, red, cyan } => format!(
-                    "chromatic-split(offset={offset_ratio:.5},red={},cyan={})",
-                    format_color(red), format_color(cyan)
-                ),
-                MaskEffect::Trail { distance_ratio, copies, angle_degrees, color } => format!(
-                    "trail(distance={distance_ratio:.5},copies={copies},angle={angle_degrees:.2},color={})",
-                    format_color(color)
-                ),
+                MaskEffect::Stroke { width_ratio, color } => format!("stroke(width={width_ratio:.5},color={})", format_color(color)),
+                MaskEffect::Glow { radius, color } => format!("glow(radius={radius},color={})", format_color(color)),
+                MaskEffect::Shadow { offset_x_ratio, offset_y_ratio, blur_radius, color } => format!("shadow(x={offset_x_ratio:.5},y={offset_y_ratio:.5},blur={blur_radius},color={})", format_color(color)),
+                MaskEffect::Extrude { depth_ratio, angle_degrees, color } => format!("extrude(depth={depth_ratio:.5},angle={angle_degrees:.2},color={})", format_color(color)),
+                MaskEffect::ChromaticSplit { offset_ratio, red, cyan } => format!("chromatic-split(offset={offset_ratio:.5},red={},cyan={})", format_color(red), format_color(cyan)),
+                MaskEffect::Trail { distance_ratio, copies, angle_degrees, color } => format!("trail(distance={distance_ratio:.5},copies={copies},angle={angle_degrees:.2},color={})", format_color(color)),
             });
         }
         for effect in &self.overlays {
@@ -1118,30 +1565,128 @@ impl Style {
                 ),
             });
         }
+        for effect in &self.surface_effects {
+            parts.push(match *effect {
+                SurfaceEffect::LaserBurn { depth, warmth, edge_width, seed } => format!("laser-burn(depth={depth:.3},warmth={warmth:.3},edge={edge_width},seed={seed})"),
+                SurfaceEffect::Emboss { depth, highlight_strength, shadow_strength, light_angle_degrees, cast_shadow } => format!("emboss(depth={depth:.3},highlight={highlight_strength:.3},shadow={shadow_strength:.3},light={},cast={cast_shadow})", light_angle_degrees.map(|angle| format!("{angle:.2}")).unwrap_or_else(|| "auto".to_string())),
+            });
+        }
         for animation in &self.animations {
             parts.push(match *animation {
-                AnimationEffect::Pulse { period_seconds, minimum_opacity, maximum_opacity, phase } => format!(
-                    "pulse(period={period_seconds:.3},min={minimum_opacity:.3},max={maximum_opacity:.3},phase={phase:.3})"
-                ),
-                AnimationEffect::Shine { period_seconds, width_ratio, angle_degrees, color } => format!(
-                    "shine(period={period_seconds:.3},width={width_ratio:.3},angle={angle_degrees:.2},color={})",
-                    format_color(color)
-                ),
-                AnimationEffect::Flicker { period_seconds, minimum_opacity, strength, phase } => format!(
-                    "flicker(period={period_seconds:.3},min={minimum_opacity:.3},strength={strength:.3},phase={phase:.3})"
-                ),
-                AnimationEffect::Wave { period_seconds, amplitude_ratio, wavelength_ratio, phase } => format!(
-                    "wave(period={period_seconds:.3},amplitude={amplitude_ratio:.3},wavelength={wavelength_ratio:.3},phase={phase:.3})"
-                ),
-                AnimationEffect::Typewriter { period_seconds, hold_fraction } => format!(
-                    "typewriter(period={period_seconds:.3},hold={hold_fraction:.3})"
-                ),
-                AnimationEffect::Dissolve { period_seconds, hold_fraction, seed } => format!(
-                    "dissolve(period={period_seconds:.3},hold={hold_fraction:.3},seed={seed})"
-                ),
+                AnimationEffect::Pulse { period_seconds, minimum_opacity, maximum_opacity, phase } => format!("pulse(period={period_seconds:.3},min={minimum_opacity:.3},max={maximum_opacity:.3},phase={phase:.3})"),
+                AnimationEffect::Shine { period_seconds, width_ratio, angle_degrees, color } => format!("shine(period={period_seconds:.3},width={width_ratio:.3},angle={angle_degrees:.2},color={})", format_color(color)),
+                AnimationEffect::Flicker { period_seconds, minimum_opacity, strength, phase } => format!("flicker(period={period_seconds:.3},min={minimum_opacity:.3},strength={strength:.3},phase={phase:.3})"),
+                AnimationEffect::Wave { period_seconds, amplitude_ratio, wavelength_ratio, phase } => format!("wave(period={period_seconds:.3},amplitude={amplitude_ratio:.3},wavelength={wavelength_ratio:.3},phase={phase:.3})"),
+                AnimationEffect::Typewriter { period_seconds, hold_fraction } => format!("typewriter(period={period_seconds:.3},hold={hold_fraction:.3})"),
+                AnimationEffect::Dissolve { period_seconds, hold_fraction, seed } => format!("dissolve(period={period_seconds:.3},hold={hold_fraction:.3},seed={seed})"),
+                AnimationEffect::Scramble { period_seconds, hold_fraction, steps_per_second, seed } => format!("scramble(period={period_seconds:.3},hold={hold_fraction:.3},steps={steps_per_second:.2},seed={seed})"),
+                AnimationEffect::SplitFlap { period_seconds, hold_fraction, steps_per_second } => format!("split-flap(period={period_seconds:.3},hold={hold_fraction:.3},steps={steps_per_second:.2})"),
+                AnimationEffect::ConfettiConverge { period_seconds, hold_fraction, pieces, spread_ratio, seed } => format!("confetti-converge(period={period_seconds:.3},hold={hold_fraction:.3},pieces={pieces},spread={spread_ratio:.3},seed={seed})"),
+                AnimationEffect::Glitch { period_seconds, ripple_ratio, slice_ratio, burst_fraction, seed } => format!("glitch(period={period_seconds:.3},ripple={ripple_ratio:.3},slice={slice_ratio:.3},burst={burst_fraction:.3},seed={seed})"),
+                AnimationEffect::Orbit { period_seconds, degrees_per_cycle, phase } => format!("orbit(period={period_seconds:.3},degrees={degrees_per_cycle:.2},phase={phase:.3})"),
             });
         }
         parts.join(";")
+    }
+
+    pub fn layout_transform(&self, base: &Surface) -> Result<Surface> {
+        let mut current = base.clone();
+        for effect in &self.layouts {
+            current = match *effect {
+                LayoutEffect::Arc {
+                    sweep_degrees,
+                    radius_scale,
+                } => advanced::arc_warp(&current, sweep_degrees, radius_scale),
+            };
+        }
+        Ok(current)
+    }
+
+    pub fn dynamic_text(&self, target: &str, time_seconds: f64) -> Option<String> {
+        let animation = self.animations.iter().find(|animation| {
+            matches!(
+                animation,
+                AnimationEffect::Scramble { .. } | AnimationEffect::SplitFlap { .. }
+            )
+        })?;
+        Some(match *animation {
+            AnimationEffect::Scramble {
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+                seed,
+            } => scramble_text(
+                target,
+                time_seconds,
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+                seed,
+            ),
+            AnimationEffect::SplitFlap {
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+            } => split_flap_text(
+                target,
+                time_seconds,
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+            ),
+            _ => unreachable!(),
+        })
+    }
+
+    pub fn has_surface_effects(&self) -> bool {
+        !self.surface_effects.is_empty()
+    }
+
+    pub fn surface_overlay(&self, plaque: &Surface, glyph_mask: &[u8]) -> Result<Option<Surface>> {
+        if self.surface_effects.is_empty() {
+            return Ok(None);
+        }
+        let mut combined = Surface::new(plaque.width(), plaque.height());
+        for effect in &self.surface_effects {
+            let layer = match *effect {
+                SurfaceEffect::LaserBurn {
+                    depth,
+                    warmth,
+                    edge_width,
+                    seed,
+                } => advanced::laser_burn_overlay(
+                    plaque, glyph_mask, depth, warmth, edge_width, seed,
+                )?,
+                SurfaceEffect::Emboss {
+                    depth,
+                    highlight_strength,
+                    shadow_strength,
+                    light_angle_degrees,
+                    cast_shadow,
+                } => advanced::emboss_overlay(
+                    plaque,
+                    glyph_mask,
+                    depth,
+                    highlight_strength,
+                    shadow_strength,
+                    light_angle_degrees,
+                    cast_shadow,
+                )?,
+            };
+            combined.blend_surface(&layer, 0, 0, 1.0);
+        }
+        Ok(Some(combined))
+    }
+
+    pub fn frame_transform_mask(
+        &self,
+        mask: &[u8],
+        width: u32,
+        height: u32,
+        time_seconds: f64,
+    ) -> Result<Vec<u8>> {
+        let white = Surface::from_alpha_mask(width, height, mask, Rgba::new(255, 255, 255, 255))?;
+        Ok(self.frame_transform(&white, time_seconds)?.alpha_mask())
     }
 
     /// Paint the static portion of a shaped text surface. Layout and font discovery are
@@ -1401,32 +1946,64 @@ impl Style {
         }
 
         for animation in &self.animations {
-            if let AnimationEffect::Wave {
-                amplitude_ratio, ..
-            } = *animation
-            {
-                let glyph_height = alpha_bounds(alpha, width as usize)
-                    .map(|bounds| bounds.3 - bounds.1 + 1)
-                    .unwrap_or(1) as f32;
-                let amplitude = (glyph_height * amplitude_ratio).round().max(0.0) as i32;
-                if amplitude > 0 {
-                    alpha_over_shifted(
-                        &mut envelope,
-                        alpha,
-                        width as usize,
-                        height as usize,
-                        0,
-                        -amplitude,
-                    );
-                    alpha_over_shifted(
-                        &mut envelope,
-                        alpha,
-                        width as usize,
-                        height as usize,
-                        0,
-                        amplitude,
-                    );
+            match *animation {
+                AnimationEffect::Wave {
+                    amplitude_ratio, ..
+                } => {
+                    let glyph_height = alpha_bounds(alpha, width as usize)
+                        .map(|bounds| bounds.3 - bounds.1 + 1)
+                        .unwrap_or(1) as f32;
+                    let amplitude = (glyph_height * amplitude_ratio).round().max(0.0) as i32;
+                    if amplitude > 0 {
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            0,
+                            -amplitude,
+                        );
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            0,
+                            amplitude,
+                        );
+                    }
                 }
+                AnimationEffect::Glitch {
+                    slice_ratio,
+                    ripple_ratio,
+                    ..
+                } => {
+                    let glyph_width = alpha_bounds(alpha, width as usize)
+                        .map(|bounds| bounds.2 - bounds.0 + 1)
+                        .unwrap_or(1) as f32;
+                    let shift = (glyph_width * (slice_ratio + ripple_ratio))
+                        .round()
+                        .max(0.0) as i32;
+                    if shift > 0 {
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            -shift,
+                            0,
+                        );
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            shift,
+                            0,
+                        );
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -1464,7 +2041,12 @@ impl Style {
                 AnimationEffect::Shine { .. }
                 | AnimationEffect::Wave { .. }
                 | AnimationEffect::Typewriter { .. }
-                | AnimationEffect::Dissolve { .. } => 1.0,
+                | AnimationEffect::Dissolve { .. }
+                | AnimationEffect::Scramble { .. }
+                | AnimationEffect::SplitFlap { .. }
+                | AnimationEffect::ConfettiConverge { .. }
+                | AnimationEffect::Glitch { .. }
+                | AnimationEffect::Orbit { .. } => 1.0,
             };
             opacity * value
         })
@@ -1576,15 +2158,64 @@ impl Style {
                     reveal_progress(time_seconds, period_seconds, hold_fraction),
                     seed,
                 ),
+                AnimationEffect::ConfettiConverge {
+                    period_seconds,
+                    hold_fraction,
+                    pieces,
+                    spread_ratio,
+                    seed,
+                } => advanced::confetti_converge(
+                    &current,
+                    reveal_progress(time_seconds, period_seconds, hold_fraction),
+                    pieces,
+                    spread_ratio,
+                    seed,
+                ),
+                AnimationEffect::Glitch {
+                    period_seconds,
+                    ripple_ratio,
+                    slice_ratio,
+                    burst_fraction,
+                    seed,
+                } => advanced::glitch_surface(
+                    &current,
+                    time_seconds,
+                    period_seconds,
+                    ripple_ratio,
+                    slice_ratio,
+                    burst_fraction,
+                    seed,
+                ),
+                AnimationEffect::Orbit {
+                    period_seconds,
+                    degrees_per_cycle,
+                    phase,
+                } => {
+                    let progress = (time_seconds / period_seconds as f64 + phase as f64)
+                        .rem_euclid(1.0) as f32;
+                    advanced::rotate_surface(&current, degrees_per_cycle * progress)
+                }
                 AnimationEffect::Pulse { .. }
                 | AnimationEffect::Shine { .. }
-                | AnimationEffect::Flicker { .. } => current,
+                | AnimationEffect::Flicker { .. }
+                | AnimationEffect::Scramble { .. }
+                | AnimationEffect::SplitFlap { .. } => current,
             };
         }
         Ok(current)
     }
 
     fn paint_fill(&self, base: &Surface, supersampling: u32) -> Result<Surface> {
+        if let Some(texture) = &self.texture {
+            return advanced::paint_texture(
+                base,
+                &texture.image,
+                texture.tile,
+                texture.scale,
+                texture.offset_x,
+                texture.offset_y,
+            );
+        }
         match self.fill {
             FillStyle::Flat(color) => {
                 let mut fill = base.clone();
@@ -1651,6 +2282,24 @@ impl Style {
                 background,
                 cell.saturating_mul(supersampling.max(1)),
             ),
+            FillStyle::Blueprint {
+                dark,
+                light,
+                grid,
+                cell,
+            } => advanced::paint_blueprint(
+                base,
+                dark,
+                light,
+                grid,
+                cell.saturating_mul(supersampling.max(1)),
+            ),
+            FillStyle::Paper {
+                light,
+                mid,
+                dark,
+                seed,
+            } => advanced::paint_paper(base, light, mid, dark, seed),
         }
     }
 }
@@ -1790,6 +2439,77 @@ fn reveal_progress(time_seconds: f64, period_seconds: f32, hold_fraction: f32) -
     } else {
         (phase / reveal).clamp(0.0, 1.0)
     }
+}
+
+fn scramble_text(
+    target: &str,
+    time_seconds: f64,
+    period_seconds: f32,
+    hold_fraction: f32,
+    steps_per_second: f32,
+    seed: u32,
+) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let progress = reveal_progress(time_seconds, period_seconds, hold_fraction);
+    if progress >= 0.999 {
+        return target.to_string();
+    }
+    let visible: Vec<char> = target.chars().collect();
+    let total = visible.iter().filter(|c| !c.is_whitespace()).count().max(1);
+    let tick = (time_seconds * steps_per_second as f64).floor().max(0.0) as u32;
+    let mut ordinal = 0usize;
+    visible
+        .into_iter()
+        .map(|ch| {
+            if ch.is_whitespace() {
+                return ch;
+            }
+            let threshold = (ordinal + 1) as f32 / total as f32;
+            let index = ordinal as u32;
+            ordinal += 1;
+            if progress >= threshold {
+                ch
+            } else {
+                let mut h = seed ^ index.wrapping_mul(0x9E37_79B9) ^ tick.wrapping_mul(0x85EB_CA6B);
+                h ^= h >> 16;
+                ALPHABET[(h as usize) % ALPHABET.len()] as char
+            }
+        })
+        .collect()
+}
+
+fn split_flap_text(
+    target: &str,
+    time_seconds: f64,
+    period_seconds: f32,
+    hold_fraction: f32,
+    steps_per_second: f32,
+) -> String {
+    const FLAPS: &[u8] = b" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let progress = reveal_progress(time_seconds, period_seconds, hold_fraction);
+    if progress >= 0.999 {
+        return target.to_string();
+    }
+    let chars: Vec<char> = target.chars().collect();
+    let total = chars.iter().filter(|ch| !ch.is_whitespace()).count().max(1);
+    let tick = (time_seconds * steps_per_second as f64).floor().max(0.0) as usize;
+    let mut ordinal = 0usize;
+    chars
+        .into_iter()
+        .enumerate()
+        .map(|(index, ch)| {
+            if ch.is_whitespace() {
+                return ch;
+            }
+            let settle_at = 0.35 + 0.60 * (ordinal + 1) as f32 / total as f32;
+            ordinal += 1;
+            if progress >= settle_at {
+                ch
+            } else {
+                FLAPS[(tick + index * 3) % FLAPS.len()] as char
+            }
+        })
+        .collect()
 }
 
 fn wave_surface(
@@ -2071,7 +2791,7 @@ fn merge_max(output: &mut [u8], input: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{dilate_alpha_circular, directional_bevel_masks};
+    use super::{dilate_alpha_circular, directional_bevel_masks, scramble_text, split_flap_text};
 
     #[test]
     fn circular_dilation_does_not_fill_square_corners() {
@@ -2131,5 +2851,23 @@ mod tests {
         let (highlight, shadow) = directional_bevel_masks(&source, 5, 5, 1);
         assert!(highlight[0] > 0);
         assert!(shadow[24] > 0);
+    }
+
+    #[test]
+    fn scramble_is_deterministic_and_settles_on_target() {
+        let target = "SEE WHAT OTHERS CANNOT";
+        let first = scramble_text(target, 0.25, 4.0, 0.30, 15.0, 1234);
+        let repeated = scramble_text(target, 0.25, 4.0, 0.30, 15.0, 1234);
+        assert_eq!(first, repeated);
+        assert_ne!(first, target);
+        assert_eq!(scramble_text(target, 3.6, 4.0, 0.30, 15.0, 1234), target);
+    }
+
+    #[test]
+    fn split_flap_preserves_whitespace_and_settles_on_target() {
+        let target = "OGRE ROBOT";
+        let intermediate = split_flap_text(target, 0.4, 4.0, 0.30, 16.0);
+        assert_eq!(intermediate.chars().nth(4), Some(' '));
+        assert_eq!(split_flap_text(target, 3.6, 4.0, 0.30, 16.0), target);
     }
 }

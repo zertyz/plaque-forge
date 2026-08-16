@@ -78,6 +78,10 @@ for name in "${PF_CASES[@]}"; do
       continue
     }
 
+  # A replaced render invalidates every acceptance report bound to the previous bytes.
+  # Never leave a green-looking report beside an artifact with a different SHA-256.
+  rm -f -- "output/$name.verification.json" "output/$name.homologation.json"
+
   rendered=$((rendered + 1))
   printf '%s\n' "$final"
 done

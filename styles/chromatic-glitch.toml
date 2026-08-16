@@ -1,5 +1,5 @@
-version = 3
-fill = "#F8F8FFFF"
+version = 4
+fill = "#F1F6FFFF"
 
 [[effects]]
 type = "chromatic-split"
@@ -10,4 +10,12 @@ cyan = "#25F4FFC0"
 [[effects]]
 type = "stroke"
 width = 0.018
-color = "#12131AE0"
+color = "#111827E8"
+
+[[animations]]
+type = "glitch"
+period_seconds = 2.6
+ripple = 0.018
+slice = 0.085
+burst_fraction = 0.20
+seed = 1196185940

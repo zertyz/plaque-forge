@@ -1,0 +1,16 @@
+version = 4
+
+[material]
+type = "image-texture"
+path = "../assets/textures/gilded-marble.png"
+tile = true
+scale = 0.42
+
+[[effects]]
+type = "stroke"
+width = 0.030
+color = "#2B170AFF"
+
+[[effects]]
+type = "bevel"
+width = 0.028

@@ -17,7 +17,7 @@ use crate::{
         extraction::{StructuralMatcher, StructuralRegistration, rectify, transformed_rect},
         tracking::trajectory_dynamics,
     },
-    cli::VerifyArgs,
+    application::VerifyRequest,
     color::Rgba,
     image_io::{load_luma, load_rgba},
     layers::{ForegroundReader, merge_mask},
@@ -121,13 +121,16 @@ pub struct VerificationReport {
     pub remedies: Vec<String>,
 }
 
-pub fn run(args: VerifyArgs) -> Result<()> {
+pub fn run(
+    args: VerifyRequest,
+    commands: &dyn crate::infrastructure::CommandExecutor,
+) -> Result<()> {
     let mut progress = ProgressReporter::new(args.progress, args.progress_interval_ms);
     progress.start(1, 2, "Open verification inputs", None);
     let pack = Analysis::open(&args.analysis)?;
     let original = args.original.clone().unwrap_or_else(|| pack.source_path());
-    let original_info = video::probe(&args.ffprobe, &original)?;
-    let rendered_info = video::probe(&args.ffprobe, &args.rendered)?;
+    let original_info = video::probe_with(commands, &args.ffprobe, &original)?;
+    let rendered_info = video::probe_with(commands, &args.ffprobe, &args.rendered)?;
     original_info.ensure_supported_compositing_color()?;
     if !original_info.constant_frame_rate || !rendered_info.constant_frame_rate {
         bail!("verification requires constant-frame-rate source and rendered video");
@@ -183,6 +186,7 @@ pub fn run(args: VerifyArgs) -> Result<()> {
     {
         bail!("render manifest provenance does not match the source, analysis, or rendered video");
     }
+    crate::render::load_decision_trace(&manifest_path, &manifest)?;
     let text_mask_path = manifest.canonical_text_mask.resolve_from(&manifest_path);
     let text_mask_image = image::open(&text_mask_path)
         .with_context(|| {

@@ -13,7 +13,11 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
-use crate::{cli::ReviewArgs, scene::Scene};
+use crate::{
+    cli::ReviewArgs,
+    render::{RenderDecisionTrace, RenderManifest},
+    scene::Scene,
+};
 
 #[derive(Debug, Clone)]
 struct FocusItem {
@@ -31,6 +35,7 @@ struct ReportInputs<'a> {
     candidates: Option<&'a Value>,
     verification: Option<&'a Value>,
     render_manifest: Option<&'a Value>,
+    decision_trace: Option<&'a RenderDecisionTrace>,
     scene: Option<&'a (PathBuf, Scene)>,
     focus: &'a [FocusItem],
 }
@@ -62,6 +67,22 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         Some(path) => Some(read_json(path)?),
         None => None,
     };
+    let decision_trace = match args.render_manifest.as_deref() {
+        Some(path) => {
+            let bytes = fs::read(path)
+                .with_context(|| format!("failed to read render manifest {}", path.display()))?;
+            let manifest: RenderManifest = serde_json::from_slice(&bytes)
+                .with_context(|| format!("invalid render manifest {}", path.display()))?;
+            Some(crate::render::load_decision_trace(path, &manifest)?)
+        }
+        None => None,
+    };
+    validate_verification_provenance(
+        args.verification.as_deref(),
+        verification.as_ref(),
+        args.render_manifest.as_deref(),
+        render_manifest.as_ref(),
+    )?;
     let scene = match args.scene.as_deref() {
         Some(path) if path.is_file() => Some((path.to_path_buf(), Scene::load(path)?)),
         _ => None,
@@ -77,6 +98,7 @@ pub fn run(args: ReviewArgs) -> Result<()> {
         candidates: candidates.as_ref(),
         verification: verification.as_ref(),
         render_manifest: render_manifest.as_ref(),
+        decision_trace: decision_trace.as_ref(),
         scene: scene.as_ref(),
         focus: &focus,
     });
@@ -125,6 +147,80 @@ fn read_json_optional(path: &Path) -> Result<Option<Value>> {
     } else {
         Ok(None)
     }
+}
+
+fn validate_verification_provenance(
+    verification_path: Option<&Path>,
+    verification: Option<&Value>,
+    render_manifest_path: Option<&Path>,
+    render_manifest: Option<&Value>,
+) -> Result<()> {
+    let Some(verification) = verification else {
+        return Ok(());
+    };
+    let verification_path = verification_path.context("verification path is unavailable")?;
+    let render_manifest_path = render_manifest_path.with_context(|| {
+        format!(
+            "verification {} cannot be reviewed without its render manifest",
+            verification_path.display()
+        )
+    })?;
+    let render_manifest = render_manifest.context("render manifest is unavailable")?;
+    let manifest_bytes = fs::read(render_manifest_path).with_context(|| {
+        format!(
+            "failed to read render manifest {}",
+            render_manifest_path.display()
+        )
+    })?;
+    let manifest_sha256 = crate::digest::bytes_sha256(&manifest_bytes);
+
+    require_matching_identity(
+        verification,
+        "render_manifest_sha256",
+        &manifest_sha256,
+        verification_path,
+    )?;
+    for field in [
+        "source_sha256",
+        "analysis_manifest_sha256",
+        "rendered_sha256",
+    ] {
+        let expected = render_manifest
+            .get(field)
+            .and_then(Value::as_str)
+            .with_context(|| {
+                format!(
+                    "render manifest {} is missing {field}",
+                    render_manifest_path.display()
+                )
+            })?;
+        require_matching_identity(verification, field, expected, verification_path)?;
+    }
+    Ok(())
+}
+
+fn require_matching_identity(
+    verification: &Value,
+    field: &str,
+    expected: &str,
+    verification_path: &Path,
+) -> Result<()> {
+    let actual = verification
+        .get(field)
+        .and_then(Value::as_str)
+        .with_context(|| {
+            format!(
+                "verification {} is missing {field}",
+                verification_path.display()
+            )
+        })?;
+    if actual != expected {
+        bail!(
+            "verification {} is stale: {field} does not match the supplied render manifest",
+            verification_path.display()
+        );
+    }
+    Ok(())
 }
 
 fn focus_items(summary: &Value, verification: Option<&Value>) -> Vec<FocusItem> {
@@ -260,6 +356,7 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
         candidates,
         verification,
         render_manifest,
+        decision_trace,
         scene,
         focus,
     } = inputs;
@@ -351,6 +448,9 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
 
     if let Some(manifest) = render_manifest {
         append_typography(&mut body, manifest);
+    }
+    if let Some(trace) = decision_trace {
+        append_decision_trace(&mut body, trace);
     }
 
     if let Some(verification) = verification {
@@ -806,6 +906,67 @@ fn build_text_summary(
     output
 }
 
+fn append_decision_trace(body: &mut String, trace: &RenderDecisionTrace) {
+    body.push_str("<h2>Render decision trace</h2>");
+    body.push_str(
+        "<p>This section explains the causal rendering choices rather than only their resulting scores.</p><dl>",
+    );
+    let surface = trace.surface.id.as_deref().unwrap_or("<automatic>");
+    body.push_str(&format!(
+        "<dt>Selected surface</dt><dd><code>{}</code> ({})</dd>",
+        escape_html(surface),
+        escape_html(&trace.surface.selection_reason)
+    ));
+    body.push_str(&format!(
+        "<dt>Reference frame</dt><dd>{}</dd>",
+        trace.surface.reference_frame
+    ));
+    body.push_str(&format!(
+        "<dt>Tracking model</dt><dd><code>{}</code></dd>",
+        escape_html(&trace.tracking.trajectory_model)
+    ));
+    body.push_str(&format!(
+        "<dt>Canonical title plane</dt><dd>{} × {}</dd>",
+        trace.surface.canonical_width, trace.surface.canonical_height
+    ));
+    body.push_str(&format!(
+        "<dt>Typography</dt><dd>{:.2}px, {} lines, {:.1}% fill</dd>",
+        trace.typography.font_size,
+        trace.typography.lines,
+        trace.typography.fill_ratio * 100.0
+    ));
+    if !trace
+        .tracking
+        .foreground_layers_excluded_from_tracking
+        .is_empty()
+    {
+        body.push_str(&format!(
+            "<dt>Foreground excluded from tracking</dt><dd><code>{}</code></dd>",
+            escape_html(
+                &trace
+                    .tracking
+                    .foreground_layers_excluded_from_tracking
+                    .join(", ")
+            )
+        ));
+    }
+    body.push_str("</dl>");
+    if !trace.compositing_layers.is_empty() {
+        body.push_str("<h3>Compositing layers</h3><ul>");
+        for layer in &trace.compositing_layers {
+            body.push_str(&format!(
+                "<li><code>{}</code>: {:?}; layout={}, tracking={}, matte={:?}</li>",
+                escape_html(&layer.id),
+                layer.role,
+                layer.affects_layout,
+                layer.affects_tracking,
+                layer.matte.mode
+            ));
+        }
+        body.push_str("</ul>");
+    }
+}
+
 fn append_typography(body: &mut String, manifest: &Value) {
     let Some(typography) = manifest.get("typography") else {
         return;
@@ -1035,9 +1196,9 @@ li { margin:.45em 0; }
 
 #[cfg(test)]
 mod tests {
-    use super::{analysis_asset_stem, focus_items};
+    use super::{analysis_asset_stem, focus_items, validate_verification_provenance};
     use serde_json::json;
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     #[test]
     fn retained_failure_uses_the_asset_directory_not_the_run_id() {
@@ -1080,5 +1241,44 @@ mod tests {
                 .any(|item| item.title == "Writable surface / canonical reconstruction")
         );
         assert!(focus.iter().any(|item| item.title == "Foreground crossing"));
+    }
+
+    #[test]
+    fn review_rejects_verification_for_another_render_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "plaque-forge-review-provenance-test-{}",
+            std::process::id()
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("render-manifest.json");
+        let manifest = json!({
+            "source_sha256": "source",
+            "analysis_manifest_sha256": "analysis",
+            "rendered_sha256": "render"
+        });
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        fs::write(&manifest_path, &manifest_bytes).unwrap();
+        let verification_path = root.join("verification.json");
+        let verification = json!({
+            "source_sha256": "source",
+            "analysis_manifest_sha256": "analysis",
+            "rendered_sha256": "different-render",
+            "render_manifest_sha256": crate::digest::bytes_sha256(&manifest_bytes)
+        });
+
+        let error = validate_verification_provenance(
+            Some(&verification_path),
+            Some(&verification),
+            Some(&manifest_path),
+            Some(&manifest),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("is stale"), "unexpected error: {error}");
+        fs::remove_dir_all(root).unwrap();
     }
 }

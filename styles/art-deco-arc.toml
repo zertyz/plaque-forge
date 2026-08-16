@@ -1,0 +1,25 @@
+version = 4
+
+[material]
+type = "gold"
+
+[[layouts]]
+type = "arc"
+sweep_degrees = -52.0
+radius_scale = 1.15
+
+[[effects]]
+type = "shadow"
+offset_x = 0.018
+offset_y = 0.030
+blur_radius = 4
+color = "#140B05A0"
+
+[[effects]]
+type = "stroke"
+width = 0.035
+color = "#4B2A0FFF"
+
+[[effects]]
+type = "bevel"
+width = 0.030

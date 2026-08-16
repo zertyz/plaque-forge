@@ -1,6 +1,6 @@
 [package]
 name = "plaque-forge"
-version = "0.8.0"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Analyze, render, and verify moving title plaques in video"
@@ -11,7 +11,7 @@ anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 cosmic-text = "0.19"
 image = { version = "0.25", default-features = false, features = ["png"] }
-opencv = { version = "0.99", default-features = false, features = [
+opencv = { version = "0.100", default-features = false, features = [
   "clang-runtime",
   "calib3d",
   "features2d",
@@ -24,7 +24,7 @@ opencv = { version = "0.99", default-features = false, features = [
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
+sha2 = "0.11"
 toml = "1.0"
 
 [dev-dependencies]

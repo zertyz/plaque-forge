@@ -8,6 +8,11 @@
 //!
 //! The system is organized into modular pipelines:
 //!
+//! - **Application API (`application`)**: Interface-independent requests for analyze, render,
+//!   verify, homologate, and homologation-coverage workflows. The CLI is an adapter over it.
+//! - **Infrastructure (`infrastructure`)**: Small replaceable contracts for genuinely external
+//!   process boundaries; avoid interface-for-everything abstraction.
+//!
 //! - **Analysis (`analyze`)**: Feature extraction, homography tracking, writable region
 //!   discovery, and photometric/edge structural lock.
 //! - **Scene & Refinement (`scene`)**: Manifest declarations (`scene.toml`), human intent
@@ -18,6 +23,8 @@
 //!   shaders (`effects`), projective warping, and linear-light layer compositing.
 //! - **Verification (`verify`)**: Automated quality scorecards measuring tracking lock,
 //!   temporal stability, occlusion restoration, and trajectory curvature.
+//! - **Homologation (`homologation`)**: Executable acceptance contracts protecting
+//!   previously accepted geometry, typography, provenance, and foreground ordering.
 //! - **Safety & Staging (`staged_output`)**: Lease-held atomic file staging preventing
 //!   partial or corrupted destination artifacts.
 
@@ -26,12 +33,15 @@ use clap::Parser;
 
 mod analysis;
 mod analyze;
+pub mod application;
 mod build_info;
 mod cli;
 mod color;
 mod digest;
 mod geometry;
+pub mod homologation;
 mod image_io;
+pub mod infrastructure;
 mod layers;
 pub mod model;
 mod portable_path;
@@ -41,6 +51,7 @@ mod review;
 pub mod scene;
 mod scene_commands;
 mod segmentation;
+pub mod segmentation_strategy;
 mod staged_output;
 mod surface;
 mod verify;
@@ -59,10 +70,16 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::CreateScene(args) => scene_commands::create(args),
         Command::PlaceSurface(args) => scene_commands::place_surface(args),
-        Command::Analyze(args) => analyze::run(args),
+        Command::Analyze(args) => application::analyze(args.into()),
         Command::ExportTrajectory(args) => scene_commands::export_trajectory(args),
         Command::Segment(args) => segmentation::run(args),
-        Command::Verify(args) => verify::run(args),
+        Command::Verify(args) => application::verify(args.into()),
+        Command::Homologate(args) => application::homologate(args.into()),
+        Command::HomologationCoverage(args) => {
+            let report = application::homologation_coverage(args.into())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
         Command::Review(args) => review::run(args),
         Command::Render(args) => {
             let analysis = args
@@ -78,7 +95,7 @@ pub fn run() -> Result<()> {
             if let Some(parent) = output.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            render::run(args.as_compose_args(analysis, output))
+            application::render(args.into_request(analysis, output))
         }
     }
 }

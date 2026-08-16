@@ -1,0 +1,19 @@
+version = 4
+
+[material]
+type = "holographic"
+
+[[layouts]]
+type = "arc"
+sweep_degrees = 300.0
+radius_scale = 1.05
+
+[[effects]]
+type = "glow"
+radius = 8
+color = "#55EFFFF0"
+
+[[animations]]
+type = "orbit"
+period_seconds = 8.0
+degrees_per_cycle = 360.0

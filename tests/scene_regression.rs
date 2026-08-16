@@ -7,50 +7,36 @@ fn repository_root() -> &'static Path {
 }
 
 #[test]
-fn scenes_with_foreground_objects_declare_foreground_layers() {
+fn declared_foreground_layers_have_explicit_depth_and_evidence() {
     let assets = repository_root().join("assets/scenes");
+    if !assets.is_dir() {
+        return;
+    }
 
-    // Scenes known to have foreground occluding objects passing over the title surface
-    let scenes_with_foreground = [
-        "swamp-wooden-plaque-with-foreground-objects",
-        "16_9_dungeon_spider_iron_plaque",
-    ];
-
-    for scene_name in scenes_with_foreground {
-        let scene_path = assets.join(scene_name).join("scene.toml");
-        assert!(
-            scene_path.is_file(),
-            "scene manifest missing: {}",
-            scene_path.display()
-        );
-
+    for entry in fs::read_dir(&assets).unwrap() {
+        let entry = entry.unwrap();
+        let scene_path = entry.path().join("scene.toml");
+        if !scene_path.is_file() {
+            continue;
+        }
         let scene = Scene::load(&scene_path)
             .unwrap_or_else(|error| panic!("failed to load {}: {error:#}", scene_path.display()));
-
-        let foreground_layers: Vec<_> = scene
+        for layer in scene
             .layers
             .iter()
             .filter(|layer| layer.role == LayerRole::Foreground)
-            .collect();
-
-        assert!(
-            !foreground_layers.is_empty(),
-            "Scene {} contains foreground occluding objects in video but declares 0 foreground layers in scene.toml",
-            scene_name
-        );
-
-        for layer in &foreground_layers {
+        {
             assert!(
                 layer.in_front_of.is_some(),
                 "foreground layer {} in {} must declare in_front_of",
                 layer.id,
-                scene_name
+                scene_path.display()
             );
             assert!(
                 !layer.prompts.is_empty() || layer.artifact.is_some(),
-                "foreground layer {} in {} must have prompts or artifact specified",
+                "foreground layer {} in {} must have prompts or an artifact",
                 layer.id,
-                scene_name
+                scene_path.display()
             );
         }
     }

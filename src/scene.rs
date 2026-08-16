@@ -124,6 +124,9 @@ pub struct SegmentationPrompt {
     #[serde(default, skip_serializing_if = "is_source_pixels")]
     pub coordinates: SpatialCoordinates,
     pub object: Option<String>,
+    /// Optional open-vocabulary concept for backends such as SAM 3.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concept: Option<String>,
     pub box_bounds: Option<[f64; 4]>,
     #[serde(default)]
     pub positive_points: Vec<[f64; 2]>,
@@ -145,6 +148,17 @@ pub enum LayerRole {
     Modulation,
 }
 
+/// Optional semantic subject hint used only when a specialist model genuinely
+/// requires domain knowledge Rust cannot infer from pixels or geometry alone.
+/// Unspecified keeps the planner generic for arbitrary future video themes.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayerSubject {
+    #[default]
+    Unspecified,
+    Human,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum LayerArtifactKind {
@@ -157,6 +171,53 @@ pub enum LayerArtifactKind {
 pub enum LayerCoordinates {
     PlaqueCanonical,
     SourcePixels,
+}
+
+/// How a layer mask should be interpreted by compositing and geometric consumers.
+///
+/// `Optical` preserves measured alpha. `Opaque` treats the mask as semantic
+/// confidence for an opaque foreground and calibrates it into solid occlusion
+/// with a narrow soft edge.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayerMatteMode {
+    #[default]
+    Optical,
+    Opaque,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct LayerMatte {
+    pub mode: LayerMatteMode,
+    pub support_threshold: f64,
+    pub solid_threshold: f64,
+}
+
+impl Default for LayerMatte {
+    fn default() -> Self {
+        Self {
+            mode: LayerMatteMode::Optical,
+            support_threshold: 0.03,
+            solid_threshold: 0.20,
+        }
+    }
+}
+
+impl LayerMatte {
+    pub(crate) fn validate(&self, description: &str) -> Result<()> {
+        if !self.support_threshold.is_finite()
+            || !self.solid_threshold.is_finite()
+            || !(0.0..1.0).contains(&self.support_threshold)
+            || !(0.0..=1.0).contains(&self.solid_threshold)
+            || self.support_threshold >= self.solid_threshold
+        {
+            bail!(
+                "{description} thresholds must satisfy 0 <= support_threshold < solid_threshold <= 1"
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,6 +238,9 @@ pub struct LayerGenerator {
     pub runtime_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_sha256: Option<String>,
+    /// SHA-256 of the sealed Rust-generated segmentation plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,7 +258,7 @@ pub struct LayerArtifact {
     pub generator: Option<LayerGenerator>,
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
@@ -222,6 +286,16 @@ pub struct SceneLayer {
     pub active_frames: Option<[usize; 2]>,
     #[serde(default = "default_true")]
     pub affects_layout: bool,
+    /// Whether this layer may influence plaque tracking. Render-only foreground
+    /// evidence can disable this so compositing improvements cannot perturb an
+    /// already homologated motion solution.
+    #[serde(default = "default_true")]
+    pub affects_tracking: bool,
+    #[serde(default)]
+    pub matte: LayerMatte,
+    /// Optional specialist-model hint. Leave unspecified for generic objects.
+    #[serde(default)]
+    pub subject: LayerSubject,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
 }
@@ -294,10 +368,10 @@ pub struct SceneProvenance {
 impl SceneProvenance {
     pub fn content_matches(&self, other: &Self) -> bool {
         self.surface_id == other.surface_id
-            && file_hash(&self.manifest) == file_hash(&other.manifest)
-            && file_hash(&self.trajectory) == file_hash(&other.trajectory)
-            && file_hash(&self.surface_asset) == file_hash(&other.surface_asset)
-            && file_hash_list(&self.layer_artifacts) == file_hash_list(&other.layer_artifacts)
+            && optional_file_matches(&self.manifest, &other.manifest)
+            && optional_file_matches(&self.trajectory, &other.trajectory)
+            && optional_file_matches(&self.surface_asset, &other.surface_asset)
+            && file_list_matches(&self.layer_artifacts, &other.layer_artifacts)
             && self.locked_keyframes == other.locked_keyframes
             && self.guide_keyframes == other.guide_keyframes
     }
@@ -340,23 +414,24 @@ impl SceneProvenance {
     }
 }
 
-fn file_hash_list(files: &[InputFileProvenance]) -> Vec<&str> {
-    files
-        .iter()
-        .map(|file| {
-            file.semantic_sha256
-                .as_deref()
-                .unwrap_or(file.sha256.as_str())
-        })
-        .collect()
+fn file_matches(a: &InputFileProvenance, b: &InputFileProvenance) -> bool {
+    a.sha256 == b.sha256
+        || a.semantic_sha256
+            .as_ref()
+            .zip(b.semantic_sha256.as_ref())
+            .is_some_and(|(a, b)| a == b)
 }
 
-fn file_hash(file: &Option<InputFileProvenance>) -> Option<&str> {
-    file.as_ref().map(|file| {
-        file.semantic_sha256
-            .as_deref()
-            .unwrap_or(file.sha256.as_str())
-    })
+fn optional_file_matches(a: &Option<InputFileProvenance>, b: &Option<InputFileProvenance>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => file_matches(a, b),
+        _ => false,
+    }
+}
+
+fn file_list_matches(a: &[InputFileProvenance], b: &[InputFileProvenance]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| file_matches(a, b))
 }
 
 #[derive(Debug, Clone)]
@@ -400,6 +475,17 @@ impl Scene {
             }
             if let Some(region) = &surface.writable_region {
                 region.validate(&format!("surface {:?} writable_region", surface.id))?;
+                if let Some(bounds) = surface.bounds {
+                    let writable_bounds = region.bounds();
+                    if !rect_contains(bounds, writable_bounds) {
+                        bail!(
+                            "surface {:?} writable_region {:?} must be fully contained inside surface bounds {:?}",
+                            surface.id,
+                            writable_bounds,
+                            bounds
+                        );
+                    }
+                }
             }
             surface.appearance.validate(&surface.id)?;
             if matches!(surface.appearance, SurfaceAppearance::Image { .. })
@@ -472,6 +558,15 @@ impl Scene {
             }
             if let Some(path) = &layer.artifact {
                 require_relative(path, &format!("layer {:?} artifact", layer.id))?;
+            }
+            layer
+                .matte
+                .validate(&format!("layer {:?} matte", layer.id))?;
+            if layer.matte.mode == LayerMatteMode::Opaque && layer.role != LayerRole::Foreground {
+                bail!(
+                    "layer {:?} uses matte mode opaque, which is only valid for foreground layers",
+                    layer.id
+                );
             }
             if layer.artifact.is_some() && !layer.prompts.is_empty() {
                 bail!(
@@ -630,6 +725,11 @@ impl SegmentationPrompt {
         if let Some(object) = &self.object {
             validate_id(object, &format!("{description} object"))?;
         }
+        if let Some(concept) = &self.concept
+            && concept.trim().is_empty()
+        {
+            bail!("{description} concept must not be empty");
+        }
         if let Some(bounds) = self.box_bounds {
             match self.coordinates {
                 SpatialCoordinates::SourcePixels => {
@@ -678,8 +778,9 @@ impl SegmentationPrompt {
             && self.negative_points.is_empty()
             && self.polygon.is_empty()
             && self.quad.is_none()
+            && self.concept.is_none()
         {
-            bail!("{description} does not contain a box, point, polygon, or quad");
+            bail!("{description} does not contain a concept, box, point, polygon, or quad");
         }
         Ok(())
     }
@@ -704,6 +805,7 @@ impl SegmentationPrompt {
             frame: self.frame,
             coordinates: SpatialCoordinates::SourcePixels,
             object: self.object.clone(),
+            concept: self.concept.clone(),
             box_bounds: self.box_bounds.map(scale_rect),
             positive_points: self
                 .positive_points
@@ -795,12 +897,17 @@ impl LayerArtifact {
             bail!("layer artifact generator fields cannot be empty");
         }
         if let Some(generator) = &self.generator {
+            // LayerArtifact also represents reviewed/authored artifacts whose
+            // generator metadata may describe provenance without being a live ML
+            // cache record.  Strict worker/cache provenance (device plus sealed
+            // source/prompt/worker/runtime/request hashes) is enforced by the
+            // segmentation boundary when worker output is accepted or reused.
             if generator
                 .requested_device
                 .as_deref()
-                .is_none_or(str::is_empty)
+                .is_some_and(|device| device.trim().is_empty())
             {
-                bail!("generated layer artifact requires requested_device provenance");
+                bail!("layer artifact requested_device cannot be empty");
             }
             for (name, value) in [
                 ("source_sha256", generator.source_sha256.as_deref()),
@@ -808,10 +915,37 @@ impl LayerArtifact {
                 ("worker_sha256", generator.worker_sha256.as_deref()),
                 ("request_sha256", generator.request_sha256.as_deref()),
             ] {
-                validate_optional_sha256(value, name, true)?;
+                validate_optional_sha256(value, name, false)?;
             }
             validate_optional_sha256(generator.runtime_sha256.as_deref(), "runtime_sha256", false)?;
         }
+        Ok(())
+    }
+
+    /// Validate the sealed identity required when this artifact is a reusable
+    /// machine-generated cache rather than reviewed/static scene data.
+    pub fn validate_generated_provenance(&self) -> Result<()> {
+        let generator = self
+            .generator
+            .as_ref()
+            .context("generated layer artifact is missing generator provenance")?;
+        if generator
+            .requested_device
+            .as_deref()
+            .is_none_or(|device| device.trim().is_empty())
+        {
+            bail!("generated layer artifact requires requested_device provenance");
+        }
+        for (name, value) in [
+            ("source_sha256", generator.source_sha256.as_deref()),
+            ("prompt_sha256", generator.prompt_sha256.as_deref()),
+            ("worker_sha256", generator.worker_sha256.as_deref()),
+            ("request_sha256", generator.request_sha256.as_deref()),
+            ("plan_sha256", generator.plan_sha256.as_deref()),
+        ] {
+            validate_optional_sha256(value, name, true)?;
+        }
+        validate_optional_sha256(generator.runtime_sha256.as_deref(), "runtime_sha256", false)?;
         Ok(())
     }
 
@@ -979,7 +1113,13 @@ pub fn layer_artifact_provenance(
         digest.update(asset.file_name().unwrap_or_default().as_encoded_bytes());
         digest.update(bytes);
     }
-    output.semantic_sha256 = Some(format!("{:x}", digest.finalize()));
+    output.semantic_sha256 = Some(
+        digest
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>(),
+    );
     Ok(output)
 }
 
@@ -1179,6 +1319,18 @@ fn require_relative(path: &Path, description: &str) -> Result<()> {
     Ok(())
 }
 
+fn rect_contains(outer: [f64; 4], inner: [f64; 4]) -> bool {
+    const EPSILON: f64 = 1.0e-6;
+    let outer_right = outer[0] + outer[2];
+    let outer_bottom = outer[1] + outer[3];
+    let inner_right = inner[0] + inner[2];
+    let inner_bottom = inner[1] + inner[3];
+    inner[0] + EPSILON >= outer[0]
+        && inner[1] + EPSILON >= outer[1]
+        && inner_right <= outer_right + EPSILON
+        && inner_bottom <= outer_bottom + EPSILON
+}
+
 fn validate_rect(rect: [f64; 4], description: &str) -> Result<()> {
     if rect.iter().any(|value| !value.is_finite()) {
         bail!("{description} contains a non-finite coordinate");
@@ -1349,6 +1501,58 @@ mod tests {
     }
 
     #[test]
+    fn writable_region_must_be_contained_by_the_tracking_surface() {
+        let scene: Scene = toml::from_str(
+            r#"
+                format = "plaque-forge.scene/1"
+                source = "clip.mp4"
+                default_surface = "main"
+
+                [[surfaces]]
+                id = "main"
+                space = "scene-plane"
+                reference_frame = 0
+                bounds = [100.0, 40.0, 500.0, 180.0]
+
+                [surfaces.writable_region]
+                shape = "rect"
+                bounds = [120.0, 60.0, 490.0, 150.0]
+            "#,
+        )
+        .unwrap();
+
+        let error = scene.validate().unwrap_err().to_string();
+        assert!(
+            error.contains("must be fully contained inside surface bounds"),
+            "unexpected validation error: {error}"
+        );
+    }
+
+    #[test]
+    fn writable_region_may_touch_the_tracking_surface_boundary() {
+        let scene: Scene = toml::from_str(
+            r#"
+                format = "plaque-forge.scene/1"
+                source = "clip.mp4"
+                default_surface = "main"
+
+                [[surfaces]]
+                id = "main"
+                space = "scene-plane"
+                reference_frame = 0
+                bounds = [100.0, 40.0, 500.0, 180.0]
+
+                [surfaces.writable_region]
+                shape = "rect"
+                bounds = [100.0, 40.0, 500.0, 180.0]
+            "#,
+        )
+        .unwrap();
+
+        scene.validate().unwrap();
+    }
+
+    #[test]
     fn scene_selects_an_explicit_plaque() {
         let scene: Scene = toml::from_str(
             r#"
@@ -1400,6 +1604,27 @@ mod tests {
             sequence.referenced_paths(Path::new("artifact.toml")).len(),
             10
         );
+    }
+
+    #[test]
+    fn authored_layer_generator_metadata_does_not_require_worker_cache_identity() {
+        let artifact: LayerArtifact = toml::from_str(
+            r#"
+                format = "plaque-forge.layer/1"
+                kind = "alpha-image"
+                coordinates = "plaque-canonical"
+                path = "moss.png"
+
+                [generator]
+                backend = "color-refinement"
+                model = "moss-alpha"
+                version = "1"
+            "#,
+        )
+        .unwrap();
+
+        artifact.validate().unwrap();
+        assert!(artifact.validate_generated_provenance().is_err());
     }
 
     #[test]
@@ -1555,6 +1780,53 @@ mod tests {
         .unwrap();
         assert_eq!(prompt.coordinates, SpatialCoordinates::SourcePixels);
         prompt.validate("prompt").unwrap();
+    }
+
+    #[test]
+    fn opaque_matte_is_only_valid_for_foreground_layers() {
+        let scene: Scene = toml::from_str(
+            r#"
+                format = "plaque-forge.scene/1"
+                source = "clip.mp4"
+                default_surface = "main"
+
+                [[surfaces]]
+                id = "main"
+                space = "scene-plane"
+                bounds = [10.0, 20.0, 100.0, 50.0]
+
+                [[layers]]
+                id = "shadow"
+                role = "shadow"
+                surface = "main"
+                matte = { mode = "opaque" }
+            "#,
+        )
+        .unwrap();
+        assert!(scene.validate().is_err());
+    }
+
+    #[test]
+    fn cache_identity_accepts_exact_bytes_even_when_cached_semantic_hash_is_stale() {
+        let a = SceneProvenance {
+            manifest: Some(InputFileProvenance {
+                path: "a.toml".into(),
+                sha256: "same-raw".into(),
+                semantic_sha256: Some("old-semantics".into()),
+            }),
+            surface_id: Some("main".into()),
+            ..SceneProvenance::default()
+        };
+        let b = SceneProvenance {
+            manifest: Some(InputFileProvenance {
+                path: "b.toml".into(),
+                sha256: "same-raw".into(),
+                semantic_sha256: Some("new-semantics".into()),
+            }),
+            surface_id: Some("main".into()),
+            ..SceneProvenance::default()
+        };
+        assert!(a.content_matches(&b));
     }
 
     #[test]

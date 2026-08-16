@@ -14,7 +14,8 @@ use crate::{
     color::Rgba,
     model::{MotionSample, RectF},
     scene::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, SceneLayer, resolve_relative,
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMatte, LayerMatteMode, LayerRole,
+        SceneLayer, resolve_relative,
     },
     surface::Surface,
 };
@@ -43,21 +44,24 @@ pub fn build_tracking_exclusions(
     let foregrounds = inputs
         .iter()
         .filter(|input| {
-            input.scene.role == LayerRole::Foreground
+            input.scene.affects_tracking
+                && input.scene.role == LayerRole::Foreground
                 && input.artifact.coordinates == LayerCoordinates::SourcePixels
         })
         .collect::<Vec<_>>();
     let backgrounds = inputs
         .iter()
         .filter(|input| {
-            input.scene.role == LayerRole::Background
+            input.scene.affects_tracking
+                && input.scene.role == LayerRole::Background
                 && input.artifact.coordinates == LayerCoordinates::SourcePixels
         })
         .collect::<Vec<_>>();
     let writing_surfaces = inputs
         .iter()
         .filter(|input| {
-            input.scene.role == LayerRole::WritingSurface
+            input.scene.affects_tracking
+                && input.scene.role == LayerRole::WritingSurface
                 && input.artifact.coordinates == LayerCoordinates::SourcePixels
         })
         .collect::<Vec<_>>();
@@ -89,7 +93,9 @@ pub fn build_tracking_exclusions(
         };
         for input in &foregrounds {
             if let Some(path) = artifact_frame_path(input, frame) {
-                alpha_over(&mut combined, &load_mask(&path, width, height)?);
+                let mut mask = load_mask(&path, width, height)?;
+                apply_matte_policy(&mut mask, input.scene.matte);
+                alpha_over(&mut combined, &mask);
             }
         }
         // A declared background layer is negative depth evidence: it may resemble
@@ -97,7 +103,9 @@ pub fn build_tracking_exclusions(
         // the plaque tracker. Subtract it from both automatic and authored masks.
         for input in &backgrounds {
             if let Some(path) = artifact_frame_path(input, frame) {
-                subtract_alpha(&mut combined, &load_mask(&path, width, height)?);
+                let mut mask = load_mask(&path, width, height)?;
+                apply_matte_policy(&mut mask, input.scene.matte);
+                subtract_alpha(&mut combined, &mask);
             }
         }
         // A writing-surface matte answers a membership/depth question, not a
@@ -112,7 +120,9 @@ pub fn build_tracking_exclusions(
             let mut has_support = false;
             for input in &writing_surfaces {
                 if let Some(path) = artifact_frame_path(input, frame) {
-                    max_union(&mut support, &load_mask(&path, width, height)?);
+                    let mut mask = load_mask(&path, width, height)?;
+                    apply_matte_policy(&mut mask, input.scene.matte);
+                    max_union(&mut support, &mask);
                     has_support = true;
                 }
             }
@@ -263,6 +273,8 @@ pub fn package(
             coordinates: artifact.coordinates,
             kind: artifact.kind,
             affects_layout: artifact.affects_layout,
+            affects_tracking: input.scene.affects_tracking,
+            matte: input.scene.matte,
             path: crate::portable_path::PortablePath::bundle(packed_path)?,
             first_frame: artifact.first_frame,
             last_frame: artifact.last_frame,
@@ -315,11 +327,12 @@ impl<'a> ForegroundReader<'a> {
         }) {
             match (layer.coordinates, layer.kind) {
                 (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => {
-                    let mask = load_mask(
+                    let mut mask = load_mask(
                         &pack.require_asset_path(layer.path.as_path())?,
                         pack.manifest.canonical_width,
                         pack.manifest.canonical_height,
                     )?;
+                    apply_matte_policy(&mut mask, layer.matte);
                     canonical.push((
                         Surface::from_alpha_mask(
                             pack.manifest.canonical_width,
@@ -331,14 +344,13 @@ impl<'a> ForegroundReader<'a> {
                     ));
                 }
                 (LayerCoordinates::SourcePixels, LayerArtifactKind::AlphaImage) => {
-                    source_static.push((
-                        load_mask(
-                            &pack.require_asset_path(layer.path.as_path())?,
-                            pack.manifest.source.width,
-                            pack.manifest.source.height,
-                        )?,
-                        layer,
-                    ));
+                    let mut mask = load_mask(
+                        &pack.require_asset_path(layer.path.as_path())?,
+                        pack.manifest.source.width,
+                        pack.manifest.source.height,
+                    )?;
+                    apply_matte_policy(&mut mask, layer.matte);
+                    source_static.push((mask, layer));
                 }
                 (LayerCoordinates::SourcePixels, LayerArtifactKind::AlphaSequence) => {
                     sequences.push(layer);
@@ -391,14 +403,13 @@ impl<'a> ForegroundReader<'a> {
                 let path = self
                     .pack
                     .require_asset_path(&sequence_path(layer.path.as_path(), frame))?;
-                alpha_over(
-                    &mut combined,
-                    &load_mask(
-                        &path,
-                        self.pack.manifest.source.width,
-                        self.pack.manifest.source.height,
-                    )?,
-                );
+                let mut mask = load_mask(
+                    &path,
+                    self.pack.manifest.source.width,
+                    self.pack.manifest.source.height,
+                )?;
+                apply_matte_policy(&mut mask, layer.matte);
+                alpha_over(&mut combined, &mask);
             }
         }
         Ok(combined.iter().any(|&alpha| alpha > 0).then_some(combined))
@@ -426,11 +437,15 @@ fn apply_layout_layer(
         return Ok(());
     }
     let aggregate = match (layer.coordinates, layer.kind) {
-        (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => load_mask(
-            &root.join(layer.path.as_path()),
-            canonical_width,
-            canonical_height,
-        )?,
+        (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => {
+            let mut mask = load_mask(
+                &root.join(layer.path.as_path()),
+                canonical_width,
+                canonical_height,
+            )?;
+            apply_matte_policy(&mut mask, layer.matte);
+            mask
+        }
         (LayerCoordinates::SourcePixels, _) => aggregate_source_layer(
             layer,
             root,
@@ -483,7 +498,8 @@ fn aggregate_source_layer(
                 root.join(sequence_path(layer.path.as_path(), frame))
             }
         };
-        let mask = load_mask(&source, source_width, source_height)?;
+        let mut mask = load_mask(&source, source_width, source_height)?;
+        apply_matte_policy(&mut mask, layer.matte);
         let surface = Surface::from_alpha_mask(
             source_width,
             source_height,
@@ -595,6 +611,26 @@ fn load_mask(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {
     }
 }
 
+fn apply_matte_policy(mask: &mut [u8], matte: LayerMatte) {
+    if matte.mode == LayerMatteMode::Optical {
+        return;
+    }
+    let support = matte.support_threshold;
+    let span = matte.solid_threshold - support;
+    for alpha in mask {
+        let value = f64::from(*alpha) / 255.0;
+        *alpha = if value <= support {
+            0
+        } else if value >= matte.solid_threshold {
+            255
+        } else {
+            let t = (value - support) / span;
+            let smooth = t * t * (3.0 - 2.0 * t);
+            (smooth * 255.0).round() as u8
+        };
+    }
+}
+
 fn save_mask(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
     let image: GrayImage = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, data.to_vec())
         .context("invalid layer mask")?;
@@ -639,18 +675,21 @@ fn intersect(output: &mut [u8], input: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        LayerInput, alpha_over, exclude_outside_surface_support, has_authored_foreground,
-        intersect, package,
+        LayerInput, alpha_over, apply_matte_policy, build_tracking_exclusions,
+        exclude_outside_surface_support, has_authored_foreground, intersect, package,
     };
     use crate::{
         model::{Mat3, MotionSample, RectF},
         scene::{
-            LAYER_ARTIFACT_FORMAT, LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole,
-            SceneLayer,
+            LAYER_ARTIFACT_FORMAT, LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMatte,
+            LayerMatteMode, LayerRole, SceneLayer,
         },
     };
     use image::{GrayImage, ImageBuffer, Luma};
-    use std::{fs, path::PathBuf};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     #[test]
     fn foreground_layer_is_authoritative() {
@@ -686,12 +725,62 @@ mod tests {
     }
 
     #[test]
+    fn render_only_foreground_does_not_change_tracking_support() {
+        let mut input = layer_input(
+            LayerRole::Foreground,
+            LayerCoordinates::SourcePixels,
+            LayerArtifactKind::AlphaImage,
+            None,
+            None,
+        );
+        input.scene.affects_tracking = false;
+
+        assert!(
+            !build_tracking_exclusions(
+                &[input],
+                Path::new("unused-automatic"),
+                Path::new("unused-output"),
+                4,
+                2,
+                1,
+                None,
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
     fn composites_alpha_masks_without_losing_soft_edges() {
         let mut mask = [0, 64, 255];
         alpha_over(&mut mask, &[32, 128, 0]);
         assert_eq!(mask, [32, 160, 255]);
         intersect(&mut mask, &[255, 96, 64]);
         assert_eq!(mask, [32, 96, 64]);
+    }
+
+    #[test]
+    fn optical_matte_preserves_measured_alpha() {
+        let mut mask = [0, 8, 32, 128, 255];
+        let original = mask;
+        apply_matte_policy(&mut mask, LayerMatte::default());
+        assert_eq!(mask, original);
+    }
+
+    #[test]
+    fn opaque_matte_calibrates_semantic_confidence_to_solid_occlusion() {
+        let mut mask = [0, 7, 8, 16, 51, 128, 255];
+        apply_matte_policy(
+            &mut mask,
+            LayerMatte {
+                mode: LayerMatteMode::Opaque,
+                ..LayerMatte::default()
+            },
+        );
+        assert_eq!(mask[0], 0);
+        assert_eq!(mask[1], 0);
+        assert!(mask[2] < mask[3]);
+        assert!(mask[3] < 255);
+        assert_eq!(&mask[4..], &[255, 255, 255]);
     }
 
     #[test]
@@ -721,6 +810,9 @@ mod tests {
                 artifact: None,
                 active_frames: None,
                 affects_layout: true,
+                affects_tracking: true,
+                matte: LayerMatte::default(),
+                subject: crate::scene::LayerSubject::Unspecified,
                 prompts: Vec::new(),
             },
             artifact_path: input_root.join("artifact.toml"),
@@ -795,6 +887,9 @@ mod tests {
                 artifact: None,
                 active_frames: None,
                 affects_layout: true,
+                affects_tracking: true,
+                matte: LayerMatte::default(),
+                subject: crate::scene::LayerSubject::Unspecified,
                 prompts: Vec::new(),
             },
             artifact_path: input_root.join("artifact.toml"),
@@ -866,6 +961,9 @@ mod tests {
                 artifact: None,
                 active_frames: None,
                 affects_layout: false,
+                affects_tracking: true,
+                matte: LayerMatte::default(),
+                subject: crate::scene::LayerSubject::Unspecified,
                 prompts: Vec::new(),
             },
             artifact_path: PathBuf::from("artifact.toml"),

@@ -18,7 +18,7 @@ use opencv::{
 };
 
 use crate::{
-    cli::AnalyzeArgs,
+    application::AnalyzeRequest,
     geometry::{Point as GeoPoint, Quad as GeoQuad, homography},
     model::{Mat3, MotionSample, PointF, RectF},
     progress::ProgressReporter,
@@ -328,7 +328,7 @@ pub fn select_masked_scene(mut baseline: TrackingResult, scene: TrackingResult) 
 /// sparse masked frames must not discard a well-rooted baseline.
 #[allow(clippy::too_many_arguments)]
 pub fn refine_scene_with_masked_flow(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     baseline: TrackingResult,
@@ -355,7 +355,7 @@ pub fn refine_scene_with_masked_flow(
 /// retrack.
 #[allow(clippy::too_many_arguments)]
 pub fn refine_baseline_with_foreground_flow(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     baseline: TrackingResult,
@@ -375,7 +375,7 @@ pub fn refine_baseline_with_foreground_flow(
 
 #[allow(clippy::too_many_arguments)]
 fn refine_selected_with_foreground_flow(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     mut selected: TrackingResult,
@@ -406,7 +406,7 @@ fn refine_selected_with_foreground_flow(
 }
 
 pub fn load_dense_scene(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     track: &SurfaceTrajectory,
@@ -472,7 +472,7 @@ struct FeatureAnchor {
 }
 
 pub fn track(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     reference_frame: usize,
@@ -493,7 +493,7 @@ pub fn track(
 
 #[allow(clippy::too_many_arguments)]
 pub fn retrack_masked(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     reference_frame: usize,
@@ -516,7 +516,7 @@ pub fn retrack_masked(
 
 #[allow(clippy::too_many_arguments)]
 fn track_with_exclusions(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     reference_frame: usize,
@@ -766,7 +766,7 @@ fn track_with_exclusions(
 
 #[allow(clippy::too_many_arguments)]
 fn process_direction(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     capture: &mut VideoCapture,
     sift: &mut core::Ptr<features2d::SIFT>,
     root: &FeatureAnchor,
@@ -1645,7 +1645,7 @@ impl SourceFlowConstraintSummary {
 /// a one-frame impulse and prevents a causal "notice, then catch up" fallback.
 #[allow(clippy::too_many_arguments)]
 fn constrain_trajectory_to_source_flow(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     reference_frame: usize,
@@ -1905,7 +1905,7 @@ fn constrain_trajectory_to_source_flow(
 
 #[allow(clippy::too_many_arguments)]
 fn collect_source_flow_observations(
-    args: &AnalyzeArgs,
+    args: &AnalyzeRequest,
     info: &VideoInfo,
     plaque: RectF,
     samples: &[MotionSample],
@@ -2776,7 +2776,7 @@ fn load_exclusion(
     if !path.is_file() {
         return Ok(None);
     }
-    let mask = imgcodecs::imread(&path.to_string_lossy(), imgcodecs::IMREAD_GRAYSCALE)
+    let mask = imgcodecs::imread(&*path.to_string_lossy(), imgcodecs::IMREAD_GRAYSCALE)
         .with_context(|| format!("failed to read occluder mask {}", path.display()))?;
     if mask.cols() != width || mask.rows() != height {
         bail!("occluder mask dimensions differ from tracking frame");
@@ -3980,7 +3980,7 @@ fn write_contact_sheet(frames: &[Mat], path: &Path) -> Result<()> {
         let mut target = Mat::roi_mut(&mut sheet, Rect::new(x, y, tile_width, tile_height))?;
         tile.copy_to(&mut target)?;
     }
-    imgcodecs::imwrite(&path.to_string_lossy(), &sheet, &Vector::new())?;
+    imgcodecs::imwrite(&*path.to_string_lossy(), &sheet, &Vector::new())?;
     Ok(())
 }
 

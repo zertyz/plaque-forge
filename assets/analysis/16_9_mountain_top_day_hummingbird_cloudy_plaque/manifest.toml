@@ -35,9 +35,15 @@ role = "writing-surface"
 coordinates = "source-pixels"
 kind = "alpha-sequence"
 affects_layout = false
+affects_tracking = true
 path = "layers/cloud-writing-surface/%06d.png"
 first_frame = 0
 last_frame = 239
+
+[layers.matte]
+mode = "optical"
+support_threshold = 0.03
+solid_threshold = 0.2
 
 [layers.generator]
 backend = "sam2-cutie-vitmatte"
@@ -50,27 +56,6 @@ worker_sha256 = "8273acc0980dc69fcc40be7748d0854adaf65a38ca2e3660fdc1903f83a8adb
 runtime_sha256 = "41062f851c368a04e1bb98c4ed8b67a69aea3fa6de9964eb57a45a858fbb0efb"
 request_sha256 = "47c5bdd01babd6c310fc8a23f6eee4f56de32814474c9b7f9bfa69de8323bb73"
 
-[[layers]]
-id = "crossing-hummingbird"
-role = "foreground"
-coordinates = "source-pixels"
-kind = "alpha-sequence"
-affects_layout = false
-path = "layers/crossing-hummingbird/%06d.png"
-first_frame = 0
-last_frame = 239
-
-[layers.generator]
-backend = "sam2-cutie-vitmatte"
-model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0@xpu+cutie-1.0.0@cpu+selected-cutie+vitmatte-4.57.1@xpu"
-requested_device = "auto"
-source_sha256 = "cd69662e64812aae3845a2875857a8dad17b7c81cf88a9153aece77e367f9f9b"
-prompt_sha256 = "c449cba4f7c8312e2c0bb1d15d2fe72e21ff546e0ac44e22c6e3dda978aa4ee2"
-worker_sha256 = "8273acc0980dc69fcc40be7748d0854adaf65a38ca2e3660fdc1903f83a8adbd"
-runtime_sha256 = "41062f851c368a04e1bb98c4ed8b67a69aea3fa6de9964eb57a45a858fbb0efb"
-request_sha256 = "22d55c4dd8ff1ed8c0c2f93f818c45c493667d8f720b66ddba050bd5736fe65c"
-
 [scenes]
 surface_id = "main"
 locked_keyframes = 0
@@ -79,21 +64,16 @@ guide_keyframes = 0
 [scenes.manifest]
 path = "../../scenes/16_9_mountain_top_day_hummingbird_cloudy_plaque/scene.toml"
 sha256 = "a6a7c66a840e4d1ead1db44a0922f6a87bdd3694eea0f98a7da7c601798adbba"
-semantic_sha256 = "1692a8599431c1611e64cb39718f607b457de0eccb6145aa7bd3b0f7dee4ad67"
+semantic_sha256 = "ebfafe2b1978ffc4cc6320505a537d37fd8341747ea8cabd264653d6d0b2e541"
 
 [[scenes.layer_artifacts]]
 path = "layers/cloud-writing-surface/artifact.toml"
 sha256 = "4aaae240de02c0d2e1aec6f5d0c56b40503d54b6825782b86f86015c04becb77"
 semantic_sha256 = "570f6f76284df5eedbb78558199d382262a54bc16c4a2602a561ca715899adc3"
 
-[[scenes.layer_artifacts]]
-path = "layers/crossing-hummingbird/artifact.toml"
-sha256 = "7e586e394d231d98f7481ea370a3ae361af4a9607fbeadb1dd6be923b87e6036"
-semantic_sha256 = "4563995380c132d672b3c57d98bd2e948ce7753540c85ea09c239ca082f25452"
-
 [confidence]
 plaque_detection = 0.98
-motion = 0.7345220973708664
-extraction = 0.7741623225725411
+motion = 0.7275324692502494
+extraction = 0.773239228740108
 occlusion = 0.8
-overall = 0.8171245142941339
+overall = 0.8149305155129615

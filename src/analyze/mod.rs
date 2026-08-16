@@ -13,7 +13,7 @@ use crate::{
         ANALYSIS_FORMAT, Analysis, AnalysisManifest, AnalysisStatus, INJECTED_SURFACE_FILE,
         InjectedSurfaceAsset, OCCLUDER_DIR, SegmentationConfig, SourceInfo, TRAJECTORY_FILE,
     },
-    cli::AnalyzeArgs,
+    application::AnalyzeRequest,
     layers::{self, LayerInput},
     model::AnalysisConfidence,
     progress::ProgressReporter,
@@ -38,6 +38,36 @@ struct AnalysisScenes {
     occlusion_mode: DepthMode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromptedLayerPolicy {
+    /// A generated prompted artifact must already exist and validate.
+    Require,
+    /// Missing/stale prompted artifacts are intentionally deferred to the worker.
+    GenerateMissing,
+    /// Pure-Rust mode reuses valid cached artifacts, but skips unavailable ML layers.
+    ReuseOrSkip,
+}
+
+impl PromptedLayerPolicy {
+    fn unavailable(self, layer_id: &str, artifact_path: &Path, reason: &str) -> Result<()> {
+        match self {
+            Self::GenerateMissing => eprintln!(
+                "[ml] prompted layer {layer_id:?} has no reusable artifact at {}; worker will regenerate it ({reason})",
+                artifact_path.display()
+            ),
+            Self::ReuseOrSkip => eprintln!(
+                "[ml] --no-ml: skipping prompted layer {layer_id:?}; no reusable cached artifact at {} ({reason})",
+                artifact_path.display()
+            ),
+            Self::Require => bail!(
+                "prompted layer {layer_id:?} has no valid generated artifact at {} ({reason})",
+                artifact_path.display()
+            ),
+        }
+        Ok(())
+    }
+}
+
 impl AnalysisScenes {
     fn has_dense_locked_track(&self, frame_count: usize) -> bool {
         self.trajectory
@@ -46,7 +76,10 @@ impl AnalysisScenes {
     }
 }
 
-pub fn run(mut args: AnalyzeArgs) -> Result<()> {
+pub fn run(
+    mut args: AnalyzeRequest,
+    commands: &dyn crate::infrastructure::CommandExecutor,
+) -> Result<()> {
     if !args.source_is_text_free {
         bail!(
             "analysis requires an explicit --source-is-text-free assertion; Plaque Forge does not remove or inpaint existing titles"
@@ -68,7 +101,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
             args.input.display()
         );
     }
-    let info = video::probe(&args.ffprobe, &args.input)
+    let info = video::probe_with(commands, &args.ffprobe, &args.input)
         .with_context(|| format!("failed to probe input video {}", args.input.display()))?;
     info.ensure_supported_compositing_color()?;
     if !info.constant_frame_rate {
@@ -84,7 +117,11 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         .map(Ok)
         .unwrap_or_else(|| workspace::analysis_path(&args.input))?;
     let segmentation = segmentation_config(&args)?;
-    let can_generate_prompted = args.segmentation_worker.is_some();
+    let prompted_layer_policy = if args.segmentation_worker.is_some() {
+        PromptedLayerPolicy::GenerateMissing
+    } else {
+        PromptedLayerPolicy::ReuseOrSkip
+    };
     let published_layer_root = output.join(crate::analysis::LAYERS_DIR);
     let mut scenes = resolve_scenes(
         &mut args,
@@ -92,7 +129,7 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
         &source_sha256,
         &published_layer_root,
         &published_layer_root,
-        can_generate_prompted,
+        prompted_layer_policy,
     )?;
     if output.exists() && args.if_needed && !args.force {
         if analysis_cache_is_current(
@@ -127,10 +164,12 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
     // worker failure therefore cannot leave a partial tree under assets/analysis.
     if let Some(worker) = args.segmentation_worker.as_deref() {
         eprintln!(
-            "[ml] segmentation enabled: worker={}, backend={}, model={}, device={}",
+            "[ml] segmentation enabled: worker={}, backend={}, model={}, profile={}, precision={}, device={}",
             worker.display(),
             args.segmentation_backend,
             args.segmentation_model,
+            args.segmentation_profile,
+            args.segmentation_precision,
             args.segmentation_device
         );
         let generated = crate::segmentation::ensure_prompted_layers(
@@ -142,35 +181,29 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                 backend: &args.segmentation_backend,
                 model: &args.segmentation_model,
                 device: &args.segmentation_device,
+                profile: &args.segmentation_profile,
+                precision: &args.segmentation_precision,
                 force: args.force_ml,
                 ffprobe: &args.ffprobe,
                 info: &info,
                 source_sha256: &source_sha256,
                 output_root: &generated_layer_root,
                 reuse_root: output.is_dir().then_some(published_layer_root.as_path()),
+                commands,
             },
         )
         .context("failed to materialize prompted scene layers")?;
         if generated > 0 {
             eprintln!("[ml] generated {generated} prompted scene layer artifact(s)");
-            scenes = resolve_scenes(
-                &mut args,
-                &info,
-                &source_sha256,
-                &generated_layer_root,
-                &published_layer_root,
-                false,
-            )?;
-        } else {
-            scenes = resolve_scenes(
-                &mut args,
-                &info,
-                &source_sha256,
-                &generated_layer_root,
-                &published_layer_root,
-                false,
-            )?;
         }
+        scenes = resolve_scenes(
+            &mut args,
+            &info,
+            &source_sha256,
+            &generated_layer_root,
+            &published_layer_root,
+            PromptedLayerPolicy::Require,
+        )?;
     } else {
         eprintln!("[ml] segmentation disabled: no worker configured (high-level --no-ml mode)");
     }
@@ -332,12 +365,15 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
                         backend: &args.segmentation_backend,
                         model: &args.segmentation_model,
                         device: &args.segmentation_device,
+                        profile: &args.segmentation_profile,
+                        precision: &args.segmentation_precision,
                         info: &info,
                         plaque: candidate.rect,
                         seed_masks: &partial.join(OCCLUDER_DIR),
                         analysis_root: &partial,
                         force: args.force_ml,
                         reuse_root: output.is_dir().then_some(output.as_path()),
+                        commands,
                     },
                 ) {
                     Ok(true) => {
@@ -728,12 +764,12 @@ pub fn run(mut args: AnalyzeArgs) -> Result<()> {
 }
 
 fn resolve_scenes(
-    args: &mut AnalyzeArgs,
+    args: &mut AnalyzeRequest,
     info: &video::VideoInfo,
     source_sha256: &str,
     generated_layer_root: &Path,
     published_layer_root: &Path,
-    allow_missing_prompted: bool,
+    prompted_layer_policy: PromptedLayerPolicy,
 ) -> Result<AnalysisScenes> {
     let loaded = find_scene(&args.input, args.scene.as_deref())?;
     let mut identity = SceneProvenance::default();
@@ -826,10 +862,11 @@ fn resolve_scenes(
                     );
                 }
             }
+            let generated_prompted_layer = layer.artifact.is_none() && !layer.prompts.is_empty();
             let (artifact_path, published_path) = if let Some(artifact) = &layer.artifact {
                 let path = resolve_relative(&loaded.path, artifact);
                 (path.clone(), path)
-            } else if !layer.prompts.is_empty() {
+            } else if generated_prompted_layer {
                 (
                     generated_layer_root.join(&layer.id).join("artifact.toml"),
                     published_layer_root.join(&layer.id).join("artifact.toml"),
@@ -838,7 +875,12 @@ fn resolve_scenes(
                 continue;
             };
             if !artifact_path.is_file() {
-                if allow_missing_prompted && !layer.prompts.is_empty() {
+                if generated_prompted_layer {
+                    prompted_layer_policy.unavailable(
+                        &layer.id,
+                        &artifact_path,
+                        "artifact is absent",
+                    )?;
                     continue;
                 }
                 bail!(
@@ -849,27 +891,57 @@ fn resolve_scenes(
             }
             let artifact = match crate::scene::LayerArtifact::load(&artifact_path) {
                 Ok(artifact) => artifact,
-                Err(error) if allow_missing_prompted && !layer.prompts.is_empty() => {
-                    eprintln!(
-                        "prompted layer {:?} has an incompatible cached artifact at {}; regenerating it: {error:#}",
-                        layer.id,
-                        artifact_path.display()
-                    );
-                    continue;
+                Err(error) => {
+                    if generated_prompted_layer {
+                        prompted_layer_policy.unavailable(
+                            &layer.id,
+                            &artifact_path,
+                            &format!("artifact is incompatible: {error:#}"),
+                        )?;
+                        continue;
+                    }
+                    return Err(error);
                 }
-                Err(error) => return Err(error),
             };
+            if generated_prompted_layer {
+                match crate::segmentation::prompted_artifact_matches_source_and_prompt(
+                    &artifact,
+                    layer,
+                    info,
+                    source_sha256,
+                ) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        prompted_layer_policy.unavailable(
+                            &layer.id,
+                            &artifact_path,
+                            "artifact source/prompt identity is stale",
+                        )?;
+                        continue;
+                    }
+                    Err(error) => {
+                        prompted_layer_policy.unavailable(
+                            &layer.id,
+                            &artifact_path,
+                            &format!("generated provenance is incomplete: {error:#}"),
+                        )?;
+                        continue;
+                    }
+                }
+            }
             let mut artifact_identity = match layer_artifact_provenance(&artifact_path, &artifact) {
                 Ok(identity) => identity,
-                Err(error) if allow_missing_prompted && !layer.prompts.is_empty() => {
-                    eprintln!(
-                        "prompted layer {:?} has incomplete cached provenance at {}; regenerating it: {error:#}",
-                        layer.id,
-                        artifact_path.display()
-                    );
-                    continue;
+                Err(error) => {
+                    if generated_prompted_layer {
+                        prompted_layer_policy.unavailable(
+                            &layer.id,
+                            &artifact_path,
+                            &format!("artifact provenance is incomplete: {error:#}"),
+                        )?;
+                        continue;
+                    }
+                    return Err(error);
                 }
-                Err(error) => return Err(error),
             };
             artifact_identity.path = published_path;
             identity.layer_artifacts.push(artifact_identity);
@@ -1002,7 +1074,7 @@ fn analysis_cache_is_current(
     }
 }
 
-fn segmentation_config(args: &AnalyzeArgs) -> Result<Option<SegmentationConfig>> {
+fn segmentation_config(args: &AnalyzeRequest) -> Result<Option<SegmentationConfig>> {
     args.segmentation_worker
         .as_ref()
         .map(|worker| {
@@ -1010,15 +1082,19 @@ fn segmentation_config(args: &AnalyzeArgs) -> Result<Option<SegmentationConfig>>
                 backend: args.segmentation_backend.clone(),
                 model: args.segmentation_model.clone(),
                 device: args.segmentation_device.clone(),
+                profile: args.segmentation_profile.clone(),
+                precision: args.segmentation_precision.clone(),
                 worker_sha256: crate::segmentation::worker_sha256(worker)?,
-                runtime_sha256: crate::segmentation::runtime_sha256()?,
+                runtime_sha256: crate::segmentation::runtime_sha256_for_backend(
+                    &args.segmentation_backend,
+                )?,
             })
         })
         .transpose()
 }
 
 struct SurfaceIntentContext<'a> {
-    args: &'a AnalyzeArgs,
+    args: &'a AnalyzeRequest,
     scenes: &'a AnalysisScenes,
     tracking_rect: crate::model::RectF,
     width: u32,
@@ -1218,7 +1294,7 @@ fn geometric_mean(values: &[f64]) -> f64 {
 }
 
 struct AnalysisQuality<'a> {
-    args: &'a AnalyzeArgs,
+    args: &'a AnalyzeRequest,
     rect: crate::model::RectF,
     candidate: f64,
     motion: f64,

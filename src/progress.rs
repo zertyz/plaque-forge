@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::cli::ProgressMode;
+use crate::application::ProgressMode;
 
 pub struct ProgressReporter {
     enabled: bool,

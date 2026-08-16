@@ -1,0 +1,9 @@
+version = 4
+fill = "#2B0F0318"
+
+[[surface_effects]]
+type = "laser-burn"
+depth = 0.82
+warmth = 0.72
+edge_width = 2
+seed = 1112887886

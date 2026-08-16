@@ -102,6 +102,28 @@ packaged once under `assets/analysis/<asset>/layers/`. Scene files never point a
 workstation cache. Masks are lossless 16-bit PNG when the ML worker produces soft
 probabilities.
 
+Foreground masks also declare their **matte semantics**. The default is `optical`:
+the mask is literal measured transparency and soft values remain soft. Opaque objects
+whose ML output represents semantic confidence rather than physical transparency use
+`opaque`; confidence is calibrated into solid source restoration with a narrow feather:
+
+```toml
+[[layers]]
+id = "spider"
+role = "foreground"
+surface = "main"
+in_front_of = "main"
+affects_layout = false
+affects_tracking = false
+matte = { mode = "opaque", support_threshold = 0.03, solid_threshold = 0.20 }
+```
+
+`affects_layout` and `affects_tracking` are independent on purpose. A foreground object
+may need to appear above typography without shrinking the writable area or changing a
+previously accepted plaque trajectory. This separation makes adding better compositing
+evidence incapable of silently changing unrelated geometry unless the scene explicitly
+opts into that coupling.
+
 ## Injected plaques
 
 An image surface references an aspect-appropriate transparent PNG:

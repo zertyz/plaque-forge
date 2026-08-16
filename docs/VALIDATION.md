@@ -6,22 +6,41 @@ Run the code gate:
 ./scripts/check.sh
 ```
 
-Validate the checked-in acceptance analysis caches/renders:
+Validate selected renders exhaustively against their source/analysis:
 
 ```bash
 ./scripts/validate_assets.sh
 ```
 
-This writes verification reports without changing analysis or scenes. Acceptance requires:
+Lossless verification artifacts, render manifests, and reports are retained together under
+`output/validation/`. The report therefore remains inspectable against the exact bytes it
+certifies, and is deliberately not named as though it certifies the separately encoded
+`output/*.hevc.mkv` delivery file. `render_assets.sh` removes stale acceptance reports after
+replacing a delivery render.
+
+For previously human-accepted observable behavior, run the representative homologation gate:
+
+```bash
+./scripts/check_homologated_assets.sh
+```
+
+This produces `output/<asset>.homologation.json`, cryptographically bound to the exact delivery
+render and its render manifest. See [Homologation](HOMOLOGATION.md).
+
+Full-frame verification acceptance requires:
 
 - the overall score meets `--minimum-score` (default `0.95`);
 - each component meets its verifier-defined threshold recorded in the verification JSON;
 - every render has the source frame count and timing;
-- source, analysis manifest, rendered video, canonical text mask, optional contact sheet, font, style, encoder arguments, and implementation versions match recorded provenance;
+- source, analysis manifest, rendered video, canonical text mask, render decision trace, optional contact sheet, font, style, encoder arguments, and implementation versions match recorded provenance;
 - declared SDR color metadata and display rotation are preserved;
 - visual review finds no plaque drift, foreground inversion, hard matte edge, temporal blinking, or obviously poor title composition.
 
-For human triage, run `./scripts/review_assets.sh <asset-stem>` and open the generated `diagnostics/review.html`. Coverage percentages describe scene complexity; they are not treated as quality failures by themselves.
+For human triage, run `./scripts/review_assets.sh <asset-stem>` and open the generated
+`diagnostics/review.html`. Review accepts verification evidence only together with the exact
+render manifest whose SHA-256 and source/analysis/render identities match the report. Stale or
+cross-wired evidence is rejected. The same page surfaces the provenance-bound render decision trace so surface selection, tracking participation, typography, and matte semantics can be inspected causally. Coverage percentages describe scene complexity; they are not
+treated as quality failures by themselves.
 
 Scene integrity is alpha-aware: title/plaque coverage permits only the change source-over compositing can produce, including antialiased boundaries. Foreground restoration is also evaluated at every nonzero matte level rather than only at opaque pixels.
 
@@ -58,7 +77,11 @@ The plaque catalog and generated-path portability are part of `cargo test`. Cata
 
 ## Why no hard-coded reference scores
 
-Static score tables drift whenever the corpus, verifier, masks, or encoder changes. The authoritative result is each current `output/<asset>.verification.json`, whose schema includes its source/render/analysis identities and thresholds. A score without matching provenance is not an acceptance record.
+Static score tables drift whenever the corpus, verifier, masks, or encoder changes. The
+authoritative result is the report whose recorded source/render/analysis identities match the
+artifact being discussed. `validate_assets.sh` stores lossless verifier reports under
+`output/validation/`; homologated delivery renders use `output/<asset>.homologation.json`. A
+score or green-looking JSON file without matching provenance is not an acceptance record.
 
 ## Human quality-report index
 
@@ -74,5 +97,9 @@ Open `output/review/index.html`. Each asset report uses the complete cache or ne
 
 - `./scripts/check.sh` is the cheap deterministic code gate: formatting, Clippy with warnings denied, Rust tests, plaque/path checks, Python syntax, and shell syntax/parser regression.
 - `cargo test --test project_assets` audits checked-in path portability and plaque metadata.
-- `./scripts/validate_assets.sh ...` performs real lossless render + full-frame verification and can be expensive; it never invokes scene analysis or Python ML.
-- Human review remains mandatory for artistic composition. Numeric metrics reject known failure modes but cannot decide taste.
+- `./scripts/validate_assets.sh ...` performs real lossless render + full-frame verification,
+  retains the certified artifact under `output/validation/`, and can be expensive; it never
+  invokes scene analysis or Python ML.
+- `plaque-forge homologation-coverage` validates the behavioral capability matrix and reports which representative cases still await explicit human acceptance.
+- `./scripts/check_homologated_assets.sh` performs a real delivery render and enforces sparse human-accepted regression contracts; CI runs this as a separate integration gate. Failed semantic witnesses retain source/render/diff/overlay diagnostics under `output/regressions/`.
+- Human review remains mandatory when establishing or deliberately changing artistic composition. Once accepted, the corresponding homologation contract makes that behavior executable.

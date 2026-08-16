@@ -11,6 +11,7 @@ use opencv::{
 };
 use serde::Deserialize;
 use std::{
+    ffi::OsString,
     io::{ErrorKind, Read, Write},
     path::Path,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
@@ -95,20 +96,29 @@ struct ProbeFormat {
 }
 
 pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
-    let output = Command::new(ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-count_packets",
-            "-show_streams",
-            "-show_format",
-            "-of",
-            "json",
-        ])
-        .arg(input)
-        .output()
-        .with_context(|| format!("failed to launch {}", ffprobe.display()))?;
-    if !output.status.success() {
+    probe_with(&crate::infrastructure::OS_COMMAND_EXECUTOR, ffprobe, input)
+}
+
+pub(crate) fn probe_with(
+    executor: &dyn crate::infrastructure::CommandExecutor,
+    ffprobe: &Path,
+    input: &Path,
+) -> Result<VideoInfo> {
+    let args = [
+        "-v",
+        "error",
+        "-count_packets",
+        "-show_streams",
+        "-show_format",
+        "-of",
+        "json",
+    ]
+    .into_iter()
+    .map(OsString::from)
+    .chain(std::iter::once(input.as_os_str().to_os_string()))
+    .collect::<Vec<_>>();
+    let output = executor.output(ffprobe, &args)?;
+    if !output.success {
         bail!(
             "ffprobe failed: {}",
             String::from_utf8_lossy(&output.stderr)
@@ -202,7 +212,7 @@ pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo> {
 /// OpenCV may otherwise autorotate frames while FFmpeg/raw geometry remains in
 /// encoded coordinates. Keep every analysis backend in the same coordinate space.
 pub fn open_capture(input: &Path) -> Result<VideoCapture> {
-    let mut capture = VideoCapture::from_file(&input.to_string_lossy(), CAP_ANY)
+    let mut capture = VideoCapture::from_file(&*input.to_string_lossy(), CAP_ANY)
         .with_context(|| format!("failed to open input video {}", input.display()))?;
     capture.set(CAP_PROP_ORIENTATION_AUTO, 0.0)?;
     if !capture.is_opened()? {
@@ -428,7 +438,33 @@ fn parse_fraction(value: &str) -> Result<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::select_playable_frame_count;
+    use std::{ffi::OsString, path::Path};
+
+    use anyhow::Result;
+
+    use super::{probe_with, select_playable_frame_count};
+    use crate::infrastructure::{CommandExecutor, CommandOutput, CommandStatus};
+
+    struct StubExecutor {
+        stdout: Vec<u8>,
+    }
+
+    impl CommandExecutor for StubExecutor {
+        fn output(&self, _program: &Path, _args: &[OsString]) -> Result<CommandOutput> {
+            Ok(CommandOutput {
+                success: true,
+                stdout: self.stdout.clone(),
+                stderr: Vec::new(),
+            })
+        }
+
+        fn status(&self, _program: &Path, _args: &[OsString]) -> Result<CommandStatus> {
+            Ok(CommandStatus {
+                success: true,
+                code: Some(0),
+            })
+        }
+    }
 
     #[test]
     fn stale_packet_count_yields_to_shorter_playable_timeline() {
@@ -444,5 +480,25 @@ mod tests {
     #[test]
     fn duration_is_used_when_frame_metadata_is_missing() {
         assert_eq!(select_playable_frame_count(None, 236), 236);
+    }
+
+    #[test]
+    fn ffprobe_boundary_is_replaceable_without_launching_a_process() {
+        let probe = br#"{
+            "streams":[{
+                "codec_type":"video","width":1280,"height":720,
+                "avg_frame_rate":"24/1","r_frame_rate":"24/1",
+                "nb_read_packets":"240","duration":"9.75","start_time":"0",
+                "side_data_list":[],"tags":{}
+            }],
+            "format":{"duration":"9.75"}
+        }"#
+        .to_vec();
+        let executor = StubExecutor { stdout: probe };
+        let info = probe_with(&executor, Path::new("ffprobe"), Path::new("source.mp4")).unwrap();
+        assert_eq!(info.width, 1280);
+        assert_eq!(info.height, 720);
+        // 9.75 * 24 = 234 playable frames; stale packet metadata says 240.
+        assert_eq!(info.frames, 234);
     }
 }

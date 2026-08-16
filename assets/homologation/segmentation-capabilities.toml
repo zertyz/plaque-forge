@@ -1,0 +1,37 @@
+# ML-specific behavioral coverage ledger. `final_homologation` points to a human-reviewed
+# final-render contract when one exists. Missing contracts are explicit review debt, not
+# silently generated goldens.
+format = "plaque-forge.segmentation-capabilities/1"
+minimum_represented = 4
+minimum_final_homologated = 1
+
+[[capabilities]]
+id = "generic-opaque-foreground"
+description = "General opaque object remains in front of inserted content."
+representative_asset = "16_9_dungeon_spider_iron_plaque"
+final_homologation = "16_9_dungeon_spider_iron_plaque/contract.toml"
+
+[[capabilities]]
+id = "temporal-reappearance"
+description = "Foreground identity survives difficult temporal gaps/reappearance."
+representative_asset = "16_9_dungeon_spider_iron_plaque"
+
+[[capabilities]]
+id = "foreground-parallax"
+description = "Foreground support remains correct while foreground and writing surface move differently."
+representative_asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
+
+[[capabilities]]
+id = "soft-or-translucent-boundary"
+description = "Optical alpha refinement preserves genuinely soft/translucent edges without background leakage."
+representative_asset = "swamp-wooden-plaque-with-foreground-objects"
+
+[[capabilities]]
+id = "human-fine-detail"
+description = "Human hair/fine-edge video matting specialist path."
+representative_asset = ""
+
+[[capabilities]]
+id = "generic-open-vocabulary"
+description = "Open-vocabulary semantic/video segmentation candidate such as SAM 3.1."
+representative_asset = ""

@@ -14,7 +14,7 @@ use cosmic_text::{
 use image::{RgbaImage, imageops::FilterType};
 
 use crate::{
-    cli::{FitMode, TextAlign, VerticalAlign},
+    application::{FitMode, TextAlign, VerticalAlign},
     color::Rgba,
     model::TypographyMetrics,
     surface::Surface,
@@ -691,12 +691,23 @@ fn position_candidate_alpha(
     Ok((high_resolution, candidate))
 }
 
+fn apply_layout_transform(context: &TypographyContext<'_>, high_alpha: Vec<u8>) -> Result<Vec<u8>> {
+    let high = Surface::from_alpha_mask(
+        context.width * context.supersampling,
+        context.height * context.supersampling,
+        &high_alpha,
+        Rgba::new(255, 255, 255, 255),
+    )?;
+    Ok(context.style.layout_transform(&high)?.alpha_mask())
+}
+
 fn probe_masked_candidate(
     context: &TypographyContext<'_>,
     font_size: f32,
     candidate: Candidate,
 ) -> Result<FittedCandidate> {
     let (high_alpha, candidate) = position_candidate_alpha(context, candidate)?;
+    let high_alpha = apply_layout_transform(context, high_alpha)?;
 
     // Fit safety is based on glyphs and hard geometry such as stroke/extrusion. Glow
     // and blurred shadows are intentionally soft: their tails may be clipped by the
@@ -758,6 +769,7 @@ fn compose_layer(
     fitted: FittedCandidate,
 ) -> Result<Composed> {
     let (high_alpha, candidate) = position_candidate_alpha(context, fitted.candidate)?;
+    let high_alpha = apply_layout_transform(context, high_alpha)?;
     let high_resolution = Surface::from_alpha_mask(
         context.width * context.supersampling,
         context.height * context.supersampling,

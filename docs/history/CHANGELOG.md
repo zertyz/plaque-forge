@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Added a capability-oriented homologation matrix so behavioral coverage and remaining human-acceptance debt are explicit without rendering every asset in CI.
+- Added a public application API for analyze/render/verify/homologate workflows, with CLI-only parsing translated at the boundary and replaceable application services for external command execution.
+- Added provenance-bound render decision traces covering surface selection, tracking participation, typography, and compositing semantics; review pages expose the same causal evidence.
+- Added retained differential homologation diagnostics (`source`, `rendered`, amplified diff, witness overlay, and mask), clearing stale diagnostics before each new acceptance run and uploading compact evidence from failed CI gates.
+- Introduced narrow infrastructure ports for FFprobe and segmentation-worker execution instead of spreading process invocation through core workflows.
+- Added executable homologation contracts for human-accepted visual behavior, with exact provenance binding, scene/typography invariants, and sparse reviewed foreground source-preservation witnesses.
+- Restored the accepted dungeon-spider plaque geometry/analysis after a cross-asset regression, made writable regions invalid when they escape their tracked surface, and separated foreground compositing from tracking/layout influence.
+- Added explicit optical-vs-opaque foreground matte semantics so semantic ML confidence cannot make an opaque object translucent to newly rendered text.
+- Hardened render/review validation so replacement renders invalidate stale reports and review refuses verification evidence that belongs to another render manifest.
+- Added a real delivery-render homologation gate to CI and retained lossless verification artifacts beside the reports that certify them.
+
 ## 0.8.0
 
 - Fixed the severe artistic-fit performance regression by measuring shaped candidates
