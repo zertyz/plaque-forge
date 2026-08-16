@@ -52,16 +52,17 @@ These modules coordinate operations. They should not contain asset-specific scen
 - `digest.rs` owns generic streaming content hashes used for cache/provenance identity.
 - `portable_path.rs` is the only serialized-path boundary. Generated project references are relative, slash-separated, and reject workstation roots; bundle-local references cannot escape their owner.
 - `analyze/candidate.rs` proposes plausible writing-surface enclosures. Selection preserves the strongest surface hypothesis by default, rescues clear compact plaques from broad architectural enclosures, and uses guarded area dominance only to escape small high-contrast props such as magnifying glasses.
-- `analyze/tracking.rs` estimates a physical four-corner trajectory. A complete
-  source-pixel writing-surface sequence constrains feature membership but never
-  dictates pose from its potentially deforming outline. Persistent material points
-  and independent projective flow provide rigid-plane evidence; a future-aware
-  solver bridges only missing observations. Screen-fixed behavior exists only for a
-  declared `screen-canvas`.
+- `analyze/tracking/` estimates a physical four-corner trajectory across modular submodules:
+  - `tracking/types.rs`: Motion models, tracking result representations, and screen-fixed fallbacks.
+  - `tracking/constraints.rs`: Quad transformations, keyframe constraints, and trajectory loop closure.
+  - `tracking/mod.rs`: Feature tracking, rigid-plane flow integration, and projective homography solving.
 - `analyze/extraction.rs` recovers canonical source-underlay and structural data used by source surfaces and foreground analysis.
 - `analyze/occlusion.rs` estimates automatic foreground occlusion. When a crossing benefits from semantic scene, `segmentation.rs` can automatically sharpen those masks through the replaceable Python worker.
 - `render/typography.rs` shapes and fits text and owns line-layout decisions.
-- `render/effects.rs` paints mask-derived text effects such as stroke, glow, and shadow.
+- `render/effects/` paints mask-derived text effects such as stroke, glow, and shadow across modular submodules:
+  - `effects/filters.rs`: Disk dilation and basic morphology filters.
+  - `effects/advanced.rs`: Arc warping and perspective deformation transforms.
+  - `effects/mod.rs`: Multi-layer style composition, drop shadow, neon glow, and shader rendering.
 
 Text effects are intentionally split by the data they operate on. Layout/glyph transforms, mask effects, material/fill effects, and plaque-surface effects are separate extension points; see [TEXT_EFFECTS.md](TEXT_EFFECTS.md).
 
