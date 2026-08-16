@@ -775,6 +775,7 @@ pub(crate) fn test_font() -> std::path::PathBuf {
         "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
         "/usr/share/fonts/noto-serif/NotoSerif-Regular.ttf",
         "/usr/share/fonts/google-noto-serif/NotoSerif-Regular.ttf",
+        "/usr/share/fonts/google-noto-serif-fonts/NotoSerif-Regular.ttf",
     ];
     for candidate in candidates {
         let path = std::path::PathBuf::from(candidate);
@@ -782,18 +783,25 @@ pub(crate) fn test_font() -> std::path::PathBuf {
             return path;
         }
     }
+    // Query fontconfig specifically for Noto Serif and ensure it does not fallback to another family
     if let Ok(output) = std::process::Command::new("fc-match")
-        .args(["--format=%{file}", "serif"])
+        .args(["--format=%{family}|%{file}", "Noto Serif:style=Regular"])
         .output()
         && output.status.success()
     {
-        let path =
-            std::path::PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_string());
-        if path.is_file() {
-            return path;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some((family, file)) = stdout.trim().split_once('|') {
+            let path = std::path::PathBuf::from(file.trim());
+            if family.trim().eq_ignore_ascii_case("Noto Serif") && path.is_file() {
+                return path;
+            }
         }
     }
-    panic!("no usable test font; install fonts-noto-core");
+    panic!(
+        "Missing required test font: NotoSerif-Regular.ttf. Refusing to substitute a different font family. \
+         Please install the appropriate package for your system: \
+         'noto-fonts' (Arch Linux), 'fonts-noto-core' (Debian/Ubuntu), or 'google-noto-serif-fonts' (Fedora)."
+    );
 }
 
 #[cfg(test)]
