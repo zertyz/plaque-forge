@@ -30,12 +30,12 @@ These changes preserve the same frame count, geometry, effect timing, masks, and
 | Verification | Decodes source and render and checks every pixel/frame | Keep: sampling would weaken the acceptance gate |
 | Analysis | Several sampled and full-frame passes for candidate, tracking, extraction, and occlusion | Keep: pass fusion changes algorithm ordering and diagnostics |
 | ML frame transport | Lossless RGBA PNG sequence under temporary storage | Keep: requested quality and alpha correctness outweigh added I/O |
-| SAM/Cutie/Matte | Models initialize per worker request | Defer a long-lived worker until isolation, cache invalidation, and GPU recovery are designed |
+| SAM/Cutie/Matte | Heavy model construction and accelerator initialization | Resident single-request service + content-addressed stage caches; source-identity changes select fresh state |
 | Asset batches | Sequential by default | Keep: unbounded parallel FFmpeg/ML can exhaust RAM, VRAM, or disk bandwidth |
 
 ## Deferred performance work
 
-The next performance phase should profile representative `16:9` and `9:16` sources before changing code. High-value candidates are reusable frame buffers, SIMD/GPU warp/composite kernels with golden-frame tests, a bounded long-lived ML service, lossless frame streaming that SAM2 can consume directly, and resource-aware parallel asset scheduling.
+The next performance phase should use the segmentation bake-off and per-stage execution reports before changing algorithms. Remaining candidates include reusable Rust render buffers, SIMD/GPU warp/composite kernels with golden-frame tests, direct lossless frame streaming that models can consume without PNG transport, and resource-aware parallel asset scheduling. The bounded long-lived ML service is now implemented; it remains intentionally sequential to avoid GPU-memory races.
 
 Do not optimize verification by skipping frames or pixels. Its exhaustive nature is part of the quality contract.
 

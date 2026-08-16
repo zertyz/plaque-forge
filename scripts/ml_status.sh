@@ -15,11 +15,11 @@ printf '[ml] runtime: %s\n' "$root"
 printf '[ml] python: '
 "$python" --version 2>&1
 if command -v pgrep >/dev/null 2>&1; then
-  running="$(pgrep -af 'segmentation_worker.py' || true)"
+  running="$(pgrep -af 'segmentation_(worker|service).py' || true)"
   if [[ -n "$running" ]]; then
-    printf '[ml] active worker(s):\n%s\n' "$running"
+    printf '[ml] active worker/service process(es):\n%s\n' "$running"
   else
-    printf '[ml] active workers: none\n'
+    printf '[ml] active worker/service processes: none\n'
   fi
 fi
 

@@ -123,3 +123,9 @@ accepting an artifact. The trace explains *why* a render made important choices 
 tracking model, typography, foreground tracking participation, matte semantics) while the
 homologation contract remains the independent statement of *what observable behavior must remain
 true*. Never use a generated decision trace as its own acceptance oracle.
+
+## Segmentation capability ledger
+
+Final-render homologation remains the authority for visible behavior, but ML regressions need a map of which semantic situations have representative media. `assets/homologation/segmentation-capabilities.toml` records generic opaque foregrounds, temporal reappearance, parallax, soft/translucent boundaries, human fine detail, and open-vocabulary segmentation. The ledger may name a representative without claiming acceptance. `final_homologation` is present only when a human-reviewed render contract protects that capability.
+
+Run `./scripts/check_segmentation_capabilities.sh` to emit `output/segmentation-capability-coverage.json`. Do not turn missing human/open-vocabulary representatives into synthetic green contracts.

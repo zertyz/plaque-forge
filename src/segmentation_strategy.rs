@@ -1,24 +1,27 @@
 //! Device-independent planning for optional ML segmentation.
 //!
-//! Rust owns *which* semantic model/refiner/precision policy should run.  Python owns
-//! execution of the already-sealed plan.  This keeps scene intent, quality policy,
-//! cache identity, and fallback behavior outside the Python implementation details.
+//! Rust owns *which* semantic model/refiner/precision policy should run. Python owns
+//! execution of an already-sealed candidate plan. For `auto`, Rust may provide a
+//! conservative escalation chain and accepts a cheaper candidate only after independent
+//! mask evidence passes the versioned policy in `assets/segmentation/policy.toml`.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::scene::{LayerMatteMode, LayerRole, LayerSubject, SegmentationPrompt};
+
+const POLICY_DOCUMENT: &str = include_str!("../assets/segmentation/policy.toml");
 
 /// User-visible quality/performance policy.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SegmentationProfile {
-    /// Fast iteration.  Uses one general semantic tracker and may enable compilation.
+    /// Fast iteration. Uses SAM2 Small first and may escalate to the large model.
     Preview,
-    /// Normal local development.  Keeps the robust semantic ensemble but uses BF16.
+    /// Normal local development. Tries SAM2 Large before paying for Cutie.
     #[default]
     Balanced,
-    /// Reproducibility-first acceptance path.  FP32 and no compile-induced variance.
+    /// Reproducibility-first acceptance path. Keeps the robust ensemble and FP32.
     Canonical,
 }
 
@@ -29,6 +32,14 @@ impl SegmentationProfile {
             "balanced" => Ok(Self::Balanced),
             "canonical" => Ok(Self::Canonical),
             other => bail!("unsupported segmentation profile {other:?}"),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Preview => "preview",
+            Self::Balanced => "balanced",
+            Self::Canonical => "canonical",
         }
     }
 }
@@ -50,6 +61,13 @@ impl SegmentationPrecision {
             other => bail!("unsupported segmentation precision {other:?}"),
         }
     }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Fp32 => "fp32",
+            Self::Bf16 => "bf16",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -60,7 +78,7 @@ pub enum SemanticBackend {
     Sam2Cutie,
     #[serde(rename = "matanyone2")]
     MatAnyone2,
-    /// Optional research backend.  The official Meta runtime currently requires CUDA.
+    /// Optional research backend. The official Meta runtime currently requires CUDA.
     #[serde(rename = "sam3.1")]
     Sam31,
 }
@@ -75,7 +93,7 @@ pub enum MatteRefiner {
     Native,
 }
 
-/// Sealed worker execution plan.
+/// Sealed worker execution plan. Exactly one of these is sent to Python at a time.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SegmentationPlan {
@@ -89,13 +107,70 @@ pub struct SegmentationPlan {
     pub reason: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AcceptancePolicy {
+    pub min_prompt_alpha_u16: u16,
+    pub max_negative_alpha_u16: u16,
+    pub min_nonempty_permille: u16,
+    pub max_foreground_coverage_permille: u16,
+    pub max_surface_coverage_permille: u16,
+}
+
+/// Rust-owned strategy. Candidate order is significant: execute the cheapest first and
+/// escalate only when independent evidence rejects it. Explicit backend overrides always
+/// contain one candidate.
+#[derive(Debug, Clone)]
+pub struct SegmentationStrategy {
+    pub policy_id: String,
+    pub acceptance: AcceptancePolicy,
+    pub candidates: Vec<SegmentationPlan>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyDocument {
+    format: String,
+    policy_id: String,
+    profiles: PolicyProfiles,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyProfiles {
+    preview: PolicyThresholds,
+    balanced: PolicyThresholds,
+    canonical: PolicyThresholds,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyThresholds {
+    min_prompt_alpha_u16: u16,
+    max_negative_alpha_u16: u16,
+    min_nonempty_permille: u16,
+    max_foreground_coverage_permille: u16,
+    max_surface_coverage_permille: u16,
+}
+
+impl From<PolicyThresholds> for AcceptancePolicy {
+    fn from(value: PolicyThresholds) -> Self {
+        Self {
+            min_prompt_alpha_u16: value.min_prompt_alpha_u16,
+            max_negative_alpha_u16: value.max_negative_alpha_u16,
+            min_nonempty_permille: value.min_nonempty_permille,
+            max_foreground_coverage_permille: value.max_foreground_coverage_permille,
+            max_surface_coverage_permille: value.max_surface_coverage_permille,
+        }
+    }
+}
+
 /// Inputs which may legitimately affect model selection.
 pub struct PlanningInput<'a> {
     pub profile: SegmentationProfile,
     pub precision_override: Option<SegmentationPrecision>,
     /// `auto` lets Rust choose. Legacy backend strings remain accepted as explicit policy.
     pub backend_override: &'a str,
-    /// `auto` uses the planner's pinned model.
+    /// `auto` uses the model selected by the Rust strategy planner.
     pub model_override: &'a str,
     pub role: LayerRole,
     pub matte_mode: LayerMatteMode,
@@ -125,74 +200,199 @@ impl SegmentationPlan {
     }
 }
 
+/// Backwards-compatible single-plan helper used by explicit/low-level callers. Auto mode
+/// returns the first candidate; high-level analysis should call [`strategy`] and apply its
+/// escalation contract.
 pub fn plan(input: PlanningInput<'_>) -> Result<SegmentationPlan> {
+    strategy(input)?
+        .candidates
+        .into_iter()
+        .next()
+        .context("segmentation strategy unexpectedly has no candidate")
+}
+
+pub fn strategy(input: PlanningInput<'_>) -> Result<SegmentationStrategy> {
+    let policy = load_policy()?;
     let precision = input.precision_override.unwrap_or(match input.profile {
         SegmentationProfile::Preview | SegmentationProfile::Balanced => SegmentationPrecision::Bf16,
         SegmentationProfile::Canonical => SegmentationPrecision::Fp32,
     });
+    let acceptance = thresholds_for(&policy, input.profile).into();
 
     if input.backend_override != "auto" {
-        return explicit_plan(input, precision);
+        return Ok(SegmentationStrategy {
+            policy_id: policy.policy_id,
+            acceptance,
+            candidates: vec![explicit_plan(input, precision)?],
+        });
     }
 
     let optical =
         input.role == LayerRole::Foreground && input.matte_mode == LayerMatteMode::Optical;
-    let human_matting_candidate =
-        optical && input.subject == LayerSubject::Human && has_frame_zero_area_seed(input.prompts);
-
-    let mut reason = vec![format!("profile={:?}", input.profile).to_lowercase()];
-    let (semantic_backend, semantic_model, matte_refiner, compile) = if human_matting_candidate
-        && input.profile == SegmentationProfile::Canonical
-    {
-        reason.push(
-            "explicit human subject with frame-0 area seed selects specialist video matting".into(),
-        );
-        (
-            SemanticBackend::MatAnyone2,
-            DEFAULT_MATANYONE2_MODEL.to_string(),
-            MatteRefiner::Native,
-            false,
-        )
+    let human_matting_candidate = optical
+        && input.subject == LayerSubject::Human
+        && input.model_override == "auto"
+        && has_frame_zero_area_seed(input.prompts);
+    let matte_refiner = if optical {
+        MatteRefiner::VitMatte
     } else {
-        let semantic_backend = match input.profile {
-            SegmentationProfile::Preview => SemanticBackend::Sam2,
-            SegmentationProfile::Balanced | SegmentationProfile::Canonical => {
-                SemanticBackend::Sam2Cutie
-            }
-        };
-        if input.subject == LayerSubject::Human && !human_matting_candidate {
-            reason.push(
-                "human specialist not selected because optical matte and frame-0 area seed are required"
-                    .into(),
-            );
-        }
-        let matte_refiner = if optical {
-            MatteRefiner::VitMatte
-        } else {
-            MatteRefiner::None
-        };
-        if matte_refiner == MatteRefiner::None {
-            reason.push(
-                "categorical/opaque membership does not require optical alpha refinement".into(),
-            );
-        }
-        (
-            semantic_backend,
-            sam2_model_for_profile(input.profile).to_string(),
-            matte_refiner,
-            input.profile == SegmentationProfile::Preview,
-        )
+        MatteRefiner::None
     };
+    let mut common_reason = vec![
+        format!("profile={}", input.profile.label()),
+        format!("adaptive-policy={}", policy.policy_id),
+    ];
+    if matte_refiner == MatteRefiner::None {
+        common_reason
+            .push("categorical/opaque membership does not require optical alpha refinement".into());
+    }
 
-    Ok(SegmentationPlan {
-        profile: input.profile,
-        precision,
-        semantic_backend,
-        semantic_model: override_model(input.model_override, semantic_model),
-        matte_refiner,
-        compile,
-        reason,
+    let mut candidates = Vec::new();
+    if human_matting_candidate && input.profile == SegmentationProfile::Canonical {
+        let mut reason = common_reason.clone();
+        reason.push(
+            "explicit human subject with frame-0 area seed selects specialist video matting first"
+                .into(),
+        );
+        candidates.push(SegmentationPlan {
+            profile: input.profile,
+            precision,
+            semantic_backend: SemanticBackend::MatAnyone2,
+            semantic_model: override_model(
+                input.model_override,
+                DEFAULT_MATANYONE2_MODEL.to_string(),
+            ),
+            matte_refiner: MatteRefiner::Native,
+            compile: false,
+            reason,
+        });
+        let mut reason = common_reason.clone();
+        reason.push(
+            "general SAM2+Cutie+ViTMatte fallback if specialist output fails independent evidence"
+                .into(),
+        );
+        candidates.push(SegmentationPlan {
+            profile: input.profile,
+            precision,
+            semantic_backend: SemanticBackend::Sam2Cutie,
+            semantic_model: override_model(input.model_override, DEFAULT_SAM2_MODEL.to_string()),
+            matte_refiner: MatteRefiner::VitMatte,
+            compile: false,
+            reason,
+        });
+    } else {
+        if input.subject == LayerSubject::Human && !human_matting_candidate {
+            common_reason.push(
+                "human specialist not selected because optical matte, automatic model choice, and a frame-0 area seed are required".into(),
+            );
+        }
+        match input.profile {
+            SegmentationProfile::Preview => {
+                let mut primary_reason = common_reason.clone();
+                primary_reason.push("preview primary uses SAM2 Small".into());
+                candidates.push(SegmentationPlan {
+                    profile: input.profile,
+                    precision,
+                    semantic_backend: SemanticBackend::Sam2,
+                    semantic_model: override_model(
+                        input.model_override,
+                        PREVIEW_SAM2_MODEL.to_string(),
+                    ),
+                    matte_refiner,
+                    compile: true,
+                    reason: primary_reason,
+                });
+                if input.model_override == "auto" {
+                    let mut fallback_reason = common_reason.clone();
+                    fallback_reason.push(
+                        "preview escalation uses SAM2 Large after independent evidence failure"
+                            .into(),
+                    );
+                    candidates.push(SegmentationPlan {
+                        profile: input.profile,
+                        precision,
+                        semantic_backend: SemanticBackend::Sam2,
+                        semantic_model: DEFAULT_SAM2_MODEL.to_string(),
+                        matte_refiner,
+                        compile: true,
+                        reason: fallback_reason,
+                    });
+                }
+            }
+            SegmentationProfile::Balanced => {
+                let mut primary_reason = common_reason.clone();
+                primary_reason.push(
+                    "balanced primary avoids Cutie unless independent evidence requests escalation"
+                        .into(),
+                );
+                candidates.push(SegmentationPlan {
+                    profile: input.profile,
+                    precision,
+                    semantic_backend: SemanticBackend::Sam2,
+                    semantic_model: override_model(
+                        input.model_override,
+                        DEFAULT_SAM2_MODEL.to_string(),
+                    ),
+                    matte_refiner,
+                    compile: false,
+                    reason: primary_reason,
+                });
+                let mut fallback_reason = common_reason.clone();
+                fallback_reason.push("balanced escalation adds Cutie temporal tracking".into());
+                candidates.push(SegmentationPlan {
+                    profile: input.profile,
+                    precision,
+                    semantic_backend: SemanticBackend::Sam2Cutie,
+                    semantic_model: override_model(
+                        input.model_override,
+                        DEFAULT_SAM2_MODEL.to_string(),
+                    ),
+                    matte_refiner,
+                    compile: false,
+                    reason: fallback_reason,
+                });
+            }
+            SegmentationProfile::Canonical => {
+                let mut reason = common_reason;
+                reason.push("canonical keeps robust SAM2+Cutie ensemble until bake-offs justify cheaper acceptance".into());
+                candidates.push(SegmentationPlan {
+                    profile: input.profile,
+                    precision,
+                    semantic_backend: SemanticBackend::Sam2Cutie,
+                    semantic_model: override_model(
+                        input.model_override,
+                        DEFAULT_SAM2_MODEL.to_string(),
+                    ),
+                    matte_refiner,
+                    compile: false,
+                    reason,
+                });
+            }
+        }
+    }
+
+    Ok(SegmentationStrategy {
+        policy_id: policy.policy_id,
+        acceptance,
+        candidates,
     })
+}
+
+fn load_policy() -> Result<PolicyDocument> {
+    let policy: PolicyDocument =
+        toml::from_str(POLICY_DOCUMENT).context("invalid embedded segmentation policy")?;
+    if policy.format != "plaque-forge.segmentation-policy/1" || policy.policy_id.trim().is_empty() {
+        bail!("unsupported or unnamed embedded segmentation policy");
+    }
+    Ok(policy)
+}
+
+fn thresholds_for(policy: &PolicyDocument, profile: SegmentationProfile) -> PolicyThresholds {
+    match profile {
+        SegmentationProfile::Preview => policy.profiles.preview,
+        SegmentationProfile::Balanced => policy.profiles.balanced,
+        SegmentationProfile::Canonical => policy.profiles.canonical,
+    }
 }
 
 fn explicit_plan(
@@ -267,10 +467,6 @@ fn explicit_plan(
         }
         other => bail!("unsupported segmentation backend {other:?}"),
     };
-    if matches!(matte_refiner, MatteRefiner::VitMatte) && !optical {
-        // Explicit requests remain legal for experimentation, but record that the
-        // caller deliberately asked for optical refinement of categorical support.
-    }
     Ok(SegmentationPlan {
         profile: input.profile,
         precision,
@@ -342,8 +538,15 @@ mod tests {
     }
 
     #[test]
-    fn opaque_foreground_skips_optical_matting() {
-        let plan = plan(PlanningInput {
+    fn policy_document_is_versioned_and_parseable() {
+        let policy = load_policy().unwrap();
+        assert_eq!(policy.format, "plaque-forge.segmentation-policy/1");
+        assert!(!policy.policy_id.is_empty());
+    }
+
+    #[test]
+    fn balanced_auto_defers_cutie_until_escalation() {
+        let strategy = strategy(PlanningInput {
             profile: SegmentationProfile::Balanced,
             precision_override: None,
             backend_override: "auto",
@@ -354,14 +557,21 @@ mod tests {
             prompts: &[prompt(12)],
         })
         .unwrap();
-        assert_eq!(plan.semantic_backend, SemanticBackend::Sam2Cutie);
-        assert_eq!(plan.matte_refiner, MatteRefiner::None);
-        assert_eq!(plan.precision, SegmentationPrecision::Bf16);
+        assert_eq!(strategy.candidates.len(), 2);
+        assert_eq!(
+            strategy.candidates[0].semantic_backend,
+            SemanticBackend::Sam2
+        );
+        assert_eq!(
+            strategy.candidates[1].semantic_backend,
+            SemanticBackend::Sam2Cutie
+        );
+        assert_eq!(strategy.candidates[0].matte_refiner, MatteRefiner::None);
     }
 
     #[test]
-    fn preview_uses_pinned_small_model_and_bf16() {
-        let plan = plan(PlanningInput {
+    fn preview_can_escalate_small_to_large_without_changing_precision() {
+        let strategy = strategy(PlanningInput {
             profile: SegmentationProfile::Preview,
             precision_override: None,
             backend_override: "auto",
@@ -372,15 +582,19 @@ mod tests {
             prompts: &[prompt(12)],
         })
         .unwrap();
-        assert_eq!(plan.semantic_backend, SemanticBackend::Sam2);
-        assert_eq!(plan.semantic_model, PREVIEW_SAM2_MODEL);
-        assert_eq!(plan.precision, SegmentationPrecision::Bf16);
-        assert!(plan.compile);
+        assert_eq!(strategy.candidates[0].semantic_model, PREVIEW_SAM2_MODEL);
+        assert_eq!(strategy.candidates[1].semantic_model, DEFAULT_SAM2_MODEL);
+        assert!(
+            strategy
+                .candidates
+                .iter()
+                .all(|candidate| candidate.precision == SegmentationPrecision::Bf16)
+        );
     }
 
     #[test]
     fn canonical_precision_is_device_independent_fp32() {
-        let plan = plan(PlanningInput {
+        let strategy = strategy(PlanningInput {
             profile: SegmentationProfile::Canonical,
             precision_override: None,
             backend_override: "auto",
@@ -391,14 +605,22 @@ mod tests {
             prompts: &[prompt(12)],
         })
         .unwrap();
-        assert_eq!(plan.precision, SegmentationPrecision::Fp32);
-        assert!(!plan.compile);
+        assert_eq!(strategy.candidates.len(), 1);
+        assert_eq!(
+            strategy.candidates[0].precision,
+            SegmentationPrecision::Fp32
+        );
+        assert_eq!(
+            strategy.candidates[0].semantic_backend,
+            SemanticBackend::Sam2Cutie
+        );
+        assert!(!strategy.candidates[0].compile);
     }
 
     #[test]
-    fn human_specialist_requires_explicit_semantics_and_seed() {
+    fn human_specialist_has_general_fallback() {
         let prompts = [prompt(0)];
-        let plan = plan(PlanningInput {
+        let strategy = strategy(PlanningInput {
             profile: SegmentationProfile::Canonical,
             precision_override: None,
             backend_override: "auto",
@@ -409,15 +631,41 @@ mod tests {
             prompts: &prompts,
         })
         .unwrap();
-        assert_eq!(plan.semantic_backend, SemanticBackend::MatAnyone2);
-        assert_eq!(plan.matte_refiner, MatteRefiner::Native);
+        assert_eq!(
+            strategy.candidates[0].semantic_backend,
+            SemanticBackend::MatAnyone2
+        );
+        assert_eq!(
+            strategy.candidates[1].semantic_backend,
+            SemanticBackend::Sam2Cutie
+        );
+        assert_eq!(strategy.candidates[1].matte_refiner, MatteRefiner::VitMatte);
     }
 
     #[test]
-    fn sam31_is_opt_in_and_requires_a_supported_prompt() {
+    fn explicit_backend_disables_adaptive_substitution() {
+        let strategy = strategy(PlanningInput {
+            profile: SegmentationProfile::Balanced,
+            precision_override: None,
+            backend_override: "sam2-cutie",
+            model_override: "auto",
+            role: LayerRole::Foreground,
+            matte_mode: LayerMatteMode::Opaque,
+            subject: LayerSubject::Unspecified,
+            prompts: &[prompt(0)],
+        })
+        .unwrap();
+        assert_eq!(strategy.candidates.len(), 1);
+        assert_eq!(
+            strategy.candidates[0].semantic_backend,
+            SemanticBackend::Sam2Cutie
+        );
+    }
+
+    #[test]
+    fn sam31_is_opt_in_and_requires_supported_prompt() {
         let mut prompt = prompt(0);
         prompt.concept = Some("person".into());
-        let prompts = [prompt];
         let plan = plan(PlanningInput {
             profile: SegmentationProfile::Canonical,
             precision_override: Some(SegmentationPrecision::Bf16),
@@ -426,18 +674,16 @@ mod tests {
             role: LayerRole::Foreground,
             matte_mode: LayerMatteMode::Optical,
             subject: LayerSubject::Unspecified,
-            prompts: &prompts,
+            prompts: &[prompt],
         })
         .unwrap();
         assert_eq!(plan.semantic_backend, SemanticBackend::Sam31);
         assert_eq!(plan.matte_refiner, MatteRefiner::VitMatte);
-        assert_eq!(plan.precision, SegmentationPrecision::Bf16);
     }
 
     #[test]
     fn generic_content_never_accidentally_selects_human_specialist() {
-        let prompts = [prompt(0)];
-        let plan = plan(PlanningInput {
+        let strategy = strategy(PlanningInput {
             profile: SegmentationProfile::Canonical,
             precision_override: None,
             backend_override: "auto",
@@ -445,9 +691,14 @@ mod tests {
             role: LayerRole::Foreground,
             matte_mode: LayerMatteMode::Optical,
             subject: LayerSubject::Unspecified,
-            prompts: &prompts,
+            prompts: &[prompt(0)],
         })
         .unwrap();
-        assert_ne!(plan.semantic_backend, SemanticBackend::MatAnyone2);
+        assert!(
+            strategy
+                .candidates
+                .iter()
+                .all(|plan| plan.semantic_backend != SemanticBackend::MatAnyone2)
+        );
     }
 }

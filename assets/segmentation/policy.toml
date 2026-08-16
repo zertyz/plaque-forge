@@ -1,0 +1,26 @@
+# Versioned Rust-side acceptance policy for adaptive segmentation candidates.
+# These baseline thresholds intentionally catch only gross prompt/background contradictions.
+# Do not tighten them from intuition: promote measured thresholds from bake-off + homologation data.
+format = "plaque-forge.segmentation-policy/1"
+policy_id = "baseline-2026-08"
+
+[profiles.preview]
+min_prompt_alpha_u16 = 26214       # 0.40
+max_negative_alpha_u16 = 39321     # 0.60
+min_nonempty_permille = 0
+max_foreground_coverage_permille = 980
+max_surface_coverage_permille = 980
+
+[profiles.balanced]
+min_prompt_alpha_u16 = 32768       # ~0.50
+max_negative_alpha_u16 = 32767     # ~0.50
+min_nonempty_permille = 0
+max_foreground_coverage_permille = 980
+max_surface_coverage_permille = 980
+
+[profiles.canonical]
+min_prompt_alpha_u16 = 32768       # ~0.50
+max_negative_alpha_u16 = 32767     # ~0.50
+min_nonempty_permille = 0
+max_foreground_coverage_permille = 980
+max_surface_coverage_permille = 980

@@ -1,0 +1,107 @@
+name: Segmentation bake-off
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs_on:
+        description: JSON runner labels, e.g. ["ubuntu-24.04"] or ["self-hosted","linux","x64","xpu"]
+        required: true
+        default: '["ubuntu-24.04"]'
+        type: string
+      torch_profile:
+        description: PyTorch runtime profile installed on this runner
+        required: true
+        default: cpu
+        type: choice
+        options: [cpu, xpu]
+      device:
+        description: Execution device passed to segmentation
+        required: true
+        default: cpu
+        type: choice
+        options: [cpu, xpu, auto]
+      backends:
+        description: Space-separated explicit backends to compare
+        required: true
+        default: 'sam2 sam2-cutie'
+        type: string
+      profile:
+        description: Segmentation quality/performance profile
+        required: true
+        default: canonical
+        type: choice
+        options: [preview, balanced, canonical]
+      precision:
+        description: Numeric precision held constant across candidates
+        required: true
+        default: fp32
+        type: choice
+        options: [fp32, bf16]
+      bootstrap_ubuntu:
+        description: Install apt dependencies (disable on a prepared self-hosted runner)
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: segmentation-bakeoff-${{ github.ref }}-${{ inputs.runs_on }}-${{ inputs.device }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Bootstrap Ubuntu dependencies
+        if: inputs.bootstrap_ubuntu
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            clang ffmpeg fontconfig libclang-dev libopencv-dev pkg-config python3
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup override set 1.89.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+
+      - name: Restore segmentation runtime
+        uses: actions/cache@v4
+        with:
+          path: /tmp/plaque-forge-python
+          key: segmentation-bakeoff-${{ inputs.torch_profile }}-v1-${{ runner.os }}-${{ hashFiles('scripts/setup_segmentation.sh', 'tools/segmentation-requirements.txt', 'tools/segmentation_runtime.py', 'tools/segmentation_worker.py') }}
+
+      - name: Build or verify segmentation runtime
+        run: ./scripts/setup_segmentation.sh --torch-profile "${{ inputs.torch_profile }}"
+
+      - name: Run represented capability matrix
+        env:
+          BACKENDS: ${{ inputs.backends }}
+          DEVICE: ${{ inputs.device }}
+          PROFILE: ${{ inputs.profile }}
+          PRECISION: ${{ inputs.precision }}
+        run: |
+          ./scripts/bakeoff_segmentation_matrix.sh \
+            --backends "$BACKENDS" \
+            --device "$DEVICE" \
+            --profile "$PROFILE" \
+            --precision "$PRECISION"
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: segmentation-bakeoff-${{ github.run_id }}
+          path: /tmp/plaque-forge/segmentation-bakeoff/
+          if-no-files-found: warn

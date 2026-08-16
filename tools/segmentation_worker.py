@@ -6,6 +6,7 @@ import fcntl
 import importlib.metadata
 import json
 import os
+import resource
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,10 @@ WORKER_PROTOCOL = "plaque-forge.segmentation-request/2"
 RESULT_PROTOCOL = "plaque-forge.segmentation-result/2"
 FRAME_CACHE_FORMAT = "plaque-forge.frame-cache/1"
 STAGE_METRICS = []
+# Process-local heavyweight model cache. It becomes useful when the wrapper routes
+# requests through the persistent segmentation service. Keys include device and all
+# arithmetic/compile choices that can change executable state.
+MODEL_CACHE = {}
 
 
 # Upstream dependencies emit several warnings that are expected in Plaque Forge's
@@ -152,6 +157,38 @@ def precision_context(torch, device, precision):
     return torch.autocast(device_type=device_type, dtype=torch.bfloat16)
 
 
+def accelerator_peak_mib(device):
+    try:
+        import torch
+        kind = str(device).split(":", 1)[0]
+        module = getattr(torch, kind, None)
+        if kind not in {"cuda", "xpu"} or module is None:
+            return None
+        maximum = getattr(module, "max_memory_allocated", None)
+        if maximum is None:
+            return None
+        return float(maximum()) / (1024.0 * 1024.0)
+    except (ImportError, RuntimeError, TypeError):
+        return None
+
+
+def reset_accelerator_peak(device):
+    try:
+        import torch
+        kind = str(device).split(":", 1)[0]
+        module = getattr(torch, kind, None)
+        reset = getattr(module, "reset_peak_memory_stats", None) if module is not None else None
+        if kind in {"cuda", "xpu"} and reset is not None:
+            reset()
+    except (ImportError, RuntimeError, TypeError):
+        pass
+
+
+def process_peak_rss_mib():
+    # Linux ru_maxrss is KiB. Plaque Forge's supported execution/CI platforms are Linux.
+    return float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0
+
+
 def record_stage(stage, device, precision, seconds, *, cache_hit=False, note=None):
     record = {
         "stage": stage,
@@ -159,7 +196,11 @@ def record_stage(stage, device, precision, seconds, *, cache_hit=False, note=Non
         "precision": precision,
         "seconds": round(float(seconds), 6),
         "cache_hit": bool(cache_hit),
+        "process_peak_rss_mib": round(process_peak_rss_mib(), 3),
     }
+    accelerator = accelerator_peak_mib(device)
+    if accelerator is not None:
+        record["accelerator_peak_mib"] = round(accelerator, 3)
     if note:
         record["note"] = str(note)
     STAGE_METRICS.append(record)
@@ -169,6 +210,7 @@ def run_component(name, requested, operation, *, precision="fp32", allow_xpu=Tru
     failures = []
     for device in device_candidates(requested, allow_xpu=allow_xpu):
         try:
+            reset_accelerator_peak(device)
             started = time.monotonic()
             result = operation(device)
             elapsed = time.monotonic() - started
@@ -177,12 +219,46 @@ def run_component(name, requested, operation, *, precision="fp32", allow_xpu=Tru
             print(f"{name}: {device}/{precision}, {elapsed:.1f}s", file=sys.stderr)
             return result, device
         except RuntimeError as error:
+            # A resident accelerator model may be the difference between a healthy
+            # fallback and an OOM loop. Drop process-local models before trying the
+            # next backend; disk/stage caches remain intact.
+            clear_resident_models()
             release_device(device)
             failures.append(f"{device}: {error}")
             if requested != "auto" or device == "cpu":
                 raise
             print(f"{name} fallback after {device} failure: {error}", file=sys.stderr)
     raise RuntimeError("; ".join(failures))
+
+
+def cached_model(key, factory):
+    if os.environ.get("PLAQUE_FORGE_MODEL_CACHE", "1") == "0":
+        return factory(), False
+    cached = MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached, True
+    maximum = max(1, int(os.environ.get("PLAQUE_FORGE_MODEL_CACHE_ENTRIES", "4")))
+    while len(MODEL_CACHE) >= maximum:
+        oldest = next(iter(MODEL_CACHE))
+        MODEL_CACHE.pop(oldest, None)
+        gc.collect()
+    value = factory()
+    MODEL_CACHE[key] = value
+    return value, False
+
+
+def clear_resident_models():
+    """Drop process-local model references after a failed request."""
+    MODEL_CACHE.clear()
+    gc.collect()
+    try:
+        import torch
+        if xpu_available(torch):
+            torch.xpu.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except (ImportError, RuntimeError):
+        pass
 
 
 def private_runtime_root():
@@ -448,48 +524,60 @@ def sam2_masks(request, frames, device):
             file=sys.stderr,
             flush=True,
         )
-    predictor = load_sam2_video_predictor(request["model"], device)
-    compile_label = "eager"
-    if request.get("plan", {}).get("compile"):
-        # Compilation is deliberately a preview-only policy because upstream notes
-        # that compiled inference can introduce small numerical prediction variance.
-        image_encoder = getattr(predictor, "image_encoder", None)
-        if image_encoder is not None and hasattr(torch, "compile"):
-            try:
-                predictor.image_encoder = torch.compile(
-                    image_encoder,
-                    mode="reduce-overhead",
-                    fullgraph=False,
-                )
-                compile_label = "compiled-image-encoder"
-            except Exception as error:
-                compile_label = "compile-unavailable"
-                print(f"[ml] SAM2 compile unavailable; continuing eager: {error}", file=sys.stderr)
+    compile_requested = bool(request.get("plan", {}).get("compile"))
+    predictor_key = ("sam2", request["model"], device, precision, compile_requested)
 
-    # SAM2 compresses temporal memory to BF16 before storing it. Precision is part
-    # of the Rust-sealed plan, not a side effect of the selected device: FP32 plans
-    # therefore restore stored memory tensors to FP32 at the two upstream compression
-    # points, while BF16 plans retain the efficient upstream memory representation.
-    # This instance-local patch keeps CPU/XPU/CUDA fallback from silently changing
-    # the numerical policy.
-    if precision == "fp32":
-        original_single_frame = predictor._run_single_frame_inference
-        original_memory_encoder = predictor._run_memory_encoder
+    def build_predictor():
+        predictor = load_sam2_video_predictor(request["model"], device)
+        compile_label = "eager"
+        if compile_requested:
+            # Compilation is deliberately a preview-only policy because upstream notes
+            # that compiled inference can introduce small numerical prediction variance.
+            image_encoder = getattr(predictor, "image_encoder", None)
+            if image_encoder is not None and hasattr(torch, "compile"):
+                try:
+                    predictor.image_encoder = torch.compile(
+                        image_encoder,
+                        mode="reduce-overhead",
+                        fullgraph=False,
+                    )
+                    compile_label = "compiled-image-encoder"
+                except Exception as error:
+                    compile_label = "compile-unavailable"
+                    print(
+                        f"[ml] SAM2 compile unavailable; continuing eager: {error}",
+                        file=sys.stderr,
+                    )
 
-        def run_single_frame_fp32(*args, **kwargs):
-            compact, masks = original_single_frame(*args, **kwargs)
-            memory = compact.get("maskmem_features")
-            if memory is not None:
-                compact["maskmem_features"] = memory.float()
-            return compact, masks
+        # SAM2 compresses temporal memory to BF16 before storing it. Precision is part
+        # of the Rust-sealed plan, not a side effect of the selected device: FP32 plans
+        # restore stored memory tensors to FP32 at the two upstream compression points.
+        if precision == "fp32":
+            original_single_frame = predictor._run_single_frame_inference
+            original_memory_encoder = predictor._run_memory_encoder
 
-        def run_memory_encoder_fp32(*args, **kwargs):
-            memory, positions = original_memory_encoder(*args, **kwargs)
-            return memory.float(), positions
+            def run_single_frame_fp32(*args, **kwargs):
+                compact, masks = original_single_frame(*args, **kwargs)
+                memory = compact.get("maskmem_features")
+                if memory is not None:
+                    compact["maskmem_features"] = memory.float()
+                return compact, masks
 
-        predictor._run_single_frame_inference = run_single_frame_fp32
-        predictor._run_memory_encoder = run_memory_encoder_fp32
+            def run_memory_encoder_fp32(*args, **kwargs):
+                memory, positions = original_memory_encoder(*args, **kwargs)
+                return memory.float(), positions
 
+            predictor._run_single_frame_inference = run_single_frame_fp32
+            predictor._run_memory_encoder = run_memory_encoder_fp32
+        return predictor, compile_label
+
+    cached, model_cache_hit = cached_model(predictor_key, build_predictor)
+    predictor, compile_label = cached
+    if model_cache_hit:
+        print(
+            f"[ml] SAM2 resident-model hit: {request['model']} on {device}/{precision}",
+            file=sys.stderr,
+        )
     state = predictor.init_state(video_path=str(frames[0].parent), offload_video_to_cpu=True)
     prompts = request["layer"]["prompts"]
     precision = requested_precision(request)
@@ -585,8 +673,16 @@ def load_cutie(device):
     with open_dict(cfg):
         cfg.weights = str(weights)
     get_dataset_cfg(cfg)
-    model = CUTIE(cfg).to(device).eval()
-    model.load_weights(torch.load(weights, map_location="cpu", weights_only=False))
+    key = ("cutie", str(weights), device)
+
+    def build_model():
+        model = CUTIE(cfg).to(device).eval()
+        model.load_weights(torch.load(weights, map_location="cpu", weights_only=False))
+        return model
+
+    model, hit = cached_model(key, build_model)
+    if hit:
+        print(f"[ml] Cutie resident-model hit: {device}", file=sys.stderr)
     return model
 
 
@@ -645,8 +741,15 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
 
     precision = requested_precision(request)
     revision = model_revision(model_name)
-    processor = VitMatteImageProcessor.from_pretrained(model_name, **revision)
-    model = VitMatteForImageMatting.from_pretrained(model_name, **revision).to(device).eval()
+
+    def build_vitmatte():
+        processor = VitMatteImageProcessor.from_pretrained(model_name, **revision)
+        model = VitMatteForImageMatting.from_pretrained(model_name, **revision).to(device).eval()
+        return processor, model
+
+    (processor, model), hit = cached_model(("vitmatte", model_name, device), build_vitmatte)
+    if hit:
+        print(f"[ml] ViTMatte resident-model hit: {model_name} on {device}", file=sys.stderr)
     output = []
     for probability, frame_path in zip(probabilities, frames):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
@@ -778,9 +881,15 @@ def matanyone2_masks(request, output, size, frames, device):
     seed_path = output / "seed.png"
     seed.save(seed_path)
     model_module.device = torch.device(device)
-    model = MatAnyone2.from_pretrained(
-        request["model"], **model_revision(request["model"])
-    ).to(device).eval()
+
+    def build_matanyone2():
+        return MatAnyone2.from_pretrained(
+            request["model"], **model_revision(request["model"])
+        ).to(device).eval()
+
+    model, hit = cached_model(("matanyone2", request["model"], device), build_matanyone2)
+    if hit:
+        print(f"[ml] MatAnyone2 resident-model hit: {device}", file=sys.stderr)
     processor = InferenceCore(model, device=device)
     work = output / "matanyone2"
     with torch.inference_mode(), precision_context(torch, device, precision):
@@ -1465,21 +1574,16 @@ def remove_owned_directory(root, path):
     shutil.rmtree(path)
 
 
-def main():
+def process_request(request_path, output_path):
+    """Execute one sealed Rust request in the current Python process.
+
+    The persistent service calls this repeatedly. All per-request metrics are reset,
+    while imported modules and explicitly cached model objects remain resident.
+    """
     STAGE_METRICS.clear()
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--request", type=Path)
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--verify-runtime", action="store_true")
-    args = parser.parse_args()
-    if args.verify_runtime:
-        if args.request is not None or args.output is not None:
-            parser.error("--verify-runtime cannot be combined with --request/--output")
-        verify_runtime()
-        return
-    if args.request is None or args.output is None:
-        parser.error("--request and --output are required unless --verify-runtime is used")
-    request = json.loads(args.request.read_text(encoding="utf-8"))
+    request_path = Path(request_path)
+    output_path = Path(output_path)
+    request = json.loads(request_path.read_text(encoding="utf-8"))
     runtime_log(
         "started",
         backend=request.get("backend"),
@@ -1507,7 +1611,7 @@ def main():
         raise ValueError("top-level model differs from Rust-sealed segmentation plan")
     if file_sha256(request["source"]["path"]) != request["source"]["sha256"]:
         raise ValueError("source changed after the segmentation request was created")
-    args.output.mkdir(parents=True, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
     frame_count = request["source"]["frames"]
     size = (request["source"]["width"], request["source"]["height"])
     semantic_backend = sealed_plan.get("semantic_backend")
@@ -1518,7 +1622,7 @@ def main():
             "MatAnyone2",
             requested_device,
             lambda candidate: matanyone2_masks(
-                request, args.output, size, frame_count, candidate
+                request, output_path, size, frame_count, candidate
             ),
             precision=precision,
         )
@@ -1527,9 +1631,9 @@ def main():
         frames = extract_frames_cached(request)
         require_lossless_frames(frames, frame_count, "model startup")
         probabilities, version = model_masks(
-            request, frames, requested_device, args.output
+            request, frames, requested_device, output_path
         )
-    write_output(request, args.output, probabilities, version)
+    write_output(request, output_path, probabilities, version)
     runtime_log("completed", frames=len(probabilities), version=version)
     print(
         f"[ml] Python worker completed: pid={os.getpid()}, frames={len(probabilities)}, version={version}",
@@ -1537,6 +1641,21 @@ def main():
         flush=True,
     )
 
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--request", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--verify-runtime", action="store_true")
+    args = parser.parse_args()
+    if args.verify_runtime:
+        if args.request is not None or args.output is not None:
+            parser.error("--verify-runtime cannot be combined with --request/--output")
+        verify_runtime()
+        return
+    if args.request is None or args.output is None:
+        parser.error("--request and --output are required unless --verify-runtime is used")
+    process_request(args.request, args.output)
 
 
 if __name__ == "__main__":

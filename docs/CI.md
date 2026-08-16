@@ -38,3 +38,20 @@ Therefore normal validation CI remains read-only. If automatic analysis publicat
 - explicit recursion/concurrency guards if a GitHub App/PAT is ever used instead of `GITHUB_TOKEN`.
 
 That separation keeps “the commit passed” and “automation produced a new commit” from being conflated.
+
+## Trusted generated-analysis producer
+
+`.github/workflows/generated-analysis.yml` is an explicit producer workflow. It checks out a target branch, builds/verifies the selected ML runtime, runs canonical `analyze_assets.sh` without `--force` so Rust regenerates only stale caches, validates the exact changed working tree, and publishes changes to `generated/analysis-<run>` rather than rewriting the developer branch. It then opens a PR and explicitly dispatches `generated-analysis-validate.yml` on the generated branch. `workflow_dispatch` is used deliberately so the generated commit receives its own validation run even though an ordinary `GITHUB_TOKEN` push does not recursively launch workflows.
+
+The producer accepts JSON runner labels plus CPU/XPU setup/device inputs. This makes runner choice explicit instead of equating hardware with quality. Hosted CPU is operationally available; a prepared self-hosted XPU runner can be selected without changing the workflow. Repository settings must allow GitHub Actions to create pull requests for the PR step.
+
+The producer is manual by default. Enable automatic invocation only after choosing the canonical runner/profile from measured bake-offs; validation CI remains read-only.
+
+## Segmentation bake-off workflow
+
+`segmentation-bakeoff.yml` is a manual measurement workflow. It runs the represented
+segmentation capability matrix on an explicitly selected runner/device while holding the
+profile and numeric precision constant, then uploads the complete per-candidate reports.
+Use it to compare CPU/XPU runners or backend candidates before changing the versioned
+strategy policy. The workflow does not mutate the repository and its first backend is only
+a numerical comparison baseline, never an acceptance oracle.

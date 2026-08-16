@@ -43,7 +43,7 @@ Analyze selected assets by appending their stems:
 
 Use `--force` to rebuild current Rust/scene caches, `--force-ml` to regenerate ML work too, or `--no-ml` only when you explicitly want the pure-Rust path. In `--no-ml` mode, valid previously generated prompted layers may be reused, while missing/incompatible prompted layers are skipped rather than turning an explicitly pure-Rust run into a setup error. Run `./scripts/ml_status.sh` to see whether Python actually ran.
 
-ML model choice is planned by Rust by default (`--backend auto`). Device and numeric precision are independent policies: `--device` selects execution hardware while `--precision` selects `fp32`/`bf16`. `--profile preview` uses a smaller SAM 2.1 model and compilation for fast visual iteration; `balanced` keeps the large general model with the robust SAM2+Cutie path; `canonical` uses the large model with FP32 and disables compilation-induced numeric variance. Opaque layers skip optical alpha refinement, while explicitly declared human optical mattes may select MatAnyone2. SAM 3.1 is an optional experimental CUDA backend installed separately with `./scripts/setup_sam31.sh`; it is never selected implicitly. See [Segmentation strategy](docs/SEGMENTATION.md).
+ML model choice is planned by Rust by default (`--backend auto`). Device and numeric precision are independent policies: `--device` selects execution hardware while `--precision` selects `fp32`/`bf16`. `--profile preview` uses SAM 2.1 Small first and can escalate to Large when independent Rust evidence rejects it; `balanced` tries SAM 2.1 Large before paying for Cutie and escalates only when the versioned policy requires it; `canonical` keeps the robust SAM2+Cutie path with FP32 and disables compilation-induced numeric variance. Opaque layers skip optical alpha refinement, while explicitly declared human optical mattes may select MatAnyone2. SAM 3.1 is an optional experimental CUDA backend installed separately with `./scripts/setup_sam31.sh`; it is never selected implicitly. See [Segmentation strategy](docs/SEGMENTATION.md).
 
 When automatic quality is insufficient, the incomplete cache is deleted. Only compact diagnostics are retained under `/tmp/plaque-forge/failures/<asset>/`, limited to the newest three failures and seven days. Fix only the smallest item identified by `review.html`, then rerun analysis; a successful run removes retained failures for that asset.
 
@@ -94,7 +94,7 @@ reviewed foreground/source-preservation witnesses. `assets/homologation/capabili
 coverage by behavioral capability rather than by filename; run `plaque-forge homologation-coverage`
 to see which representative behaviors are still awaiting explicit human acceptance. Failed semantic
 witnesses emit source/render/diff/overlay images under `output/regressions/`. See
-[Homologation](docs/HOMOLOGATION.md). CI also protects the non-Rust setup and pure-Rust analysis paths; see [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md).
+[Homologation](docs/HOMOLOGATION.md). CI also protects the non-Rust setup and pure-Rust analysis paths. A trusted generated-analysis producer can refresh stale ML analysis on a bot branch and explicitly dispatch validation on that generated commit; see [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md).
 
 ## 5. Review quality
 

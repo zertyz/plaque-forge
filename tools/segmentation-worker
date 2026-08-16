@@ -21,4 +21,10 @@ export PLAQUE_FORGE_PYTHON_ROOT="$root"
 export PLAQUE_FORGE_RUNTIME_MANIFEST="$root/runtime-manifest.json"
 
 printf '[ml] Python exec: pid=%d, python=%s, runtime=%s\n' "$$" "$root/venv/bin/python" "$root" >&2
-exec "$root/venv/bin/python" "$repo/tools/segmentation_worker.py" "$@"
+
+# Runtime verification is intentionally one-shot. Normal segmentation uses a resident
+# single-request service unless explicitly disabled for debugging/repro isolation.
+if [[ "${1:-}" == "--verify-runtime" || "${PLAQUE_FORGE_PERSISTENT_WORKER:-1}" == "0" ]]; then
+  exec "$root/venv/bin/python" "$repo/tools/segmentation_worker.py" "$@"
+fi
+exec "$root/venv/bin/python" "$repo/tools/segmentation_service.py" client "$@"

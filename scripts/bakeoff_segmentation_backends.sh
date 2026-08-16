@@ -71,14 +71,5 @@ for backend in $backends; do
 done
 
 printf '\n[bakeoff] outputs: %s\n' "$run_root" >&2
-python3 - "$run_root" <<'PY'
-import json, sys
-from pathlib import Path
-root = Path(sys.argv[1])
-for result in sorted(root.glob("*/result.json")):
-    doc = json.loads(result.read_text())
-    stages = doc.get("execution", [])
-    elapsed = sum(float(stage.get("seconds", 0.0)) for stage in stages)
-    devices = ",".join(sorted({str(stage.get("device")) for stage in stages if stage.get("device")}))
-    print(f"{result.parent.name:28} {elapsed:9.2f}s  devices={devices:12}  version={doc.get('version')}")
-PY
+python3 tools/summarize_segmentation_bakeoff.py "$run_root" \
+  --json "$run_root/summary.json" --markdown "$run_root/summary.md"

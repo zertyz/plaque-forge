@@ -25,8 +25,8 @@ use crate::{
         resolve_relative,
     },
     segmentation_strategy::{
-        self, PlanningInput, SegmentationPlan, SegmentationPrecision, SegmentationProfile,
-        SemanticBackend,
+        self, AcceptancePolicy, PlanningInput, SegmentationPlan, SegmentationPrecision,
+        SegmentationProfile, SegmentationStrategy, SemanticBackend,
     },
     video::{self, VideoInfo},
     workspace,
@@ -158,6 +158,10 @@ struct WorkerStageResult {
     seconds: f64,
     cache_hit: bool,
     #[serde(default)]
+    process_peak_rss_mib: Option<f64>,
+    #[serde(default)]
+    accelerator_peak_mib: Option<f64>,
+    #[serde(default)]
     note: Option<String>,
 }
 
@@ -215,6 +219,40 @@ fn resolve_plan(
     })
 }
 
+fn resolve_strategy(
+    layer: &SceneLayer,
+    backend: &str,
+    model: &str,
+    profile: &str,
+    precision: &str,
+) -> Result<SegmentationStrategy> {
+    segmentation_strategy::strategy(PlanningInput {
+        profile: SegmentationProfile::parse(profile)?,
+        precision_override: SegmentationPrecision::parse(precision)?,
+        backend_override: backend,
+        model_override: model,
+        role: layer.role,
+        matte_mode: layer.matte.mode,
+        subject: layer.subject,
+        prompts: &layer.prompts,
+    })
+}
+
+fn materialize_candidate_plan(
+    layer: &SceneLayer,
+    candidate: &SegmentationPlan,
+) -> Result<SegmentationPlan> {
+    // Re-enter the normal explicit planner so the exact plan executed by the lower-level
+    // `segment` workflow is also the exact plan represented by its provenance hash.
+    resolve_plan(
+        layer,
+        candidate.backend_label(),
+        &candidate.semantic_model,
+        candidate.profile.label(),
+        candidate.precision.label(),
+    )
+}
+
 fn runtime_sha256_for_plan(plan: &SegmentationPlan) -> Result<Option<String>> {
     if plan.semantic_backend == SemanticBackend::Sam31 {
         runtime_sha256_for_backend("sam3.1")
@@ -266,6 +304,7 @@ pub(crate) fn worker_sha256(worker: &Path) -> Result<String> {
         worker.to_path_buf(),
         worker.with_file_name("segmentation_worker.py"),
         worker.with_file_name("segmentation_runtime.py"),
+        worker.with_file_name("segmentation_service.py"),
         worker.with_file_name("segmentation-requirements.txt"),
     ] {
         if path.is_file() {
@@ -540,9 +579,222 @@ fn run_with_executor(
     )?;
     validate_worker_output(&partial, &request, &info)?;
     crate::staged_output::remove_child(&partial, &request_path)?;
-    crate::staged_output::remove_child(&partial, &partial.join("result.json"))?;
+    // Keep the compact execution report beside the masks. It is provenance-bound to
+    // the exact request and is needed by bake-offs/performance diagnostics.
     staged.commit(args.force)?;
     println!("layer artifact: {}", output.join("artifact.toml").display());
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SegmentationEvidence {
+    minimum_prompt_alpha_u16: Option<u16>,
+    maximum_negative_alpha_u16: Option<u16>,
+    nonempty_permille: u16,
+    maximum_coverage_permille: u16,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StrategyAttemptReport {
+    backend: String,
+    model: String,
+    precision: String,
+    plan_sha256: String,
+    accepted: bool,
+    evidence: SegmentationEvidence,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct StrategySelectionReport<'a> {
+    format: &'static str,
+    policy_id: &'a str,
+    selected_plan_sha256: &'a str,
+    attempts: &'a [StrategyAttemptReport],
+}
+
+fn strategy_evidence(
+    artifact_path: &Path,
+    layer: &SceneLayer,
+    info: &VideoInfo,
+) -> Result<SegmentationEvidence> {
+    strategy_evidence_for_inputs(
+        artifact_path,
+        layer.role,
+        layer.active_frames,
+        &layer.prompts,
+        info,
+    )
+}
+
+fn strategy_evidence_for_inputs(
+    artifact_path: &Path,
+    _role: LayerRole,
+    active_frames: Option<[usize; 2]>,
+    prompts: &[SegmentationPrompt],
+    info: &VideoInfo,
+) -> Result<SegmentationEvidence> {
+    let artifact = LayerArtifact::load(artifact_path)?;
+    let paths = artifact.referenced_paths(artifact_path);
+    if paths.len() != info.frames {
+        bail!(
+            "strategy evidence expected {} masks, found {}",
+            info.frames,
+            paths.len()
+        );
+    }
+    let [active_start, active_end] = active_frames.unwrap_or([0, info.frames.saturating_sub(1)]);
+    let pixels_per_frame = u64::from(info.width) * u64::from(info.height);
+    let mut nonempty = 0usize;
+    let mut maximum_coverage = 0.0_f64;
+    let mut positive_samples = Vec::new();
+    let mut negative_samples = Vec::new();
+
+    for (frame, path) in paths.iter().enumerate() {
+        let mask = image::open(path)
+            .with_context(|| format!("failed to inspect segmentation evidence {}", path.display()))?
+            .to_luma16();
+        let active_pixels = mask.iter().filter(|&&alpha| alpha > 2_056).count() as u64;
+        if (active_start..=active_end).contains(&frame) {
+            if active_pixels > 0 {
+                nonempty += 1;
+            }
+            maximum_coverage =
+                maximum_coverage.max(active_pixels as f64 / pixels_per_frame.max(1) as f64);
+        }
+        for prompt in prompts.iter().filter(|prompt| prompt.frame == frame) {
+            for &point in &prompt.positive_points {
+                positive_samples.push(sample_neighborhood_max_u16(&mask, point, 4));
+            }
+            if prompt.positive_points.is_empty()
+                && let Some(point) = implicit_positive_point(prompt)
+            {
+                positive_samples.push(sample_neighborhood_max_u16(&mask, point, 4));
+            }
+            for &point in &prompt.negative_points {
+                negative_samples.push(sample_pixel_u16(&mask, point));
+            }
+        }
+    }
+
+    let active_frames = active_end.saturating_sub(active_start) + 1;
+    Ok(SegmentationEvidence {
+        minimum_prompt_alpha_u16: positive_samples.into_iter().min(),
+        maximum_negative_alpha_u16: negative_samples.into_iter().max(),
+        nonempty_permille: ((nonempty * 1_000) / active_frames.max(1)).min(1_000) as u16,
+        maximum_coverage_permille: (maximum_coverage * 1_000.0).round().clamp(0.0, 1_000.0) as u16,
+    })
+}
+
+fn sample_pixel_u16(mask: &image::ImageBuffer<image::Luma<u16>, Vec<u16>>, point: [f64; 2]) -> u16 {
+    let x = point[0]
+        .round()
+        .clamp(0.0, mask.width().saturating_sub(1) as f64) as u32;
+    let y = point[1]
+        .round()
+        .clamp(0.0, mask.height().saturating_sub(1) as f64) as u32;
+    mask.get_pixel(x, y)[0]
+}
+
+fn sample_neighborhood_max_u16(
+    mask: &image::ImageBuffer<image::Luma<u16>, Vec<u16>>,
+    point: [f64; 2],
+    radius: i32,
+) -> u16 {
+    let x = point[0]
+        .round()
+        .clamp(0.0, mask.width().saturating_sub(1) as f64) as i32;
+    let y = point[1]
+        .round()
+        .clamp(0.0, mask.height().saturating_sub(1) as f64) as i32;
+    let mut maximum = 0u16;
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let xx = (x + dx).clamp(0, mask.width().saturating_sub(1) as i32) as u32;
+            let yy = (y + dy).clamp(0, mask.height().saturating_sub(1) as i32) as u32;
+            maximum = maximum.max(mask.get_pixel(xx, yy)[0]);
+        }
+    }
+    maximum
+}
+
+fn implicit_positive_point(prompt: &SegmentationPrompt) -> Option<[f64; 2]> {
+    if let Some([x, y, width, height]) = prompt.box_bounds {
+        return Some([x + width * 0.5, y + height * 0.5]);
+    }
+    if let Some(quad) = prompt.quad {
+        return Some([
+            quad.iter().map(|point| point[0]).sum::<f64>() / quad.len() as f64,
+            quad.iter().map(|point| point[1]).sum::<f64>() / quad.len() as f64,
+        ]);
+    }
+    if !prompt.polygon.is_empty() {
+        return Some([
+            prompt.polygon.iter().map(|point| point[0]).sum::<f64>() / prompt.polygon.len() as f64,
+            prompt.polygon.iter().map(|point| point[1]).sum::<f64>() / prompt.polygon.len() as f64,
+        ]);
+    }
+    None
+}
+
+fn evidence_acceptance(
+    evidence: &SegmentationEvidence,
+    policy: AcceptancePolicy,
+    role: LayerRole,
+) -> (bool, Vec<String>) {
+    let mut failures = Vec::new();
+    if let Some(alpha) = evidence.minimum_prompt_alpha_u16
+        && alpha < policy.min_prompt_alpha_u16
+    {
+        failures.push(format!(
+            "minimum prompt alpha {alpha} < {}",
+            policy.min_prompt_alpha_u16
+        ));
+    }
+    if let Some(alpha) = evidence.maximum_negative_alpha_u16
+        && alpha > policy.max_negative_alpha_u16
+    {
+        failures.push(format!(
+            "maximum negative-prompt alpha {alpha} > {}",
+            policy.max_negative_alpha_u16
+        ));
+    }
+    if evidence.nonempty_permille < policy.min_nonempty_permille {
+        failures.push(format!(
+            "non-empty frame fraction {}/1000 < {}/1000",
+            evidence.nonempty_permille, policy.min_nonempty_permille
+        ));
+    }
+    let maximum = if role == LayerRole::Foreground {
+        policy.max_foreground_coverage_permille
+    } else {
+        policy.max_surface_coverage_permille
+    };
+    if evidence.maximum_coverage_permille > maximum {
+        failures.push(format!(
+            "maximum frame coverage {}/1000 > {maximum}/1000",
+            evidence.maximum_coverage_permille
+        ));
+    }
+    (failures.is_empty(), failures)
+}
+
+fn write_strategy_selection(
+    output: &Path,
+    policy_id: &str,
+    selected_plan_sha256: &str,
+    attempts: &[StrategyAttemptReport],
+) -> Result<()> {
+    let report = StrategySelectionReport {
+        format: "plaque-forge.segmentation-strategy-selection/1",
+        policy_id,
+        selected_plan_sha256,
+        attempts,
+    };
+    fs::write(
+        output.join("strategy-selection.json"),
+        serde_json::to_vec_pretty(&report)?,
+    )?;
     Ok(())
 }
 
@@ -612,57 +864,87 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         );
         return Ok(0);
     }
+
     let expected_worker = worker_sha256(worker)?;
     prune_temporary_layer_cache()?;
     let mut pending = Vec::new();
     let mut reused = 0usize;
+
     for layer in &prompted {
         let output = output_root.join(&layer.id);
-        let artifact = output.join("artifact.toml");
         let prompt = prompt_sha256(&worker_layer(layer, info)?)?;
-        let plan = resolve_plan(layer, backend, model, profile, precision)?;
-        let plan_hash = plan_sha256(&plan)?;
-        let planned_backend = plan.backend_label().to_string();
-        let planned_model = plan.semantic_model.clone();
-        let expected_runtime = runtime_sha256_for_plan(&plan)?;
-        let expected = || LayerCacheIdentity {
-            backend: &planned_backend,
-            model: &planned_model,
-            device,
-            source_sha256,
-            prompt_sha256: &prompt,
-            worker_sha256: &expected_worker,
-            runtime_sha256: expected_runtime.as_deref(),
-            plan_sha256: &plan_hash,
-        };
-        if !force && layer_cache_is_current(&artifact, expected()) {
-            reused += 1;
-            continue;
-        }
-        if !force && let Some(reuse_root) = reuse_root {
-            let cached = reuse_root.join(&layer.id).join("artifact.toml");
-            if layer_cache_is_current(&cached, expected()) {
-                copy_layer_cache(&cached, &output)?;
-                reused += 1;
-                continue;
+        let strategy = resolve_strategy(layer, backend, model, profile, precision)?;
+        let mut accepted_cache = false;
+
+        if !force {
+            'candidate: for candidate in &strategy.candidates {
+                let plan = materialize_candidate_plan(layer, candidate)?;
+                let plan_hash = plan_sha256(&plan)?;
+                let planned_backend = plan.backend_label().to_string();
+                let planned_model = plan.semantic_model.clone();
+                let expected_runtime = runtime_sha256_for_plan(&plan)?;
+                let expected = || LayerCacheIdentity {
+                    backend: &planned_backend,
+                    model: &planned_model,
+                    device,
+                    source_sha256,
+                    prompt_sha256: &prompt,
+                    worker_sha256: &expected_worker,
+                    runtime_sha256: expected_runtime.as_deref(),
+                    plan_sha256: &plan_hash,
+                };
+
+                let candidates = [
+                    Some(output.join("artifact.toml")),
+                    reuse_root.map(|root| root.join(&layer.id).join("artifact.toml")),
+                    Some(temporary_layer_cache(expected()).join("artifact.toml")),
+                ];
+                for artifact in candidates.into_iter().flatten() {
+                    if !layer_cache_is_current(&artifact, expected()) {
+                        continue;
+                    }
+                    let evidence = strategy_evidence(&artifact, layer, info)?;
+                    let (accepted, failures) =
+                        evidence_acceptance(&evidence, strategy.acceptance, layer.role);
+                    if !accepted {
+                        eprintln!(
+                            "[ml] cached candidate rejected by adaptive evidence for {:?}: {}",
+                            layer.id,
+                            failures.join("; ")
+                        );
+                        continue;
+                    }
+                    if artifact != output.join("artifact.toml") {
+                        copy_layer_cache(&artifact, &output)?;
+                    }
+                    let report = [StrategyAttemptReport {
+                        backend: planned_backend.clone(),
+                        model: planned_model.clone(),
+                        precision: plan.precision.label().to_string(),
+                        plan_sha256: plan_hash.clone(),
+                        accepted: true,
+                        evidence,
+                        reasons: Vec::new(),
+                    }];
+                    write_strategy_selection(&output, &strategy.policy_id, &plan_hash, &report)?;
+                    reused += 1;
+                    accepted_cache = true;
+                    eprintln!(
+                        "[ml] adaptive cache hit for {:?}: backend={}, model={}",
+                        layer.id, planned_backend, planned_model
+                    );
+                    break 'candidate;
+                }
             }
         }
-        let temporary = temporary_layer_cache(expected());
-        let temporary_artifact = temporary.join("artifact.toml");
-        if !force && layer_cache_is_current(&temporary_artifact, expected()) {
-            copy_layer_cache(&temporary_artifact, &output)?;
-            reused += 1;
-            eprintln!(
-                "[ml] reused validated temporary layer cache for {:?}",
-                layer.id
-            );
-            continue;
+        if !accepted_cache {
+            pending.push((layer.id.clone(), prompt));
         }
-        pending.push((layer.id.clone(), prompt));
     }
+
     if pending.is_empty() {
         eprintln!(
-            "[ml] segmentation cache hit: {} prompted layer artifact(s) already exist; Python will not run",
+            "[ml] segmentation cache hit: {} prompted layer artifact(s) already satisfy adaptive policy; Python will not run",
             reused
         );
         return Ok(0);
@@ -674,47 +956,103 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         if force { " (forced regeneration)" } else { "" }
     );
 
-    for (layer, prompt) in &pending {
-        run_with_executor(
-            SegmentArgs {
-                input: input.to_path_buf(),
-                scene: Some(loaded.path.clone()),
-                surface: Some(plaque.id.clone()),
-                layer: layer.clone(),
-                worker: worker.to_path_buf(),
-                backend: backend.to_string(),
-                model: model.to_string(),
-                device: device.to_string(),
-                profile: profile.to_string(),
-                precision: precision.to_string(),
-                output: Some(output_root.join(layer)),
-                force: false,
-                ffprobe: ffprobe.to_path_buf(),
-            },
-            commands,
-        )?;
-        let artifact = output_root.join(layer).join("artifact.toml");
+    for (layer_id, prompt) in &pending {
         let scene_layer = prompted
             .iter()
             .copied()
-            .find(|candidate| candidate.id == *layer)
+            .find(|candidate| candidate.id == *layer_id)
             .context("pending prompted layer disappeared from the scene")?;
-        let plan = resolve_plan(scene_layer, backend, model, profile, precision)?;
-        let plan_hash = plan_sha256(&plan)?;
-        let planned_backend = plan.backend_label().to_string();
-        let planned_model = plan.semantic_model.clone();
-        let expected_runtime = runtime_sha256_for_plan(&plan)?;
+        let strategy = resolve_strategy(scene_layer, backend, model, profile, precision)?;
+        let output = output_root.join(layer_id);
+        let mut attempts = Vec::new();
+        let mut selected = None;
+
+        for (index, candidate) in strategy.candidates.iter().enumerate() {
+            let plan = materialize_candidate_plan(scene_layer, candidate)?;
+            let plan_hash = plan_sha256(&plan)?;
+            let candidate_backend = plan.backend_label().to_string();
+            let candidate_model = plan.semantic_model.clone();
+            eprintln!(
+                "[ml] Rust strategy candidate {}/{} for {:?}: backend={}, model={}, precision={}",
+                index + 1,
+                strategy.candidates.len(),
+                layer_id,
+                candidate_backend,
+                candidate_model,
+                plan.precision.label()
+            );
+            run_with_executor(
+                SegmentArgs {
+                    input: input.to_path_buf(),
+                    scene: Some(loaded.path.clone()),
+                    surface: Some(plaque.id.clone()),
+                    layer: layer_id.clone(),
+                    worker: worker.to_path_buf(),
+                    backend: candidate_backend.clone(),
+                    model: candidate_model.clone(),
+                    device: device.to_string(),
+                    profile: plan.profile.label().to_string(),
+                    precision: plan.precision.label().to_string(),
+                    output: Some(output.clone()),
+                    force: output.exists(),
+                    ffprobe: ffprobe.to_path_buf(),
+                },
+                commands,
+            )?;
+            let artifact = output.join("artifact.toml");
+            let evidence = strategy_evidence(&artifact, scene_layer, info)?;
+            let (accepted, failures) =
+                evidence_acceptance(&evidence, strategy.acceptance, scene_layer.role);
+            attempts.push(StrategyAttemptReport {
+                backend: candidate_backend.clone(),
+                model: candidate_model.clone(),
+                precision: plan.precision.label().to_string(),
+                plan_sha256: plan_hash.clone(),
+                accepted,
+                evidence,
+                reasons: failures.clone(),
+            });
+            if accepted {
+                selected = Some((plan, plan_hash));
+                break;
+            }
+            if index + 1 < strategy.candidates.len() {
+                eprintln!(
+                    "[ml] Rust strategy escalating {:?}: {}",
+                    layer_id,
+                    failures.join("; ")
+                );
+            }
+        }
+
+        let Some((selected_plan, selected_hash)) = selected else {
+            write_strategy_selection(&output, &strategy.policy_id, "none", &attempts)?;
+            let reasons = attempts
+                .last()
+                .map(|attempt| attempt.reasons.join("; "))
+                .unwrap_or_else(|| "no candidate executed".to_string());
+            bail!(
+                "all Rust-planned segmentation candidates failed independent evidence for {:?}: {}",
+                layer_id,
+                reasons
+            );
+        };
+        write_strategy_selection(&output, &strategy.policy_id, &selected_hash, &attempts)?;
+
+        let selected_backend = selected_plan.backend_label().to_string();
+        let selected_model = selected_plan.semantic_model.clone();
+        let expected_runtime = runtime_sha256_for_plan(&selected_plan)?;
         store_temporary_layer_cache(
-            &artifact,
+            &output.join("artifact.toml"),
             LayerCacheIdentity {
-                backend: &planned_backend,
-                model: &planned_model,
+                backend: &selected_backend,
+                model: &selected_model,
                 device,
                 source_sha256,
                 prompt_sha256: prompt,
                 worker_sha256: &expected_worker,
                 runtime_sha256: expected_runtime.as_deref(),
-                plan_sha256: &plan_hash,
+                plan_sha256: &selected_hash,
             },
         )?;
     }
@@ -795,6 +1133,12 @@ fn copy_layer_cache(artifact_path: &Path, output: &Path) -> Result<()> {
         })?;
     }
     fs::copy(artifact_path, output.join("artifact.toml"))?;
+    for sidecar in ["result.json", "strategy-selection.json"] {
+        let source = owner.join(sidecar);
+        if source.is_file() {
+            fs::copy(source, output.join(sidecar))?;
+        }
+    }
     Ok(())
 }
 
@@ -851,7 +1195,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             .collect::<Result<Vec<_>>>()?,
         prompts,
     };
-    let plan = segmentation_strategy::plan(PlanningInput {
+    let strategy = segmentation_strategy::strategy(PlanningInput {
         profile: SegmentationProfile::parse(request.profile)?,
         precision_override: SegmentationPrecision::parse(request.precision)?,
         backend_override: request.backend,
@@ -861,111 +1205,199 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
         subject: LayerSubject::Unspecified,
         prompts: &worker_layer.prompts,
     })?;
-    let plan_hash = plan_sha256(&plan)?;
-    let request_document = seal_request(WorkerRequest {
-        format: WORKER_REQUEST_FORMAT.into(),
-        backend: plan.backend_label().to_string(),
-        model: plan.semantic_model.clone(),
-        device: request.device.to_string(),
-        plan: plan.clone(),
-        plan_sha256: plan_hash,
-        prompt_sha256: prompt_sha256(&worker_layer)?,
-        worker_sha256: worker_sha256(request.worker)?,
-        runtime_sha256: runtime_sha256_for_plan(&plan)?,
-        request_sha256: String::new(),
-        source: WorkerSource {
-            path: request
-                .input
-                .canonicalize()
-                .unwrap_or_else(|_| request.input.to_path_buf()),
-            sha256: crate::digest::file_sha256(request.input)?,
-            width: request.info.width,
-            height: request.info.height,
-            fps: request.info.fps,
-            frames: request.info.frames,
-        },
-        plaque: WorkerPlaque {
-            id: "automatic".to_string(),
-            reference_frame: worker_layer.prompts.first().map(|prompt| prompt.frame),
-            bounds: Some([
-                request.plaque.x,
-                request.plaque.y,
-                request.plaque.width,
-                request.plaque.height,
-            ]),
-            trajectory: None,
-            trajectory_sha256: None,
-        },
-        layer: worker_layer,
-    })?;
+    let source_sha256 = crate::digest::file_sha256(request.input)?;
+    let worker_hash = worker_sha256(request.worker)?;
+    let prompt_hash = prompt_sha256(&worker_layer)?;
+
+    let build_request = |plan: &SegmentationPlan| -> Result<WorkerRequest> {
+        let plan_hash = plan_sha256(plan)?;
+        seal_request(WorkerRequest {
+            format: WORKER_REQUEST_FORMAT.into(),
+            backend: plan.backend_label().to_string(),
+            model: plan.semantic_model.clone(),
+            device: request.device.to_string(),
+            plan: plan.clone(),
+            plan_sha256: plan_hash,
+            prompt_sha256: prompt_hash.clone(),
+            worker_sha256: worker_hash.clone(),
+            runtime_sha256: runtime_sha256_for_plan(plan)?,
+            request_sha256: String::new(),
+            source: WorkerSource {
+                path: request
+                    .input
+                    .canonicalize()
+                    .unwrap_or_else(|_| request.input.to_path_buf()),
+                sha256: source_sha256.clone(),
+                width: request.info.width,
+                height: request.info.height,
+                fps: request.info.fps,
+                frames: request.info.frames,
+            },
+            plaque: WorkerPlaque {
+                id: "automatic".to_string(),
+                reference_frame: worker_layer.prompts.first().map(|prompt| prompt.frame),
+                bounds: Some([
+                    request.plaque.x,
+                    request.plaque.y,
+                    request.plaque.width,
+                    request.plaque.height,
+                ]),
+                trajectory: None,
+                trajectory_sha256: None,
+            },
+            layer: worker_layer.clone(),
+        })
+    };
 
     if !request.force
         && let Some(reuse_root) = request.reuse_root
     {
         let cached = reuse_root.join("ml-foreground");
-        if cached.is_dir()
-            && validate_worker_output(&cached, &request_document, request.info).is_ok()
-        {
-            copy_automatic_foreground_cache(&cached, &output, request.info.frames)?;
-            if !install_automatic_foreground_masks(request.analysis_root, request.info.frames)? {
-                return Ok(false);
+        for plan in &strategy.candidates {
+            let request_document = build_request(plan)?;
+            if cached.is_dir()
+                && validate_worker_output(&cached, &request_document, request.info).is_ok()
+            {
+                let evidence = strategy_evidence_for_inputs(
+                    &cached.join("artifact.toml"),
+                    LayerRole::Foreground,
+                    None,
+                    &worker_layer.prompts,
+                    request.info,
+                )?;
+                let (accepted, failures) =
+                    evidence_acceptance(&evidence, strategy.acceptance, LayerRole::Foreground);
+                if !accepted {
+                    eprintln!(
+                        "[ml] automatic foreground cache rejected by adaptive evidence: {}",
+                        failures.join("; ")
+                    );
+                    continue;
+                }
+                copy_automatic_foreground_cache(&cached, &output, request.info.frames)?;
+                let attempt = [StrategyAttemptReport {
+                    backend: request_document.backend.clone(),
+                    model: request_document.model.clone(),
+                    precision: request_document.plan.precision.label().to_string(),
+                    plan_sha256: request_document.plan_sha256.clone(),
+                    accepted: true,
+                    evidence,
+                    reasons: Vec::new(),
+                }];
+                write_strategy_selection(
+                    &output,
+                    &strategy.policy_id,
+                    &request_document.plan_sha256,
+                    &attempt,
+                )?;
+                if !install_automatic_foreground_masks(request.analysis_root, request.info.frames)?
+                {
+                    return Ok(false);
+                }
+                eprintln!(
+                    "[ml] automatic foreground cache hit: reused {} validated lossless mask(s)",
+                    request.info.frames
+                );
+                return Ok(true);
             }
-            eprintln!(
-                "[ml] automatic foreground cache hit: reused {} validated lossless mask(s)",
-                request.info.frames
-            );
-            return Ok(true);
         }
     }
 
-    if output.exists() {
-        crate::staged_output::remove_child(request.analysis_root, &output)?;
-    }
-    fs::create_dir_all(&output)
-        .with_context(|| format!("failed to create automatic ML output {}", output.display()))?;
-    let request_path = output.join("request.json");
-    fs::write(&request_path, serde_json::to_vec_pretty(&request_document)?)?;
-
-    eprintln!(
-        "[ml] automatic foreground required: {} seed frame(s), profile={:?}, backend={}, model={}, precision={:?}, device={}",
-        request_document.layer.prompts.len(),
-        plan.profile,
-        plan.backend_label(),
-        plan.semantic_model,
-        plan.precision,
-        request.device
-    );
-    if let Err(error) = run_worker_process(
-        request.commands,
-        request.worker,
-        &request_path,
-        &output,
-        "automatic foreground",
-    ) {
-        crate::staged_output::remove_child(request.analysis_root, &output)?;
-        return Err(error);
-    }
-    if let Err(error) = validate_worker_output(&output, &request_document, request.info) {
-        crate::staged_output::remove_child(request.analysis_root, &output)?;
-        return Err(error.context("automatic foreground worker output was rejected"));
-    }
-    crate::staged_output::remove_child(&output, &request_path)?;
-    match install_automatic_foreground_masks(request.analysis_root, request.info.frames) {
-        Ok(true) => {}
-        Ok(false) => {
+    let mut attempts = Vec::new();
+    for (index, plan) in strategy.candidates.iter().enumerate() {
+        if output.exists() {
             crate::staged_output::remove_child(request.analysis_root, &output)?;
-            return Ok(false);
         }
-        Err(error) => {
+        fs::create_dir_all(&output).with_context(|| {
+            format!("failed to create automatic ML output {}", output.display())
+        })?;
+        let request_document = build_request(plan)?;
+        let request_path = output.join("request.json");
+        fs::write(&request_path, serde_json::to_vec_pretty(&request_document)?)?;
+
+        eprintln!(
+            "[ml] automatic foreground Rust candidate {}/{}: {} seed frame(s), profile={:?}, backend={}, model={}, precision={:?}, device={}",
+            index + 1,
+            strategy.candidates.len(),
+            request_document.layer.prompts.len(),
+            plan.profile,
+            plan.backend_label(),
+            plan.semantic_model,
+            plan.precision,
+            request.device
+        );
+        if let Err(error) = run_worker_process(
+            request.commands,
+            request.worker,
+            &request_path,
+            &output,
+            "automatic foreground",
+        ) {
             crate::staged_output::remove_child(request.analysis_root, &output)?;
             return Err(error);
         }
+        if let Err(error) = validate_worker_output(&output, &request_document, request.info) {
+            crate::staged_output::remove_child(request.analysis_root, &output)?;
+            return Err(error.context("automatic foreground worker output was rejected"));
+        }
+        let evidence = strategy_evidence_for_inputs(
+            &output.join("artifact.toml"),
+            LayerRole::Foreground,
+            None,
+            &worker_layer.prompts,
+            request.info,
+        )?;
+        let (accepted, failures) =
+            evidence_acceptance(&evidence, strategy.acceptance, LayerRole::Foreground);
+        attempts.push(StrategyAttemptReport {
+            backend: request_document.backend.clone(),
+            model: request_document.model.clone(),
+            precision: plan.precision.label().to_string(),
+            plan_sha256: request_document.plan_sha256.clone(),
+            accepted,
+            evidence,
+            reasons: failures.clone(),
+        });
+        if !accepted {
+            if index + 1 < strategy.candidates.len() {
+                eprintln!(
+                    "[ml] automatic foreground escalating: {}",
+                    failures.join("; ")
+                );
+                continue;
+            }
+            write_strategy_selection(&output, &strategy.policy_id, "none", &attempts)?;
+            bail!(
+                "all Rust-planned automatic foreground candidates failed independent evidence: {}",
+                failures.join("; ")
+            );
+        }
+
+        crate::staged_output::remove_child(&output, &request_path)?;
+        write_strategy_selection(
+            &output,
+            &strategy.policy_id,
+            &request_document.plan_sha256,
+            &attempts,
+        )?;
+        match install_automatic_foreground_masks(request.analysis_root, request.info.frames) {
+            Ok(true) => {}
+            Ok(false) => {
+                crate::staged_output::remove_child(request.analysis_root, &output)?;
+                return Ok(false);
+            }
+            Err(error) => {
+                crate::staged_output::remove_child(request.analysis_root, &output)?;
+                return Err(error);
+            }
+        }
+        eprintln!(
+            "[ml] automatic foreground installed: {} source-pixel mask(s)",
+            request.info.frames
+        );
+        return Ok(true);
     }
-    eprintln!(
-        "[ml] automatic foreground installed: {} source-pixel mask(s)",
-        request.info.frames
-    );
-    Ok(true)
+    bail!("automatic foreground strategy unexpectedly had no candidates")
 }
 
 fn copy_automatic_foreground_cache(
@@ -985,6 +1417,10 @@ fn copy_automatic_foreground_cache(
     for name in ["artifact.toml", "result.json"] {
         fs::copy(source.join(name), destination.join(name))
             .with_context(|| format!("failed to reuse automatic ML cache member {name}"))?;
+    }
+    let selection = source.join("strategy-selection.json");
+    if selection.is_file() {
+        fs::copy(selection, destination.join("strategy-selection.json"))?;
     }
     for frame in 0..expected_frames {
         let name = format!("{frame:06}.png");
@@ -1324,6 +1760,12 @@ fn validate_worker_output(
                 || stage.precision.trim().is_empty()
                 || !stage.seconds.is_finite()
                 || stage.seconds < 0.0
+                || stage
+                    .process_peak_rss_mib
+                    .is_some_and(|value| !value.is_finite() || value < 0.0)
+                || stage
+                    .accelerator_peak_mib
+                    .is_some_and(|value| !value.is_finite() || value < 0.0)
                 || (stage.cache_hit && stage.seconds > 0.1)
                 || stage.note.as_deref().is_some_and(str::is_empty)
         })
@@ -1757,5 +2199,43 @@ mod worker_process_contract_tests {
         )
         .unwrap_err();
         assert!(format!("{error:#}").contains("code=17"));
+    }
+}
+
+#[cfg(test)]
+mod adaptive_evidence_tests {
+    use super::{AcceptancePolicy, SegmentationEvidence, evidence_acceptance};
+    use crate::scene::LayerRole;
+
+    const POLICY: AcceptancePolicy = AcceptancePolicy {
+        min_prompt_alpha_u16: 32_768,
+        max_negative_alpha_u16: 32_767,
+        min_nonempty_permille: 0,
+        max_foreground_coverage_permille: 980,
+        max_surface_coverage_permille: 980,
+    };
+
+    #[test]
+    fn independent_evidence_accepts_a_well_behaved_foreground() {
+        let evidence = SegmentationEvidence {
+            minimum_prompt_alpha_u16: Some(50_000),
+            maximum_negative_alpha_u16: Some(2_000),
+            nonempty_permille: 700,
+            maximum_coverage_permille: 220,
+        };
+        assert!(evidence_acceptance(&evidence, POLICY, LayerRole::Foreground).0);
+    }
+
+    #[test]
+    fn independent_evidence_requests_escalation_on_prompt_loss() {
+        let evidence = SegmentationEvidence {
+            minimum_prompt_alpha_u16: Some(12_000),
+            maximum_negative_alpha_u16: None,
+            nonempty_permille: 700,
+            maximum_coverage_permille: 220,
+        };
+        let (accepted, reasons) = evidence_acceptance(&evidence, POLICY, LayerRole::Foreground);
+        assert!(!accepted);
+        assert!(reasons.iter().any(|reason| reason.contains("prompt alpha")));
     }
 }

@@ -175,6 +175,7 @@ document = {
         for path in (
             repo / "tools" / "segmentation-worker",
             repo / "tools" / "segmentation_worker.py",
+            repo / "tools" / "segmentation_service.py",
             repo / "tools" / "segmentation_runtime.py",
             repo / "tools" / "segmentation-requirements.txt",
             repo / "scripts" / "setup_segmentation.sh",
