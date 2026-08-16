@@ -32,6 +32,8 @@ jobs:
 
   code-gate:
     runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -40,17 +42,18 @@ jobs:
 
       - name: Install native dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
+          pacman -Syu --noconfirm --needed \
             clang \
             ffmpeg \
             fontconfig \
-            libclang-dev \
-            libopencv-dev \
-            pkg-config \
-            python3 \
-            python3-numpy \
-            python3-pil
+            noto-fonts \
+            opencv \
+            pkgconf \
+            python \
+            python-numpy \
+            python-pillow \
+            git \
+            rustup
 
       - name: Install Rust toolchain
         run: |
@@ -62,6 +65,8 @@ jobs:
 
   dependency-audit:
     runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -69,7 +74,11 @@ jobs:
           persist-credentials: false
 
       - name: Install the dependency scanner
-        run: cargo install cargo-audit --version 0.22.2 --locked
+        run: |
+          pacman -Syu --noconfirm --needed rustup pkgconf git
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo install cargo-audit --version 0.22.2 --locked
 
       - name: Reject new RustSec findings
         run: ./scripts/audit_dependencies.sh
@@ -77,6 +86,8 @@ jobs:
   homologation-gate:
     needs: code-gate
     runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -85,15 +96,15 @@ jobs:
 
       - name: Install render dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
+          pacman -Syu --noconfirm --needed \
             clang \
             ffmpeg \
             fontconfig \
-            fonts-noto-core \
-            libclang-dev \
-            libopencv-dev \
-            pkg-config
+            noto-fonts \
+            opencv \
+            pkgconf \
+            git \
+            rustup
 
       - name: Install Rust toolchain
         run: |
@@ -120,6 +131,8 @@ jobs:
     needs: [code-gate, change-scope]
     if: needs.change-scope.outputs.needs_analysis == 'true'
     runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
@@ -128,13 +141,13 @@ jobs:
 
       - name: Install analysis dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
+          pacman -Syu --noconfirm --needed \
             clang \
             ffmpeg \
-            libclang-dev \
-            libopencv-dev \
-            pkg-config
+            opencv \
+            pkgconf \
+            git \
+            rustup
 
       - name: Install Rust toolchain
         run: |

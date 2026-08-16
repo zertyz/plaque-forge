@@ -56,12 +56,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Bootstrap Ubuntu dependencies
+      - name: Bootstrap dependencies
         if: inputs.bootstrap_ubuntu
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            clang ffmpeg fontconfig fonts-noto-core libclang-dev libopencv-dev pkg-config python3
+          if command -v pacman >/dev/null 2>&1; then
+            pacman -Syu --noconfirm --needed clang ffmpeg fontconfig noto-fonts opencv pkgconf python git rustup
+          else
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends \
+              clang ffmpeg fontconfig fonts-noto-core libclang-dev libopencv-dev pkg-config python3
+          fi
 
       - name: Install Rust
         run: |
