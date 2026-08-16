@@ -772,6 +772,7 @@ fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Resul
 pub(crate) fn test_font() -> std::path::PathBuf {
     let candidates = [
         "/usr/share/fonts/noto/NotoSerif-Regular.ttf",
+        "/usr/share/fonts/TTF/NotoSerif-Regular.ttf",
         "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
         "/usr/share/fonts/noto-serif/NotoSerif-Regular.ttf",
         "/usr/share/fonts/google-noto-serif/NotoSerif-Regular.ttf",
@@ -792,7 +793,11 @@ pub(crate) fn test_font() -> std::path::PathBuf {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if let Some((family, file)) = stdout.trim().split_once('|') {
             let path = std::path::PathBuf::from(file.trim());
-            if family.trim().eq_ignore_ascii_case("Noto Serif") && path.is_file() {
+            let family_trim = family.trim();
+            if (family_trim.eq_ignore_ascii_case("Noto Serif")
+                || family_trim.to_ascii_lowercase().starts_with("noto serif"))
+                && path.is_file()
+            {
                 return path;
             }
         }
@@ -948,9 +953,12 @@ mod tests {
                     if ratio > 0.005 {
                         failures.push(format!(
                             "{style_name}: {differing}/{} pixels differ (max diff {max_diff}, \
-                             {:.2}% exceed tolerance)",
+                             {:.2}% exceed tolerance) [font: {}, resolved: {:?}, size: {:.2}]",
                             actual_mask.len(),
-                            ratio * 100.0
+                            ratio * 100.0,
+                            font.display(),
+                            result.metrics.resolved_text,
+                            result.metrics.font_size,
                         ));
                     }
                 }
