@@ -366,11 +366,13 @@ pub fn create(target: &Path) -> Result<StagedOutput> {
             .and_then(|name| name.to_str())
             .unwrap_or("output"),
     );
+    static STAGE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let count = STAGE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let path = work_root.join(format!("{name}-{}-{nonce}", std::process::id()));
+    let path = work_root.join(format!("{name}-{}-{nonce}-{count}", std::process::id()));
     if let Err(error) = fs::create_dir(&path) {
         drop(lock_lease);
         let _ = remove_if_exists(&lock);
@@ -748,12 +750,14 @@ mod tests {
     use super::*;
 
     fn test_root(name: &str) -> PathBuf {
+        static TEST_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let count = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "plaque-forge-staged-output-{name}-{}-{nonce}",
+            "plaque-forge-staged-output-{name}-{}-{nonce}-{count}",
             std::process::id()
         ))
     }

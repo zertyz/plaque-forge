@@ -74,3 +74,71 @@ fn writable_region_geometry_bounds() {
     assert_eq!(ellipse_region.bounds(), [100.0, 100.0, 300.0, 200.0]);
     assert!(ellipse_region.validate("ellipse").is_ok());
 }
+
+#[test]
+fn surface_restore_from_mask_honors_feathered_alpha() {
+    let mut current = Surface::new(5, 1);
+    for x in 0..5 {
+        // Red foreground
+        current.set_pixel(x, 0, Rgba::new(255, 0, 0, 255));
+    }
+
+    let mut original = Surface::new(5, 1);
+    for x in 0..5 {
+        // Blue original
+        original.set_pixel(x, 0, Rgba::new(0, 0, 255, 255));
+    }
+
+    // Mask with 0%, 25%, 50%, 75%, 100% restoration
+    let mask = vec![0, 64, 128, 192, 255];
+    current
+        .restore_from_mask(&original, &mask)
+        .expect("valid restore");
+
+    // Pixel 0 (mask 0): pure current (red)
+    let p0 = current.pixel(0, 0);
+    assert_eq!(p0.r, 255);
+    assert_eq!(p0.b, 0);
+
+    // Pixel 4 (mask 255): pure original (blue)
+    let p4 = current.pixel(4, 0);
+    assert_eq!(p4.r, 0);
+    assert_eq!(p4.b, 255);
+
+    // Monotonic transition from red to blue across pixels 0..4
+    for x in 1..5 {
+        let prev = current.pixel(x - 1, 0);
+        let curr = current.pixel(x, 0);
+        assert!(
+            curr.b >= prev.b,
+            "blue channel must increase monotonically with mask weight: {prev:?} -> {curr:?}"
+        );
+        assert!(
+            curr.r <= prev.r,
+            "red channel must decrease monotonically with mask weight: {prev:?} -> {curr:?}"
+        );
+    }
+}
+
+#[test]
+fn surface_apply_alpha_mask_scales_alpha_channel_only() {
+    let mut surface = Surface::new(3, 1);
+    surface.set_pixel(0, 0, Rgba::new(100, 150, 200, 255));
+    surface.set_pixel(1, 0, Rgba::new(100, 150, 200, 255));
+    surface.set_pixel(2, 0, Rgba::new(100, 150, 200, 255));
+
+    let mask = vec![255, 128, 0];
+    surface.apply_alpha_mask(&mask).expect("valid mask");
+
+    // RGB must remain untouched
+    for x in 0..3 {
+        let p = surface.pixel(x, 0);
+        assert_eq!(p.r, 100);
+        assert_eq!(p.g, 150);
+        assert_eq!(p.b, 200);
+    }
+
+    assert_eq!(surface.pixel(0, 0).a, 255);
+    assert!((surface.pixel(1, 0).a as i32 - 128).abs() <= 1);
+    assert_eq!(surface.pixel(2, 0).a, 0);
+}
