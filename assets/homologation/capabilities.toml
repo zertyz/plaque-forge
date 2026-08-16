@@ -9,6 +9,8 @@ id = "static-scene-plane-plaque"
 description = "Stable rectangular physical plaque: geometry, fitting, and alignment."
 representative_asset = "16_9_swamp_wooden_plaque"
 scene = "../scenes/16_9_swamp_wooden_plaque/scene.toml"
+contract = "16_9_swamp_wooden_plaque/contract.toml"
+ci = true
 
 [[capabilities]]
 id = "projective-moving-plaque"
@@ -29,6 +31,7 @@ id = "non-rectangular-writable-region"
 description = "Elliptical or otherwise non-rectangular title region constrains typography."
 representative_asset = "16_9_background_digifall"
 scene = "../scenes/16_9_background_digifall/scene.toml"
+contract = "16_9_background_digifall/contract.toml"
 
 [[capabilities]]
 id = "foreground-parallax-on-moving-plaque"
@@ -53,3 +56,5 @@ id = "portrait-scene-plane-geometry"
 description = "Portrait aspect-ratio geometry and fitting remain independent from 16:9 assumptions."
 representative_asset = "9_16_dungeon_spider_iron_plaque"
 scene = "../scenes/9_16_dungeon_spider_iron_plaque/scene.toml"
+contract = "9_16_dungeon_spider_iron_plaque/contract.toml"
+ci = true

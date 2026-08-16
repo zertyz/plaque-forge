@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "16_9_background_digifall"
+source = "../../16_9_background_digifall.mp4"
+scene = "../../scenes/16_9_background_digifall/scene.toml"
+analysis = "../../analysis/16_9_background_digifall"
+surface = "main"
+source_sha256 = "e70114ea8c899d5ebc076dcc9025446b30c5f01d0d18ce8ac4e158bfad29bb11"
+
+[geometry]
+tracking_bounds = [34.0, 4.0, 990.0, 680.0]
+writable_bounds = [45.0, 26.0, 910.0, 636.0]
+
+[render]
+text = "DIGITAL MATRIX FALL"
+style = "../../../styles/gold-shine.toml"
+style_sha256 = "c0c16a2398a7fa30329bc9626623db36e0cbd83d4c3ef6e6625677ac556b0c4a"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "DIGITAL\nMATRIX\nFALL"
+
+[typography]
+lines = 3
+maximum_font_size = 160.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

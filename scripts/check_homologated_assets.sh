@@ -13,25 +13,35 @@ target/release/plaque-forge homologation-coverage \
 # Keep the expensive CI sentinel set intentionally small and high-value. These cases are
 # the visual equivalents of integration tests: they exercise a real source, real analysis,
 # real typography, real compositing, and a delivery encode.
-case_name="16_9_dungeon_spider_iron_plaque"
-contract="assets/homologation/$case_name/contract.toml"
-report="output/$case_name.homologation.json"
-rendered="output/$case_name.hevc.mkv"
-diagnostics="output/regressions"
+cases=(
+  "16_9_dungeon_spider_iron_plaque:WITH THE BIGGER POTENTIAL OF SEEING FURTHER"
+  "16_9_swamp_wooden_plaque:Nós que aqui estamos, por vós esperamos!"
+  "9_16_dungeon_spider_iron_plaque:WITH THE BIGGER POTENTIAL OF SEEING FURTHER"
+)
 
-./scripts/render_assets.sh \
-  --text "WITH THE BIGGER POTENTIAL OF SEEING FURTHER" \
-  --font-family "Noto Serif" \
-  --style gold-shine \
-  --fit artistic \
-  "$case_name"
+for item in "${cases[@]}"; do
+  case_name="${item%%:*}"
+  text="${item#*:}"
+  contract="assets/homologation/$case_name/contract.toml"
+  report="output/$case_name.homologation.json"
+  rendered="output/$case_name.hevc.mkv"
+  diagnostics="output/regressions"
 
-target/release/plaque-forge homologate \
-  --contract "$contract" \
-  --rendered "$rendered" \
-  --report "$report" \
-  --diagnostics "$diagnostics"
+  ./scripts/render_assets.sh \
+    --text "$text" \
+    --font-family "Noto Serif" \
+    --style gold-shine \
+    --fit artistic \
+    "$case_name"
 
-printf 'homologated: %s\n' "$rendered"
-printf 'acceptance:  %s\n' "$report"
+  target/release/plaque-forge homologate \
+    --contract "$contract" \
+    --rendered "$rendered" \
+    --report "$report" \
+    --diagnostics "$diagnostics"
+
+  printf 'homologated: %s\n' "$rendered"
+  printf 'acceptance:  %s\n' "$report"
+done
+
 printf 'coverage:    %s\n' "output/homologation-coverage.json"
