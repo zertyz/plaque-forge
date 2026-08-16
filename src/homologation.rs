@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -133,12 +133,18 @@ impl HomologationContract {
             "unsupported homologation format {:?}; expected {HOMOLOGATION_FORMAT:?}",
             self.format
         );
-        ensure!(!self.asset.trim().is_empty(), "homologation asset name is empty");
+        ensure!(
+            !self.asset.trim().is_empty(),
+            "homologation asset name is empty"
+        );
         ensure!(
             !self.asset.contains('/') && !self.asset.contains('\\'),
             "homologation asset name must not contain path separators"
         );
-        ensure!(!self.surface.trim().is_empty(), "homologation surface id is empty");
+        ensure!(
+            !self.surface.trim().is_empty(),
+            "homologation surface id is empty"
+        );
         validate_sha256(&self.source_sha256, "source_sha256")?;
         validate_sha256(&self.render.style_sha256, "render.style_sha256")?;
         ensure!(
@@ -151,7 +157,10 @@ impl HomologationContract {
             rect_contains(self.geometry.tracking_bounds, self.geometry.writable_bounds),
             "homologated writable bounds must be contained inside tracking bounds"
         );
-        ensure!(self.typography.lines > 0, "typography.lines must be positive");
+        ensure!(
+            self.typography.lines > 0,
+            "typography.lines must be positive"
+        );
         ensure!(
             self.typography.maximum_font_size.is_finite()
                 && self.typography.maximum_font_size > 0.0,
@@ -183,7 +192,11 @@ impl HomologationContract {
                 witness.frame
             );
             let mask = resolve_relative(path, &witness.mask);
-            ensure!(mask.is_file(), "homologation mask is missing: {}", mask.display());
+            ensure!(
+                mask.is_file(),
+                "homologation mask is missing: {}",
+                mask.display()
+            );
             let mask_sha256 = crate::digest::file_sha256(&mask)?;
             ensure!(
                 mask_sha256 == witness.mask_sha256,
@@ -263,8 +276,12 @@ pub(crate) fn run(
     let manifest_path = args.rendered.with_extension("render-manifest.json");
     let manifest_bytes = fs::read(&manifest_path)
         .with_context(|| format!("failed to read render manifest {}", manifest_path.display()))?;
-    let manifest: RenderManifest = serde_json::from_slice(&manifest_bytes)
-        .with_context(|| format!("failed to parse render manifest {}", manifest_path.display()))?;
+    let manifest: RenderManifest = serde_json::from_slice(&manifest_bytes).with_context(|| {
+        format!(
+            "failed to parse render manifest {}",
+            manifest_path.display()
+        )
+    })?;
     ensure!(
         manifest.schema_version == RENDER_MANIFEST_SCHEMA_VERSION,
         "unsupported render manifest schema {}; expected {}",
@@ -404,7 +421,11 @@ fn check_scene_geometry(
     failures: &mut Vec<String>,
 ) -> Result<()> {
     let scene = Scene::load(scene_path)?;
-    let Some(surface) = scene.surfaces.iter().find(|surface| surface.id == contract.surface) else {
+    let Some(surface) = scene
+        .surfaces
+        .iter()
+        .find(|surface| surface.id == contract.surface)
+    else {
         failures.push(format!(
             "scene {} does not contain homologated surface {:?}",
             scene_path.display(),
@@ -420,7 +441,11 @@ fn check_scene_geometry(
         )),
         None => failures.push("homologated surface no longer declares tracking bounds".to_string()),
     }
-    match surface.writable_region.as_ref().map(|region| region.bounds()) {
+    match surface
+        .writable_region
+        .as_ref()
+        .map(|region| region.bounds())
+    {
         Some(bounds) if rect_approximately_equal(bounds, contract.geometry.writable_bounds) => {}
         Some(bounds) => failures.push(format!(
             "writable bounds changed: expected {:?}, got {:?}",
@@ -608,9 +633,15 @@ fn write_witness_diagnostics(
     for (index, pixel) in diff.pixels_mut().enumerate() {
         let offset = index * 4;
         *pixel = image::Rgba([
-            source_bytes[offset].abs_diff(rendered_bytes[offset]).saturating_mul(3),
-            source_bytes[offset + 1].abs_diff(rendered_bytes[offset + 1]).saturating_mul(3),
-            source_bytes[offset + 2].abs_diff(rendered_bytes[offset + 2]).saturating_mul(3),
+            source_bytes[offset]
+                .abs_diff(rendered_bytes[offset])
+                .saturating_mul(3),
+            source_bytes[offset + 1]
+                .abs_diff(rendered_bytes[offset + 1])
+                .saturating_mul(3),
+            source_bytes[offset + 2]
+                .abs_diff(rendered_bytes[offset + 2])
+                .saturating_mul(3),
             255,
         ]);
         if mask.as_raw()[index] != 0 {
@@ -632,7 +663,9 @@ where
     T: PartialEq + std::fmt::Display + ?Sized,
 {
     if actual != expected {
-        failures.push(format!("{description} changed: expected {expected}, got {actual}"));
+        failures.push(format!(
+            "{description} changed: expected {expected}, got {actual}"
+        ));
     }
 }
 
@@ -727,32 +760,19 @@ mod tests {
         }
         fs::create_dir_all(&root).unwrap();
 
-        let source = crate::surface::Surface::from_rgba(
-            2,
-            1,
-            vec![10, 20, 30, 255, 40, 50, 60, 255],
-        )
-        .unwrap();
-        let rendered = crate::surface::Surface::from_rgba(
-            2,
-            1,
-            vec![20, 10, 30, 255, 40, 80, 60, 255],
-        )
-        .unwrap();
+        let source =
+            crate::surface::Surface::from_rgba(2, 1, vec![10, 20, 30, 255, 40, 50, 60, 255])
+                .unwrap();
+        let rendered =
+            crate::surface::Surface::from_rgba(2, 1, vec![20, 10, 30, 255, 40, 80, 60, 255])
+                .unwrap();
         let mask = image::GrayImage::from_raw(2, 1, vec![255, 0]).unwrap();
         let mask_path = root.join("mask.png");
         mask.save(&mask_path).unwrap();
 
-        let directory = write_witness_diagnostics(
-            &root,
-            "asset",
-            7,
-            &source,
-            &rendered,
-            &mask,
-            &mask_path,
-        )
-        .unwrap();
+        let directory =
+            write_witness_diagnostics(&root, "asset", 7, &source, &rendered, &mask, &mask_path)
+                .unwrap();
         for name in [
             "source.png",
             "rendered.png",

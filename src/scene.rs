@@ -402,10 +402,7 @@ fn file_matches(a: &InputFileProvenance, b: &InputFileProvenance) -> bool {
             .is_some_and(|(a, b)| a == b)
 }
 
-fn optional_file_matches(
-    a: &Option<InputFileProvenance>,
-    b: &Option<InputFileProvenance>,
-) -> bool {
+fn optional_file_matches(a: &Option<InputFileProvenance>, b: &Option<InputFileProvenance>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => file_matches(a, b),
@@ -1088,11 +1085,13 @@ pub fn layer_artifact_provenance(
         digest.update(asset.file_name().unwrap_or_default().as_encoded_bytes());
         digest.update(bytes);
     }
-    output.semantic_sha256 = Some(digest
-        .finalize()
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>());
+    output.semantic_sha256 = Some(
+        digest
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>(),
+    );
     Ok(output)
 }
 

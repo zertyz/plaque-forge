@@ -3,8 +3,8 @@ mod typography;
 
 use std::{collections::HashMap, fs, path::Path};
 
-use anyhow::{bail, Context, Result};
-use image::{imageops::FilterType, GrayImage, ImageBuffer, Luma, RgbaImage};
+use anyhow::{Context, Result, bail};
+use image::{GrayImage, ImageBuffer, Luma, RgbaImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -378,28 +378,29 @@ fn render_to(
         // discrete character states, cached by state string, without recomputing scene analysis.
         let time_seconds = frame_index as f64 / info.fps.max(f64::EPSILON);
         let dynamic_key = style.dynamic_text(&dynamic_target, time_seconds);
-        if let Some(ref key) = dynamic_key {
-            if key != &dynamic_target && !dynamic_text_cache.contains_key(key) {
-                let rendered = typography::render(typography::RenderRequest {
-                    width: pack.manifest.canonical_width,
-                    height: pack.manifest.canonical_height,
-                    mask: &mask,
-                    text: key,
-                    font_path: &args.font,
-                    fit_mode: crate::application::FitMode::Fixed,
-                    requested_font_size: Some(text_render.metrics.font_size * 0.97),
-                    supersampling: args.supersampling,
-                    target_fill: args.target_fill,
-                    max_lines: args.max_lines,
-                    padding_ratio: args.padding,
-                    line_height_ratio: args.line_height,
-                    text_align: args.text_align,
-                    vertical_align: args.vertical_align,
-                    style: &style,
-                });
-                if let Ok(rendered) = rendered {
-                    dynamic_text_cache.insert(key.clone(), rendered);
-                }
+        if let Some(ref key) = dynamic_key
+            && key != &dynamic_target
+            && !dynamic_text_cache.contains_key(key)
+        {
+            let rendered = typography::render(typography::RenderRequest {
+                width: pack.manifest.canonical_width,
+                height: pack.manifest.canonical_height,
+                mask: &mask,
+                text: key,
+                font_path: &args.font,
+                fit_mode: crate::application::FitMode::Fixed,
+                requested_font_size: Some(text_render.metrics.font_size * 0.97),
+                supersampling: args.supersampling,
+                target_fill: args.target_fill,
+                max_lines: args.max_lines,
+                padding_ratio: args.padding,
+                line_height_ratio: args.line_height,
+                text_align: args.text_align,
+                vertical_align: args.vertical_align,
+                style: &style,
+            });
+            if let Ok(rendered) = rendered {
+                dynamic_text_cache.insert(key.clone(), rendered);
             }
         }
         let using_dynamic = dynamic_key
@@ -447,7 +448,9 @@ fn render_to(
                 frame_text.layer.height(),
                 time_seconds,
             )?;
-            if let Some(surface_layer) = style.surface_overlay(&canonical_plaque, &transformed_mask)? {
+            if let Some(surface_layer) =
+                style.surface_overlay(&canonical_plaque, &transformed_mask)?
+            {
                 frame.warp_blend(&surface_layer, plaque_quad, opacity)?;
             }
         }
@@ -586,13 +589,16 @@ fn render_to(
             .collect(),
     };
     let decision_trace_path = args.output.with_extension("decision-trace.json");
-    fs::write(&decision_trace_path, serde_json::to_vec_pretty(&decision_trace)?)
-        .with_context(|| {
-            format!(
-                "failed to write render decision trace {}",
-                decision_trace_path.display()
-            )
-        })?;
+    fs::write(
+        &decision_trace_path,
+        serde_json::to_vec_pretty(&decision_trace)?,
+    )
+    .with_context(|| {
+        format!(
+            "failed to write render decision trace {}",
+            decision_trace_path.display()
+        )
+    })?;
     let decision_trace_sha256 = crate::digest::file_sha256(&decision_trace_path)?;
 
     let manifest = RenderManifest {

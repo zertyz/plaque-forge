@@ -77,7 +77,9 @@ pub(super) fn glitch_surface(
     burst_fraction: f32,
     seed: u32,
 ) -> Surface {
-    let Some(bounds) = source.alpha_bounds() else { return source.clone(); };
+    let Some(bounds) = source.alpha_bounds() else {
+        return source.clone();
+    };
     let width = (bounds.2 - bounds.0 + 1).max(1) as f32;
     let height = (bounds.3 - bounds.1 + 1).max(1) as f32;
     let phase = (time_seconds / period_seconds as f64).rem_euclid(1.0) as f32;
@@ -87,17 +89,26 @@ pub(super) fn glitch_surface(
     let max_slice = width * slice_ratio;
     let mut out = Surface::new(source.width(), source.height());
     for y in 0..source.height() {
-        let ny = if height > 0.0 { (y as f32 - bounds.1 as f32) / height } else { 0.0 };
-        let gentle = ripple * (ny * std::f32::consts::TAU * 3.0 + phase * std::f32::consts::TAU).sin();
-        let band = (y / 7) as u32;
+        let ny = if height > 0.0 {
+            (y as f32 - bounds.1 as f32) / height
+        } else {
+            0.0
+        };
+        let gentle =
+            ripple * (ny * std::f32::consts::TAU * 3.0 + phase * std::f32::consts::TAU).sin();
+        let band = y / 7;
         let h = hash3(seed ^ tick, band, 0);
         let slice = if burst && (h & 0x7) <= 2 {
             (((h >> 8) & 0xffff) as f32 / 65535.0 * 2.0 - 1.0) * max_slice
-        } else { 0.0 };
+        } else {
+            0.0
+        };
         let shift = gentle + slice;
         for x in 0..source.width() {
             let sx = (x as f32 - shift).round() as i32;
-            if sx < 0 || sx >= source.width() as i32 { continue; }
+            if sx < 0 || sx >= source.width() as i32 {
+                continue;
+            }
             let mut p = source.pixel(sx as u32, y);
             if burst && slice.abs() > 0.5 {
                 // Small deterministic channel skew keeps the distortion visibly "glitch" rather
@@ -195,10 +206,15 @@ pub(super) fn paint_texture(
             let nx = (x - bounds.0) as f32 / bw;
             let ny = (y - bounds.1) as f32 / bh;
             let (u, v) = if tile {
-                ((nx / scale + offset_x).rem_euclid(1.0), (ny / scale + offset_y).rem_euclid(1.0))
+                (
+                    (nx / scale + offset_x).rem_euclid(1.0),
+                    (ny / scale + offset_y).rem_euclid(1.0),
+                )
             } else {
-                (((nx - 0.5) / scale + 0.5 + offset_x).clamp(0.0, 1.0),
-                 ((ny - 0.5) / scale + 0.5 + offset_y).clamp(0.0, 1.0))
+                (
+                    ((nx - 0.5) / scale + 0.5 + offset_x).clamp(0.0, 1.0),
+                    ((ny - 0.5) / scale + 0.5 + offset_y).clamp(0.0, 1.0),
+                )
             };
             let sx = (u * texture.width().saturating_sub(1) as f32).round() as u32;
             let sy = (v * texture.height().saturating_sub(1) as f32).round() as u32;
@@ -263,7 +279,11 @@ pub(super) fn paint_paper(
             let noise = (h & 0xff) as f32 / 255.0;
             let fiber = (((x as f32 * 0.14).sin() + (y as f32 * 0.47).cos()) * 0.5 + 0.5) * 0.22;
             let t = (noise * 0.65 + fiber).clamp(0.0, 1.0);
-            let mut c = if t < 0.6 { mix(light, mid, t / 0.6) } else { mix(mid, dark, (t - 0.6) / 0.4) };
+            let mut c = if t < 0.6 {
+                mix(light, mid, t / 0.6)
+            } else {
+                mix(mid, dark, (t - 0.6) / 0.4)
+            };
             c.a = ((c.a as u16 * coverage as u16 + 127) / 255) as u8;
             out.set_pixel(x, y, c);
         }
@@ -305,7 +325,16 @@ pub(super) fn laser_burn_overlay(
                 g *= 1.0 - char;
                 b *= 1.0 - char;
             }
-            out.set_pixel(x as u32, y as u32, Rgba::new(r.clamp(0.0,255.0) as u8, g.clamp(0.0,255.0) as u8, b.clamp(0.0,255.0) as u8, ((ink.max(rim) * 255.0).round()) as u8));
+            out.set_pixel(
+                x as u32,
+                y as u32,
+                Rgba::new(
+                    r.clamp(0.0, 255.0) as u8,
+                    g.clamp(0.0, 255.0) as u8,
+                    b.clamp(0.0, 255.0) as u8,
+                    ((ink.max(rim) * 255.0).round()) as u8,
+                ),
+            );
         }
     }
     Ok(out)
@@ -323,7 +352,9 @@ pub(super) fn emboss_overlay(
     validate_mask(plaque, glyph_mask)?;
     let w = plaque.width() as usize;
     let h = plaque.height() as usize;
-    let angle = light_angle_degrees.unwrap_or_else(|| estimate_light_angle(plaque)).to_radians();
+    let angle = light_angle_degrees
+        .unwrap_or_else(|| estimate_light_angle(plaque))
+        .to_radians();
     let lx = angle.cos();
     let ly = angle.sin();
     let mut out = Surface::new(plaque.width(), plaque.height());
@@ -334,8 +365,20 @@ pub(super) fn emboss_overlay(
         for y in 0..h {
             for x in 0..w {
                 let a = glyph_mask[y * w + x];
-                if a == 0 { continue; }
-                out.blend_pixel(x as i32 + cast_dx, y as i32 + cast_dy, Rgba::new(0,0,0, (a as f32 * shadow_strength.clamp(0.0,1.0) * 0.55) as u8), 1.0);
+                if a == 0 {
+                    continue;
+                }
+                out.blend_pixel(
+                    x as i32 + cast_dx,
+                    y as i32 + cast_dy,
+                    Rgba::new(
+                        0,
+                        0,
+                        0,
+                        (a as f32 * shadow_strength.clamp(0.0, 1.0) * 0.55) as u8,
+                    ),
+                    1.0,
+                );
             }
         }
     }
@@ -344,36 +387,40 @@ pub(super) fn emboss_overlay(
         for x in 0..w {
             let i = y * w + x;
             let a = glyph_mask[i] as f32 / 255.0;
-            if a <= 0.0 { continue; }
-            let left = sample_mask(glyph_mask,w,h,x as i32-1,y as i32) as f32 / 255.0;
-            let right = sample_mask(glyph_mask,w,h,x as i32+1,y as i32) as f32 / 255.0;
-            let up = sample_mask(glyph_mask,w,h,x as i32,y as i32-1) as f32 / 255.0;
-            let down = sample_mask(glyph_mask,w,h,x as i32,y as i32+1) as f32 / 255.0;
+            if a <= 0.0 {
+                continue;
+            }
+            let left = sample_mask(glyph_mask, w, h, x as i32 - 1, y as i32) as f32 / 255.0;
+            let right = sample_mask(glyph_mask, w, h, x as i32 + 1, y as i32) as f32 / 255.0;
+            let up = sample_mask(glyph_mask, w, h, x as i32, y as i32 - 1) as f32 / 255.0;
+            let down = sample_mask(glyph_mask, w, h, x as i32, y as i32 + 1) as f32 / 255.0;
             let nx = (left - right) * depth.max(0.0) * 4.0;
             let ny = (up - down) * depth.max(0.0) * 4.0;
-            let diffuse = (nx * lx + ny * ly).clamp(-1.0,1.0);
-            let p = plaque.pixel(x as u32,y as u32);
+            let diffuse = (nx * lx + ny * ly).clamp(-1.0, 1.0);
+            let p = plaque.pixel(x as u32, y as u32);
             let factor = if diffuse >= 0.0 {
-                1.0 + diffuse * highlight_strength.clamp(0.0,1.5)
+                1.0 + diffuse * highlight_strength.clamp(0.0, 1.5)
             } else {
-                1.0 + diffuse * shadow_strength.clamp(0.0,1.5)
+                1.0 + diffuse * shadow_strength.clamp(0.0, 1.5)
             };
-            let r=(p.r as f32*factor).clamp(0.0,255.0) as u8;
-            let g=(p.g as f32*factor).clamp(0.0,255.0) as u8;
-            let b=(p.b as f32*factor).clamp(0.0,255.0) as u8;
-            out.set_pixel(x as u32,y as u32,Rgba::new(r,g,b,(a*255.0) as u8));
+            let r = (p.r as f32 * factor).clamp(0.0, 255.0) as u8;
+            let g = (p.g as f32 * factor).clamp(0.0, 255.0) as u8;
+            let b = (p.b as f32 * factor).clamp(0.0, 255.0) as u8;
+            out.set_pixel(x as u32, y as u32, Rgba::new(r, g, b, (a * 255.0) as u8));
         }
     }
     Ok(out)
 }
 
 fn estimate_light_angle(plaque: &Surface) -> f32 {
-    if plaque.width() < 3 || plaque.height() < 3 { return 315.0; }
+    if plaque.width() < 3 || plaque.height() < 3 {
+        return 315.0;
+    }
     let mut gx = 0.0_f64;
     let mut gy = 0.0_f64;
     let mut samples = 0_u64;
-    for y in (1..plaque.height()-1).step_by(3) {
-        for x in (1..plaque.width()-1).step_by(3) {
+    for y in (1..plaque.height() - 1).step_by(3) {
+        for x in (1..plaque.width() - 1).step_by(3) {
             let l = luminance(plaque.pixel(x - 1, y));
             let r = luminance(plaque.pixel(x + 1, y));
             let u = luminance(plaque.pixel(x, y - 1));
@@ -383,7 +430,11 @@ fn estimate_light_angle(plaque: &Surface) -> f32 {
             samples += 1;
         }
     }
-    if samples == 0 || (gx.abs() + gy.abs()) < 1e-6 { 315.0 } else { gy.atan2(gx).to_degrees() as f32 }
+    if samples == 0 || (gx.abs() + gy.abs()) < 1e-6 {
+        315.0
+    } else {
+        gy.atan2(gx).to_degrees() as f32
+    }
 }
 
 fn luminance(color: Rgba) -> f64 {
@@ -398,25 +449,39 @@ fn validate_mask(surface: &Surface, mask: &[u8]) -> Result<()> {
 }
 
 fn dilate(source: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
-    if radius == 0 { return source.to_vec(); }
-    let mut out=vec![0u8;source.len()];
+    if radius == 0 {
+        return source.to_vec();
+    }
+    let mut out = vec![0u8; source.len()];
     for y in 0..height {
         for x in 0..width {
-            let mut m=0u8;
+            let mut m = 0u8;
             for oy in -(radius as i32)..=radius as i32 {
                 for ox in -(radius as i32)..=radius as i32 {
-                    if ox*ox+oy*oy > (radius*radius) as i32 { continue; }
-                    m=m.max(sample_mask(source,width,height,x as i32+ox,y as i32+oy));
+                    if ox * ox + oy * oy > (radius * radius) as i32 {
+                        continue;
+                    }
+                    m = m.max(sample_mask(
+                        source,
+                        width,
+                        height,
+                        x as i32 + ox,
+                        y as i32 + oy,
+                    ));
                 }
             }
-            out[y*width+x]=m;
+            out[y * width + x] = m;
         }
     }
     out
 }
 
-fn sample_mask(source:&[u8],width:usize,height:usize,x:i32,y:i32)->u8{
-    if x<0||y<0||x>=width as i32||y>=height as i32{0}else{source[y as usize*width+x as usize]}
+fn sample_mask(source: &[u8], width: usize, height: usize, x: i32, y: i32) -> u8 {
+    if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+        0
+    } else {
+        source[y as usize * width + x as usize]
+    }
 }
 
 fn splat(output: &mut Surface, x: f32, y: f32, pixel: Rgba) {
@@ -436,7 +501,9 @@ fn splat(output: &mut Surface, x: f32, y: f32, pixel: Rgba) {
     }
 }
 
-fn smoothstep(t: f32) -> f32 { t * t * (3.0 - 2.0 * t) }
+fn smoothstep(t: f32) -> f32 {
+    t * t * (3.0 - 2.0 * t)
+}
 
 fn hash3(seed: u32, x: u32, y: u32) -> u32 {
     let mut h = seed ^ x.wrapping_mul(0x9E37_79B9) ^ y.wrapping_mul(0x85EB_CA6B);
@@ -447,10 +514,14 @@ fn hash3(seed: u32, x: u32, y: u32) -> u32 {
     h ^ (h >> 16)
 }
 
-fn mix(a:Rgba,b:Rgba,t:f32)->Rgba{
-    let t=t.clamp(0.0,1.0);
-    let c=|x:u8,y:u8| (x as f32+(y as f32-x as f32)*t).round().clamp(0.0,255.0) as u8;
-    Rgba::new(c(a.r,b.r),c(a.g,b.g),c(a.b,b.b),c(a.a,b.a))
+fn mix(a: Rgba, b: Rgba, t: f32) -> Rgba {
+    let t = t.clamp(0.0, 1.0);
+    let c = |x: u8, y: u8| {
+        (x as f32 + (y as f32 - x as f32) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    Rgba::new(c(a.r, b.r), c(a.g, b.g), c(a.b, b.b), c(a.a, b.a))
 }
 
 #[cfg(test)]
@@ -500,6 +571,9 @@ mod tests {
         let source = plaque.pixel(2, 2);
         let burned = burn.pixel(2, 2);
         assert!(burned.a > 0);
-        assert_ne!((burned.r, burned.g, burned.b), (source.r, source.g, source.b));
+        assert_ne!(
+            (burned.r, burned.g, burned.b),
+            (source.r, source.g, source.b)
+        );
     }
 }

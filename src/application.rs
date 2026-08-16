@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 
 use crate::infrastructure::CommandExecutor;
 use crate::writable_region::ResolvedWritableRegion;

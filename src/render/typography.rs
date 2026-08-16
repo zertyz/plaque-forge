@@ -691,10 +691,7 @@ fn position_candidate_alpha(
     Ok((high_resolution, candidate))
 }
 
-fn apply_layout_transform(
-    context: &TypographyContext<'_>,
-    high_alpha: Vec<u8>,
-) -> Result<Vec<u8>> {
+fn apply_layout_transform(context: &TypographyContext<'_>, high_alpha: Vec<u8>) -> Result<Vec<u8>> {
     let high = Surface::from_alpha_mask(
         context.width * context.supersampling,
         context.height * context.supersampling,

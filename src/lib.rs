@@ -31,9 +31,9 @@
 use anyhow::Result;
 use clap::Parser;
 
-pub mod application;
 mod analysis;
 mod analyze;
+pub mod application;
 mod build_info;
 mod cli;
 mod color;

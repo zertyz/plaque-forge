@@ -4,7 +4,10 @@
 //! coverage, which lets static material/effect work be cached while animations such as a
 //! moving shine reevaluate only presentation state.
 
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -764,40 +767,108 @@ fn default_dissolve_seed() -> u32 {
     0x504C_4151
 }
 
-fn default_arc_sweep() -> f32 { 58.0 }
-fn default_arc_radius_scale() -> f32 { 1.0 }
-fn default_texture_scale() -> f32 { 1.0 }
-fn default_blueprint_dark() -> String { "#082E5EFF".to_string() }
-fn default_blueprint_light() -> String { "#5FD8FFFF".to_string() }
-fn default_blueprint_grid() -> String { "#D7F6FFB8".to_string() }
-fn default_blueprint_cell() -> u32 { 8 }
-fn default_paper_light() -> String { "#FFF3D2FF".to_string() }
-fn default_paper_mid() -> String { "#D6B988FF".to_string() }
-fn default_paper_dark() -> String { "#7B5B38FF".to_string() }
-fn default_paper_seed() -> u32 { 0x5041_5045 }
-fn default_laser_depth() -> f32 { 0.72 }
-fn default_laser_warmth() -> f32 { 0.65 }
-fn default_laser_edge_width() -> u32 { 2 }
-fn default_surface_seed() -> u32 { 0x4255_524E }
-fn default_emboss_depth() -> f32 { 0.65 }
-fn default_emboss_highlight() -> f32 { 0.72 }
-fn default_emboss_shadow() -> f32 { 0.68 }
-fn default_emboss_cast_shadow() -> u32 { 2 }
-fn default_scramble_period() -> f32 { 3.8 }
-fn default_split_flap_period() -> f32 { 4.2 }
-fn default_character_steps() -> f32 { 14.0 }
-fn default_scramble_seed() -> u32 { 0x5343_524D }
-fn default_confetti_period() -> f32 { 4.4 }
-fn default_confetti_pieces() -> u32 { 720 }
-fn default_confetti_spread() -> f32 { 0.48 }
-fn default_confetti_seed() -> u32 { 0x434F_4E46 }
-fn default_glitch_period() -> f32 { 2.6 }
-fn default_glitch_ripple() -> f32 { 0.018 }
-fn default_glitch_slice() -> f32 { 0.085 }
-fn default_glitch_burst() -> f32 { 0.20 }
-fn default_glitch_seed() -> u32 { 0x474C_4954 }
-fn default_orbit_period() -> f32 { 8.0 }
-fn default_orbit_degrees() -> f32 { 360.0 }
+fn default_arc_sweep() -> f32 {
+    58.0
+}
+fn default_arc_radius_scale() -> f32 {
+    1.0
+}
+fn default_texture_scale() -> f32 {
+    1.0
+}
+fn default_blueprint_dark() -> String {
+    "#082E5EFF".to_string()
+}
+fn default_blueprint_light() -> String {
+    "#5FD8FFFF".to_string()
+}
+fn default_blueprint_grid() -> String {
+    "#D7F6FFB8".to_string()
+}
+fn default_blueprint_cell() -> u32 {
+    8
+}
+fn default_paper_light() -> String {
+    "#FFF3D2FF".to_string()
+}
+fn default_paper_mid() -> String {
+    "#D6B988FF".to_string()
+}
+fn default_paper_dark() -> String {
+    "#7B5B38FF".to_string()
+}
+fn default_paper_seed() -> u32 {
+    0x5041_5045
+}
+fn default_laser_depth() -> f32 {
+    0.72
+}
+fn default_laser_warmth() -> f32 {
+    0.65
+}
+fn default_laser_edge_width() -> u32 {
+    2
+}
+fn default_surface_seed() -> u32 {
+    0x4255_524E
+}
+fn default_emboss_depth() -> f32 {
+    0.65
+}
+fn default_emboss_highlight() -> f32 {
+    0.72
+}
+fn default_emboss_shadow() -> f32 {
+    0.68
+}
+fn default_emboss_cast_shadow() -> u32 {
+    2
+}
+fn default_scramble_period() -> f32 {
+    3.8
+}
+fn default_split_flap_period() -> f32 {
+    4.2
+}
+fn default_character_steps() -> f32 {
+    14.0
+}
+fn default_scramble_seed() -> u32 {
+    0x5343_524D
+}
+fn default_confetti_period() -> f32 {
+    4.4
+}
+fn default_confetti_pieces() -> u32 {
+    720
+}
+fn default_confetti_spread() -> f32 {
+    0.48
+}
+fn default_confetti_seed() -> u32 {
+    0x434F_4E46
+}
+fn default_glitch_period() -> f32 {
+    2.6
+}
+fn default_glitch_ripple() -> f32 {
+    0.018
+}
+fn default_glitch_slice() -> f32 {
+    0.085
+}
+fn default_glitch_burst() -> f32 {
+    0.20
+}
+fn default_glitch_seed() -> u32 {
+    0x474C_4954
+}
+fn default_orbit_period() -> f32 {
+    8.0
+}
+fn default_orbit_degrees() -> f32 {
+    360.0
+}
 
 impl Style {
     pub fn has_frame_variation(&self) -> bool {
@@ -894,7 +965,10 @@ impl Style {
         let uses_v2_features = parsed.material.is_some()
             || !parsed.animations.is_empty()
             || parsed.effects.iter().any(|effect| {
-                matches!(effect, EffectFile::Extrude { .. } | EffectFile::Bevel { .. })
+                matches!(
+                    effect,
+                    EffectFile::Extrude { .. } | EffectFile::Bevel { .. }
+                )
             });
         let uses_v3_features = matches!(
             parsed.material.as_ref(),
@@ -949,10 +1023,14 @@ impl Style {
             );
         }
         if parsed.version < 3 && uses_v3_features {
-            bail!("text style uses advanced material/effect/animation features that require version >= 3");
+            bail!(
+                "text style uses advanced material/effect/animation features that require version >= 3"
+            );
         }
         if parsed.version < 4 && uses_v4_features {
-            bail!("text style uses layout, texture, character, particle, or plaque-surface features that require version = 4");
+            bail!(
+                "text style uses layout, texture, character, particle, or plaque-surface features that require version = 4"
+            );
         }
         if parsed.fill.is_some() && parsed.material.is_some() {
             bail!("style must declare either fill or material, not both");
@@ -968,7 +1046,12 @@ impl Style {
                 top: Rgba::parse(&top).context("invalid gradient top color")?,
                 bottom: Rgba::parse(&bottom).context("invalid gradient bottom color")?,
             },
-            Some(MaterialFile::Gold { dark, mid, light, highlight }) => FillStyle::Gold {
+            Some(MaterialFile::Gold {
+                dark,
+                mid,
+                light,
+                highlight,
+            }) => FillStyle::Gold {
                 dark: Rgba::parse(&dark).context("invalid gold dark color")?,
                 mid: Rgba::parse(&mid).context("invalid gold mid color")?,
                 light: Rgba::parse(&light).context("invalid gold light color")?,
@@ -995,7 +1078,11 @@ impl Style {
                 mid: Rgba::parse(&mid).context("invalid nebula mid color")?,
                 light: Rgba::parse(&light).context("invalid nebula light color")?,
             },
-            Some(MaterialFile::Liquid { first, second, frequency }) => {
+            Some(MaterialFile::Liquid {
+                first,
+                second,
+                frequency,
+            }) => {
                 if !(0.25..=20.0).contains(&frequency) {
                     bail!("liquid material frequency must be between 0.25 and 20");
                 }
@@ -1005,7 +1092,11 @@ impl Style {
                     frequency,
                 }
             }
-            Some(MaterialFile::Halftone { foreground, background, cell }) => {
+            Some(MaterialFile::Halftone {
+                foreground,
+                background,
+                cell,
+            }) => {
                 if !(2..=64).contains(&cell) {
                     bail!("halftone material cell must be between 2 and 64 pixels");
                 }
@@ -1015,11 +1106,21 @@ impl Style {
                     cell,
                 }
             }
-            Some(MaterialFile::ImageTexture { path: texture_path, tile, scale, offset_x, offset_y }) => {
-                if !(0.05..=20.0).contains(&scale) || !offset_x.is_finite() || !offset_y.is_finite() {
+            Some(MaterialFile::ImageTexture {
+                path: texture_path,
+                tile,
+                scale,
+                offset_x,
+                offset_y,
+            }) => {
+                if !(0.05..=20.0).contains(&scale) || !offset_x.is_finite() || !offset_y.is_finite()
+                {
                     bail!("image-texture scale must be 0.05..20 and offsets must be finite");
                 }
-                let resolved = path.parent().unwrap_or_else(|| Path::new(".")).join(&texture_path);
+                let resolved = path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(&texture_path);
                 let image = image::open(&resolved)
                     .with_context(|| format!("failed to load text texture {}", resolved.display()))?
                     .to_rgba8();
@@ -1035,7 +1136,12 @@ impl Style {
                 });
                 FillStyle::Flat(Rgba::new(255, 255, 255, 255))
             }
-            Some(MaterialFile::Blueprint { dark, light, grid, cell }) => {
+            Some(MaterialFile::Blueprint {
+                dark,
+                light,
+                grid,
+                cell,
+            }) => {
                 if !(3..=64).contains(&cell) {
                     bail!("blueprint cell must be between 3 and 64 pixels");
                 }
@@ -1046,7 +1152,12 @@ impl Style {
                     cell,
                 }
             }
-            Some(MaterialFile::Paper { light, mid, dark, seed }) => FillStyle::Paper {
+            Some(MaterialFile::Paper {
+                light,
+                mid,
+                dark,
+                seed,
+            }) => FillStyle::Paper {
                 light: Rgba::parse(&light).context("invalid paper light color")?,
                 mid: Rgba::parse(&mid).context("invalid paper mid color")?,
                 dark: Rgba::parse(&dark).context("invalid paper dark color")?,
@@ -1057,14 +1168,20 @@ impl Style {
         let mut layouts = Vec::new();
         for layout in parsed.layouts {
             match layout {
-                LayoutFile::Arc { sweep_degrees, radius_scale } => {
+                LayoutFile::Arc {
+                    sweep_degrees,
+                    radius_scale,
+                } => {
                     if !sweep_degrees.is_finite() || !(1.0..=330.0).contains(&sweep_degrees.abs()) {
                         bail!("arc sweep_degrees magnitude must be between 1 and 330");
                     }
                     if !(0.2..=5.0).contains(&radius_scale) {
                         bail!("arc radius_scale must be between 0.2 and 5");
                     }
-                    layouts.push(LayoutEffect::Arc { sweep_degrees, radius_scale });
+                    layouts.push(LayoutEffect::Arc {
+                        sweep_degrees,
+                        radius_scale,
+                    });
                 }
             }
         }
@@ -1074,40 +1191,120 @@ impl Style {
         for effect in parsed.effects {
             match effect {
                 EffectFile::Stroke { width, color } => {
-                    if !(0.0..=0.20).contains(&width) { bail!("style stroke width must be between 0 and 0.20"); }
-                    underlays.push(MaskEffect::Stroke { width_ratio: width, color: Rgba::parse(&color).context("invalid style stroke color")? });
+                    if !(0.0..=0.20).contains(&width) {
+                        bail!("style stroke width must be between 0 and 0.20");
+                    }
+                    underlays.push(MaskEffect::Stroke {
+                        width_ratio: width,
+                        color: Rgba::parse(&color).context("invalid style stroke color")?,
+                    });
                 }
                 EffectFile::Glow { radius, color } => {
-                    if radius > 64 { bail!("style glow radius must be between 0 and 64"); }
-                    underlays.push(MaskEffect::Glow { radius, color: Rgba::parse(&color).context("invalid style glow color")? });
+                    if radius > 64 {
+                        bail!("style glow radius must be between 0 and 64");
+                    }
+                    underlays.push(MaskEffect::Glow {
+                        radius,
+                        color: Rgba::parse(&color).context("invalid style glow color")?,
+                    });
                 }
-                EffectFile::Shadow { offset_x, offset_y, blur_radius, color } => {
-                    if !(-0.50..=0.50).contains(&offset_x) || !(-0.50..=0.50).contains(&offset_y) { bail!("style shadow offsets must be between -0.50 and 0.50"); }
-                    if blur_radius > 64 { bail!("style shadow blur radius must be between 0 and 64"); }
-                    underlays.push(MaskEffect::Shadow { offset_x_ratio: offset_x, offset_y_ratio: offset_y, blur_radius, color: Rgba::parse(&color).context("invalid style shadow color")? });
+                EffectFile::Shadow {
+                    offset_x,
+                    offset_y,
+                    blur_radius,
+                    color,
+                } => {
+                    if !(-0.50..=0.50).contains(&offset_x) || !(-0.50..=0.50).contains(&offset_y) {
+                        bail!("style shadow offsets must be between -0.50 and 0.50");
+                    }
+                    if blur_radius > 64 {
+                        bail!("style shadow blur radius must be between 0 and 64");
+                    }
+                    underlays.push(MaskEffect::Shadow {
+                        offset_x_ratio: offset_x,
+                        offset_y_ratio: offset_y,
+                        blur_radius,
+                        color: Rgba::parse(&color).context("invalid style shadow color")?,
+                    });
                 }
-                EffectFile::Extrude { depth, angle_degrees, color } => {
-                    if !(0.0..=0.35).contains(&depth) { bail!("style extrude depth must be between 0 and 0.35"); }
-                    if !angle_degrees.is_finite() { bail!("style extrude angle must be finite"); }
-                    underlays.push(MaskEffect::Extrude { depth_ratio: depth, angle_degrees, color: Rgba::parse(&color).context("invalid style extrude color")? });
+                EffectFile::Extrude {
+                    depth,
+                    angle_degrees,
+                    color,
+                } => {
+                    if !(0.0..=0.35).contains(&depth) {
+                        bail!("style extrude depth must be between 0 and 0.35");
+                    }
+                    if !angle_degrees.is_finite() {
+                        bail!("style extrude angle must be finite");
+                    }
+                    underlays.push(MaskEffect::Extrude {
+                        depth_ratio: depth,
+                        angle_degrees,
+                        color: Rgba::parse(&color).context("invalid style extrude color")?,
+                    });
                 }
-                EffectFile::Bevel { width, highlight, shadow } => {
-                    if !(0.0..=0.20).contains(&width) { bail!("style bevel width must be between 0 and 0.20"); }
-                    overlays.push(OverlayEffect::Bevel { width_ratio: width, highlight: Rgba::parse(&highlight).context("invalid style bevel highlight color")?, shadow: Rgba::parse(&shadow).context("invalid style bevel shadow color")? });
+                EffectFile::Bevel {
+                    width,
+                    highlight,
+                    shadow,
+                } => {
+                    if !(0.0..=0.20).contains(&width) {
+                        bail!("style bevel width must be between 0 and 0.20");
+                    }
+                    overlays.push(OverlayEffect::Bevel {
+                        width_ratio: width,
+                        highlight: Rgba::parse(&highlight)
+                            .context("invalid style bevel highlight color")?,
+                        shadow: Rgba::parse(&shadow).context("invalid style bevel shadow color")?,
+                    });
                 }
-                EffectFile::Letterpress { width, highlight, shadow } => {
-                    if !(0.0..=0.20).contains(&width) { bail!("style letterpress width must be between 0 and 0.20"); }
-                    overlays.push(OverlayEffect::Letterpress { width_ratio: width, highlight: Rgba::parse(&highlight).context("invalid letterpress highlight color")?, shadow: Rgba::parse(&shadow).context("invalid letterpress shadow color")? });
+                EffectFile::Letterpress {
+                    width,
+                    highlight,
+                    shadow,
+                } => {
+                    if !(0.0..=0.20).contains(&width) {
+                        bail!("style letterpress width must be between 0 and 0.20");
+                    }
+                    overlays.push(OverlayEffect::Letterpress {
+                        width_ratio: width,
+                        highlight: Rgba::parse(&highlight)
+                            .context("invalid letterpress highlight color")?,
+                        shadow: Rgba::parse(&shadow).context("invalid letterpress shadow color")?,
+                    });
                 }
                 EffectFile::ChromaticSplit { offset, red, cyan } => {
-                    if !(0.0..=0.25).contains(&offset) { bail!("chromatic-split offset must be between 0 and 0.25"); }
-                    underlays.push(MaskEffect::ChromaticSplit { offset_ratio: offset, red: Rgba::parse(&red).context("invalid chromatic red color")?, cyan: Rgba::parse(&cyan).context("invalid chromatic cyan color")? });
+                    if !(0.0..=0.25).contains(&offset) {
+                        bail!("chromatic-split offset must be between 0 and 0.25");
+                    }
+                    underlays.push(MaskEffect::ChromaticSplit {
+                        offset_ratio: offset,
+                        red: Rgba::parse(&red).context("invalid chromatic red color")?,
+                        cyan: Rgba::parse(&cyan).context("invalid chromatic cyan color")?,
+                    });
                 }
-                EffectFile::Trail { distance, copies, angle_degrees, color } => {
-                    if !(0.0..=0.75).contains(&distance) { bail!("trail distance must be between 0 and 0.75"); }
-                    if !(1..=32).contains(&copies) { bail!("trail copies must be between 1 and 32"); }
-                    if !angle_degrees.is_finite() { bail!("trail angle must be finite"); }
-                    underlays.push(MaskEffect::Trail { distance_ratio: distance, copies, angle_degrees, color: Rgba::parse(&color).context("invalid trail color")? });
+                EffectFile::Trail {
+                    distance,
+                    copies,
+                    angle_degrees,
+                    color,
+                } => {
+                    if !(0.0..=0.75).contains(&distance) {
+                        bail!("trail distance must be between 0 and 0.75");
+                    }
+                    if !(1..=32).contains(&copies) {
+                        bail!("trail copies must be between 1 and 32");
+                    }
+                    if !angle_degrees.is_finite() {
+                        bail!("trail angle must be finite");
+                    }
+                    underlays.push(MaskEffect::Trail {
+                        distance_ratio: distance,
+                        copies,
+                        angle_degrees,
+                        color: Rgba::parse(&color).context("invalid trail color")?,
+                    });
                 }
             }
         }
@@ -1115,17 +1312,47 @@ impl Style {
         let mut surface_effects = Vec::new();
         for effect in parsed.surface_effects {
             surface_effects.push(match effect {
-                SurfaceEffectFile::LaserBurn { depth, warmth, edge_width, seed } => {
-                    if !(0.0..=1.0).contains(&depth) || !(0.0..=1.0).contains(&warmth) || edge_width > 24 {
+                SurfaceEffectFile::LaserBurn {
+                    depth,
+                    warmth,
+                    edge_width,
+                    seed,
+                } => {
+                    if !(0.0..=1.0).contains(&depth)
+                        || !(0.0..=1.0).contains(&warmth)
+                        || edge_width > 24
+                    {
                         bail!("laser-burn depth/warmth must be 0..1 and edge_width <= 24");
                     }
-                    SurfaceEffect::LaserBurn { depth, warmth, edge_width, seed }
+                    SurfaceEffect::LaserBurn {
+                        depth,
+                        warmth,
+                        edge_width,
+                        seed,
+                    }
                 }
-                SurfaceEffectFile::Emboss { depth, highlight_strength, shadow_strength, light_angle_degrees, cast_shadow } => {
-                    if !(0.0..=2.0).contains(&depth) || !(0.0..=1.5).contains(&highlight_strength) || !(0.0..=1.5).contains(&shadow_strength) || light_angle_degrees.is_some_and(|angle| !angle.is_finite()) || cast_shadow > 32 {
+                SurfaceEffectFile::Emboss {
+                    depth,
+                    highlight_strength,
+                    shadow_strength,
+                    light_angle_degrees,
+                    cast_shadow,
+                } => {
+                    if !(0.0..=2.0).contains(&depth)
+                        || !(0.0..=1.5).contains(&highlight_strength)
+                        || !(0.0..=1.5).contains(&shadow_strength)
+                        || light_angle_degrees.is_some_and(|angle| !angle.is_finite())
+                        || cast_shadow > 32
+                    {
                         bail!("emboss parameters are outside their supported ranges");
                     }
-                    SurfaceEffect::Emboss { depth, highlight_strength, shadow_strength, light_angle_degrees, cast_shadow }
+                    SurfaceEffect::Emboss {
+                        depth,
+                        highlight_strength,
+                        shadow_strength,
+                        light_angle_degrees,
+                        cast_shadow,
+                    }
                 }
             });
         }
@@ -1190,33 +1417,120 @@ impl Style {
             });
         }
 
-        Ok(Self { fill, texture, layouts, underlays, overlays, surface_effects, animations })
+        Ok(Self {
+            fill,
+            texture,
+            layouts,
+            underlays,
+            overlays,
+            surface_effects,
+            animations,
+        })
     }
 
     pub fn describe(&self) -> String {
         let mut parts = vec![match self.fill {
             FillStyle::Flat(color) => format!("fill={}", format_color(color)),
-            FillStyle::LinearGradient { top, bottom } => format!("linear-gradient(top={},bottom={})", format_color(top), format_color(bottom)),
-            FillStyle::Gold { dark, mid, light, highlight } => format!("gold(dark={},mid={},light={},highlight={})", format_color(dark), format_color(mid), format_color(light), format_color(highlight)),
-            FillStyle::Chrome { dark, mid, light } => format!("chrome(dark={},mid={},light={})", format_color(dark), format_color(mid), format_color(light)),
+            FillStyle::LinearGradient { top, bottom } => format!(
+                "linear-gradient(top={},bottom={})",
+                format_color(top),
+                format_color(bottom)
+            ),
+            FillStyle::Gold {
+                dark,
+                mid,
+                light,
+                highlight,
+            } => format!(
+                "gold(dark={},mid={},light={},highlight={})",
+                format_color(dark),
+                format_color(mid),
+                format_color(light),
+                format_color(highlight)
+            ),
+            FillStyle::Chrome { dark, mid, light } => format!(
+                "chrome(dark={},mid={},light={})",
+                format_color(dark),
+                format_color(mid),
+                format_color(light)
+            ),
             FillStyle::Holographic => "holographic".to_string(),
-            FillStyle::Fire { dark, mid, light } => format!("fire(dark={},mid={},light={})", format_color(dark), format_color(mid), format_color(light)),
-            FillStyle::Ice { dark, mid, light } => format!("ice(dark={},mid={},light={})", format_color(dark), format_color(mid), format_color(light)),
-            FillStyle::Nebula { dark, mid, light } => format!("nebula(dark={},mid={},light={})", format_color(dark), format_color(mid), format_color(light)),
-            FillStyle::Liquid { first, second, frequency } => format!("liquid(first={},second={},frequency={frequency:.3})", format_color(first), format_color(second)),
-            FillStyle::Halftone { foreground, background, cell } => format!("halftone(foreground={},background={},cell={cell})", format_color(foreground), format_color(background)),
-            FillStyle::Blueprint { dark, light, grid, cell } => format!("blueprint(dark={},light={},grid={},cell={cell})", format_color(dark), format_color(light), format_color(grid)),
-            FillStyle::Paper { light, mid, dark, seed } => format!("paper(light={},mid={},dark={},seed={seed})", format_color(light), format_color(mid), format_color(dark)),
+            FillStyle::Fire { dark, mid, light } => format!(
+                "fire(dark={},mid={},light={})",
+                format_color(dark),
+                format_color(mid),
+                format_color(light)
+            ),
+            FillStyle::Ice { dark, mid, light } => format!(
+                "ice(dark={},mid={},light={})",
+                format_color(dark),
+                format_color(mid),
+                format_color(light)
+            ),
+            FillStyle::Nebula { dark, mid, light } => format!(
+                "nebula(dark={},mid={},light={})",
+                format_color(dark),
+                format_color(mid),
+                format_color(light)
+            ),
+            FillStyle::Liquid {
+                first,
+                second,
+                frequency,
+            } => format!(
+                "liquid(first={},second={},frequency={frequency:.3})",
+                format_color(first),
+                format_color(second)
+            ),
+            FillStyle::Halftone {
+                foreground,
+                background,
+                cell,
+            } => format!(
+                "halftone(foreground={},background={},cell={cell})",
+                format_color(foreground),
+                format_color(background)
+            ),
+            FillStyle::Blueprint {
+                dark,
+                light,
+                grid,
+                cell,
+            } => format!(
+                "blueprint(dark={},light={},grid={},cell={cell})",
+                format_color(dark),
+                format_color(light),
+                format_color(grid)
+            ),
+            FillStyle::Paper {
+                light,
+                mid,
+                dark,
+                seed,
+            } => format!(
+                "paper(light={},mid={},dark={},seed={seed})",
+                format_color(light),
+                format_color(mid),
+                format_color(dark)
+            ),
         }];
         if let Some(texture) = &self.texture {
             parts.push(format!(
                 "image-texture(path={},sha256={},tile={},scale={:.3},offset=({:.3},{:.3}))",
-                texture.path.display(), texture.sha256, texture.tile, texture.scale, texture.offset_x, texture.offset_y
+                texture.path.display(),
+                texture.sha256,
+                texture.tile,
+                texture.scale,
+                texture.offset_x,
+                texture.offset_y
             ));
         }
         for layout in &self.layouts {
             parts.push(match *layout {
-                LayoutEffect::Arc { sweep_degrees, radius_scale } => format!("arc(sweep={sweep_degrees:.2},radius-scale={radius_scale:.3})"),
+                LayoutEffect::Arc {
+                    sweep_degrees,
+                    radius_scale,
+                } => format!("arc(sweep={sweep_degrees:.2},radius-scale={radius_scale:.3})"),
             });
         }
         for effect in &self.underlays {
@@ -1231,8 +1545,24 @@ impl Style {
         }
         for effect in &self.overlays {
             parts.push(match *effect {
-                OverlayEffect::Bevel { width_ratio, highlight, shadow } => format!("bevel(width={width_ratio:.5},highlight={},shadow={})", format_color(highlight), format_color(shadow)),
-                OverlayEffect::Letterpress { width_ratio, highlight, shadow } => format!("letterpress(width={width_ratio:.5},highlight={},shadow={})", format_color(highlight), format_color(shadow)),
+                OverlayEffect::Bevel {
+                    width_ratio,
+                    highlight,
+                    shadow,
+                } => format!(
+                    "bevel(width={width_ratio:.5},highlight={},shadow={})",
+                    format_color(highlight),
+                    format_color(shadow)
+                ),
+                OverlayEffect::Letterpress {
+                    width_ratio,
+                    highlight,
+                    shadow,
+                } => format!(
+                    "letterpress(width={width_ratio:.5},highlight={},shadow={})",
+                    format_color(highlight),
+                    format_color(shadow)
+                ),
             });
         }
         for effect in &self.surface_effects {
@@ -1263,37 +1593,98 @@ impl Style {
         let mut current = base.clone();
         for effect in &self.layouts {
             current = match *effect {
-                LayoutEffect::Arc { sweep_degrees, radius_scale } => advanced::arc_warp(&current, sweep_degrees, radius_scale),
+                LayoutEffect::Arc {
+                    sweep_degrees,
+                    radius_scale,
+                } => advanced::arc_warp(&current, sweep_degrees, radius_scale),
             };
         }
         Ok(current)
     }
 
     pub fn dynamic_text(&self, target: &str, time_seconds: f64) -> Option<String> {
-        let animation = self.animations.iter().find(|animation| matches!(animation, AnimationEffect::Scramble { .. } | AnimationEffect::SplitFlap { .. }))?;
+        let animation = self.animations.iter().find(|animation| {
+            matches!(
+                animation,
+                AnimationEffect::Scramble { .. } | AnimationEffect::SplitFlap { .. }
+            )
+        })?;
         Some(match *animation {
-            AnimationEffect::Scramble { period_seconds, hold_fraction, steps_per_second, seed } => scramble_text(target, time_seconds, period_seconds, hold_fraction, steps_per_second, seed),
-            AnimationEffect::SplitFlap { period_seconds, hold_fraction, steps_per_second } => split_flap_text(target, time_seconds, period_seconds, hold_fraction, steps_per_second),
+            AnimationEffect::Scramble {
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+                seed,
+            } => scramble_text(
+                target,
+                time_seconds,
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+                seed,
+            ),
+            AnimationEffect::SplitFlap {
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+            } => split_flap_text(
+                target,
+                time_seconds,
+                period_seconds,
+                hold_fraction,
+                steps_per_second,
+            ),
             _ => unreachable!(),
         })
     }
 
-    pub fn has_surface_effects(&self) -> bool { !self.surface_effects.is_empty() }
+    pub fn has_surface_effects(&self) -> bool {
+        !self.surface_effects.is_empty()
+    }
 
     pub fn surface_overlay(&self, plaque: &Surface, glyph_mask: &[u8]) -> Result<Option<Surface>> {
-        if self.surface_effects.is_empty() { return Ok(None); }
+        if self.surface_effects.is_empty() {
+            return Ok(None);
+        }
         let mut combined = Surface::new(plaque.width(), plaque.height());
         for effect in &self.surface_effects {
             let layer = match *effect {
-                SurfaceEffect::LaserBurn { depth, warmth, edge_width, seed } => advanced::laser_burn_overlay(plaque, glyph_mask, depth, warmth, edge_width, seed)?,
-                SurfaceEffect::Emboss { depth, highlight_strength, shadow_strength, light_angle_degrees, cast_shadow } => advanced::emboss_overlay(plaque, glyph_mask, depth, highlight_strength, shadow_strength, light_angle_degrees, cast_shadow)?,
+                SurfaceEffect::LaserBurn {
+                    depth,
+                    warmth,
+                    edge_width,
+                    seed,
+                } => advanced::laser_burn_overlay(
+                    plaque, glyph_mask, depth, warmth, edge_width, seed,
+                )?,
+                SurfaceEffect::Emboss {
+                    depth,
+                    highlight_strength,
+                    shadow_strength,
+                    light_angle_degrees,
+                    cast_shadow,
+                } => advanced::emboss_overlay(
+                    plaque,
+                    glyph_mask,
+                    depth,
+                    highlight_strength,
+                    shadow_strength,
+                    light_angle_degrees,
+                    cast_shadow,
+                )?,
             };
             combined.blend_surface(&layer, 0, 0, 1.0);
         }
         Ok(Some(combined))
     }
 
-    pub fn frame_transform_mask(&self, mask: &[u8], width: u32, height: u32, time_seconds: f64) -> Result<Vec<u8>> {
+    pub fn frame_transform_mask(
+        &self,
+        mask: &[u8],
+        width: u32,
+        height: u32,
+        time_seconds: f64,
+    ) -> Result<Vec<u8>> {
         let white = Surface::from_alpha_mask(width, height, mask, Rgba::new(255, 255, 255, 255))?;
         Ok(self.frame_transform(&white, time_seconds)?.alpha_mask())
     }
@@ -1556,24 +1947,60 @@ impl Style {
 
         for animation in &self.animations {
             match *animation {
-                AnimationEffect::Wave { amplitude_ratio, .. } => {
+                AnimationEffect::Wave {
+                    amplitude_ratio, ..
+                } => {
                     let glyph_height = alpha_bounds(alpha, width as usize)
                         .map(|bounds| bounds.3 - bounds.1 + 1)
                         .unwrap_or(1) as f32;
                     let amplitude = (glyph_height * amplitude_ratio).round().max(0.0) as i32;
                     if amplitude > 0 {
-                        alpha_over_shifted(&mut envelope, alpha, width as usize, height as usize, 0, -amplitude);
-                        alpha_over_shifted(&mut envelope, alpha, width as usize, height as usize, 0, amplitude);
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            0,
+                            -amplitude,
+                        );
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            0,
+                            amplitude,
+                        );
                     }
                 }
-                AnimationEffect::Glitch { slice_ratio, ripple_ratio, .. } => {
+                AnimationEffect::Glitch {
+                    slice_ratio,
+                    ripple_ratio,
+                    ..
+                } => {
                     let glyph_width = alpha_bounds(alpha, width as usize)
                         .map(|bounds| bounds.2 - bounds.0 + 1)
                         .unwrap_or(1) as f32;
-                    let shift = (glyph_width * (slice_ratio + ripple_ratio)).round().max(0.0) as i32;
+                    let shift = (glyph_width * (slice_ratio + ripple_ratio))
+                        .round()
+                        .max(0.0) as i32;
                     if shift > 0 {
-                        alpha_over_shifted(&mut envelope, alpha, width as usize, height as usize, -shift, 0);
-                        alpha_over_shifted(&mut envelope, alpha, width as usize, height as usize, shift, 0);
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            -shift,
+                            0,
+                        );
+                        alpha_over_shifted(
+                            &mut envelope,
+                            alpha,
+                            width as usize,
+                            height as usize,
+                            shift,
+                            0,
+                        );
                     }
                 }
                 _ => {}
@@ -1744,13 +2171,30 @@ impl Style {
                     spread_ratio,
                     seed,
                 ),
-                AnimationEffect::Glitch { period_seconds, ripple_ratio, slice_ratio, burst_fraction, seed } => advanced::glitch_surface(
-                    &current, time_seconds, period_seconds, ripple_ratio, slice_ratio, burst_fraction, seed
+                AnimationEffect::Glitch {
+                    period_seconds,
+                    ripple_ratio,
+                    slice_ratio,
+                    burst_fraction,
+                    seed,
+                } => advanced::glitch_surface(
+                    &current,
+                    time_seconds,
+                    period_seconds,
+                    ripple_ratio,
+                    slice_ratio,
+                    burst_fraction,
+                    seed,
                 ),
-                AnimationEffect::Orbit { period_seconds, degrees_per_cycle, phase } => {
-                    let progress = (time_seconds / period_seconds as f64 + phase as f64).rem_euclid(1.0) as f32;
+                AnimationEffect::Orbit {
+                    period_seconds,
+                    degrees_per_cycle,
+                    phase,
+                } => {
+                    let progress = (time_seconds / period_seconds as f64 + phase as f64)
+                        .rem_euclid(1.0) as f32;
                     advanced::rotate_surface(&current, degrees_per_cycle * progress)
-                },
+                }
                 AnimationEffect::Pulse { .. }
                 | AnimationEffect::Shine { .. }
                 | AnimationEffect::Flicker { .. }
@@ -1778,32 +2222,84 @@ impl Style {
                 fill.recolor(color);
                 Ok(fill)
             }
-            FillStyle::LinearGradient { top, bottom } => paint_vertical_material(base, |t| lerp_color(top, bottom, t)),
-            FillStyle::Gold { dark, mid, light, highlight } => paint_vertical_material(base, |t| gold_color(dark, mid, light, highlight, t)),
-            FillStyle::Chrome { dark, mid, light } => paint_vertical_material(base, |t| chrome_color(dark, mid, light, t)),
+            FillStyle::LinearGradient { top, bottom } => {
+                paint_vertical_material(base, |t| lerp_color(top, bottom, t))
+            }
+            FillStyle::Gold {
+                dark,
+                mid,
+                light,
+                highlight,
+            } => paint_vertical_material(base, |t| gold_color(dark, mid, light, highlight, t)),
+            FillStyle::Chrome { dark, mid, light } => {
+                paint_vertical_material(base, |t| chrome_color(dark, mid, light, t))
+            }
             FillStyle::Holographic => paint_xy_material(base, |x, y| {
                 let hue = (x * 0.72 + y * 0.46).rem_euclid(1.0);
                 hsv_color(hue, 0.62, 1.0, 255)
             }),
             FillStyle::Fire { dark, mid, light } => paint_xy_material(base, |x, y| {
                 let flame = (y + 0.12 * (x * std::f32::consts::TAU * 3.0).sin()).clamp(0.0, 1.0);
-                if flame < 0.58 { lerp_color(light, mid, flame / 0.58) } else { lerp_color(mid, dark, (flame - 0.58) / 0.42) }
+                if flame < 0.58 {
+                    lerp_color(light, mid, flame / 0.58)
+                } else {
+                    lerp_color(mid, dark, (flame - 0.58) / 0.42)
+                }
             }),
             FillStyle::Ice { dark, mid, light } => paint_xy_material(base, |x, y| {
                 let crystal = ((x * 17.0 + y * 11.0).sin().abs() * 0.22 + y).clamp(0.0, 1.0);
-                if crystal < 0.48 { lerp_color(light, mid, crystal / 0.48) } else { lerp_color(mid, dark, (crystal - 0.48) / 0.52) }
+                if crystal < 0.48 {
+                    lerp_color(light, mid, crystal / 0.48)
+                } else {
+                    lerp_color(mid, dark, (crystal - 0.48) / 0.52)
+                }
             }),
             FillStyle::Nebula { dark, mid, light } => paint_xy_material(base, |x, y| {
                 let swirl = ((x * 8.3 + y * 5.7).sin() * 0.5 + 0.5) * 0.45 + y * 0.55;
-                if swirl < 0.5 { lerp_color(dark, mid, swirl * 2.0) } else { lerp_color(mid, light, (swirl - 0.5) * 2.0) }
+                if swirl < 0.5 {
+                    lerp_color(dark, mid, swirl * 2.0)
+                } else {
+                    lerp_color(mid, light, (swirl - 0.5) * 2.0)
+                }
             }),
-            FillStyle::Liquid { first, second, frequency } => paint_xy_material(base, |x, y| {
-                let wave = ((x * frequency * std::f32::consts::TAU + y * 5.0).sin() * 0.5 + 0.5) * 0.55 + y * 0.45;
+            FillStyle::Liquid {
+                first,
+                second,
+                frequency,
+            } => paint_xy_material(base, |x, y| {
+                let wave = ((x * frequency * std::f32::consts::TAU + y * 5.0).sin() * 0.5 + 0.5)
+                    * 0.55
+                    + y * 0.45;
                 lerp_color(first, second, wave.clamp(0.0, 1.0))
             }),
-            FillStyle::Halftone { foreground, background, cell } => paint_halftone_material(base, foreground, background, cell.saturating_mul(supersampling.max(1))),
-            FillStyle::Blueprint { dark, light, grid, cell } => advanced::paint_blueprint(base, dark, light, grid, cell.saturating_mul(supersampling.max(1))),
-            FillStyle::Paper { light, mid, dark, seed } => advanced::paint_paper(base, light, mid, dark, seed),
+            FillStyle::Halftone {
+                foreground,
+                background,
+                cell,
+            } => paint_halftone_material(
+                base,
+                foreground,
+                background,
+                cell.saturating_mul(supersampling.max(1)),
+            ),
+            FillStyle::Blueprint {
+                dark,
+                light,
+                grid,
+                cell,
+            } => advanced::paint_blueprint(
+                base,
+                dark,
+                light,
+                grid,
+                cell.saturating_mul(supersampling.max(1)),
+            ),
+            FillStyle::Paper {
+                light,
+                mid,
+                dark,
+                seed,
+            } => advanced::paint_paper(base, light, mid, dark, seed),
         }
     }
 }
@@ -1955,22 +2451,31 @@ fn scramble_text(
 ) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let progress = reveal_progress(time_seconds, period_seconds, hold_fraction);
-    if progress >= 0.999 { return target.to_string(); }
+    if progress >= 0.999 {
+        return target.to_string();
+    }
     let visible: Vec<char> = target.chars().collect();
     let total = visible.iter().filter(|c| !c.is_whitespace()).count().max(1);
     let tick = (time_seconds * steps_per_second as f64).floor().max(0.0) as u32;
     let mut ordinal = 0usize;
-    visible.into_iter().map(|ch| {
-        if ch.is_whitespace() { return ch; }
-        let threshold = (ordinal + 1) as f32 / total as f32;
-        let index = ordinal as u32;
-        ordinal += 1;
-        if progress >= threshold { ch } else {
-            let mut h = seed ^ index.wrapping_mul(0x9E37_79B9) ^ tick.wrapping_mul(0x85EB_CA6B);
-            h ^= h >> 16;
-            ALPHABET[(h as usize) % ALPHABET.len()] as char
-        }
-    }).collect()
+    visible
+        .into_iter()
+        .map(|ch| {
+            if ch.is_whitespace() {
+                return ch;
+            }
+            let threshold = (ordinal + 1) as f32 / total as f32;
+            let index = ordinal as u32;
+            ordinal += 1;
+            if progress >= threshold {
+                ch
+            } else {
+                let mut h = seed ^ index.wrapping_mul(0x9E37_79B9) ^ tick.wrapping_mul(0x85EB_CA6B);
+                h ^= h >> 16;
+                ALPHABET[(h as usize) % ALPHABET.len()] as char
+            }
+        })
+        .collect()
 }
 
 fn split_flap_text(
@@ -1982,19 +2487,29 @@ fn split_flap_text(
 ) -> String {
     const FLAPS: &[u8] = b" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let progress = reveal_progress(time_seconds, period_seconds, hold_fraction);
-    if progress >= 0.999 { return target.to_string(); }
+    if progress >= 0.999 {
+        return target.to_string();
+    }
     let chars: Vec<char> = target.chars().collect();
     let total = chars.iter().filter(|ch| !ch.is_whitespace()).count().max(1);
     let tick = (time_seconds * steps_per_second as f64).floor().max(0.0) as usize;
     let mut ordinal = 0usize;
-    chars.into_iter().enumerate().map(|(index, ch)| {
-        if ch.is_whitespace() { return ch; }
-        let settle_at = 0.35 + 0.60 * (ordinal + 1) as f32 / total as f32;
-        ordinal += 1;
-        if progress >= settle_at { ch } else {
-            FLAPS[(tick + index * 3) % FLAPS.len()] as char
-        }
-    }).collect()
+    chars
+        .into_iter()
+        .enumerate()
+        .map(|(index, ch)| {
+            if ch.is_whitespace() {
+                return ch;
+            }
+            let settle_at = 0.35 + 0.60 * (ordinal + 1) as f32 / total as f32;
+            ordinal += 1;
+            if progress >= settle_at {
+                ch
+            } else {
+                FLAPS[(tick + index * 3) % FLAPS.len()] as char
+            }
+        })
+        .collect()
 }
 
 fn wave_surface(

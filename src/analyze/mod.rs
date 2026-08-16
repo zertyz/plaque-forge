@@ -49,12 +49,7 @@ enum PromptedLayerPolicy {
 }
 
 impl PromptedLayerPolicy {
-    fn unavailable(
-        self,
-        layer_id: &str,
-        artifact_path: &Path,
-        reason: &str,
-    ) -> Result<()> {
+    fn unavailable(self, layer_id: &str, artifact_path: &Path, reason: &str) -> Result<()> {
         match self {
             Self::GenerateMissing => eprintln!(
                 "[ml] prompted layer {layer_id:?} has no reusable artifact at {}; worker will regenerate it ({reason})",

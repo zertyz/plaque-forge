@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{builder::PossibleValue, ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum, builder::PossibleValue};
 
 use crate::{
     application::{
@@ -698,7 +698,10 @@ mod tests {
         };
         let actual: AnalyzeRequest = analyze_args.into();
         let expected = AnalyzeRequest::text_free("source.mp4");
-        assert_eq!(actual.minimum_analysis_confidence, expected.minimum_analysis_confidence);
+        assert_eq!(
+            actual.minimum_analysis_confidence,
+            expected.minimum_analysis_confidence
+        );
         assert_eq!(actual.segmentation_backend, expected.segmentation_backend);
         assert_eq!(actual.segmentation_model, expected.segmentation_model);
         assert_eq!(actual.segmentation_device, expected.segmentation_device);

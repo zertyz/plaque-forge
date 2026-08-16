@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
 use crate::{
@@ -180,7 +180,11 @@ fn validate_verification_provenance(
         &manifest_sha256,
         verification_path,
     )?;
-    for field in ["source_sha256", "analysis_manifest_sha256", "rendered_sha256"] {
+    for field in [
+        "source_sha256",
+        "analysis_manifest_sha256",
+        "rendered_sha256",
+    ] {
         let expected = render_manifest
             .get(field)
             .and_then(Value::as_str)
@@ -931,7 +935,11 @@ fn append_decision_trace(body: &mut String, trace: &RenderDecisionTrace) {
         trace.typography.lines,
         trace.typography.fill_ratio * 100.0
     ));
-    if !trace.tracking.foreground_layers_excluded_from_tracking.is_empty() {
+    if !trace
+        .tracking
+        .foreground_layers_excluded_from_tracking
+        .is_empty()
+    {
         body.push_str(&format!(
             "<dt>Foreground excluded from tracking</dt><dd><code>{}</code></dd>",
             escape_html(

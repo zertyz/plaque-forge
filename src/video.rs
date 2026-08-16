@@ -119,7 +119,10 @@ pub(crate) fn probe_with(
     .collect::<Vec<_>>();
     let output = executor.output(ffprobe, &args)?;
     if !output.success {
-        bail!("ffprobe failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     let probe: ProbeOutput = serde_json::from_slice(&output.stdout)?;
     let stream = probe

@@ -1,4 +1,7 @@
-use std::{ffi::OsString, path::{Path, PathBuf}};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 

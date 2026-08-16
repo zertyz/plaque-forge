@@ -35,9 +35,9 @@ fn homologated_assets_pin_scene_geometry_and_source_identity() {
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", source.display()));
         assert_eq!(
             Sha256::digest(&source_bytes)
-    .iter()
-    .map(|b| format!("{:02x}", b))
-    .collect::<String>(),
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>(),
             contract.source_sha256,
             "homologated source identity changed for {}",
             contract.asset
@@ -64,7 +64,10 @@ fn homologated_assets_pin_scene_geometry_and_source_identity() {
             contract.asset
         );
         assert_eq!(
-            surface.writable_region.as_ref().map(|region| region.bounds()),
+            surface
+                .writable_region
+                .as_ref()
+                .map(|region| region.bounds()),
             Some(contract.geometry.writable_bounds),
             "writable geometry changed for homologated asset {}",
             contract.asset
