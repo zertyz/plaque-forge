@@ -75,6 +75,7 @@ negative_points = [[735.0, 55.0], [980.0, 175.0], [480.0, 300.0]]
 id = "crossing-hummingbird"
 role = "foreground"
 surface = "main"
+in_front_of = "main"
 affects_layout = false
 active_frames = [128, 239]
 

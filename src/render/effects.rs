@@ -871,6 +871,16 @@ fn default_orbit_degrees() -> f32 {
 }
 
 impl Style {
+    /// Construct a style directly from CLI-equivalent options without a file.
+    ///
+    /// This is the same code path used by `load(None, direct)`, exposed as a
+    /// named constructor so tests and embedding programs can create deterministic
+    /// styles without touching the filesystem.
+    #[cfg(test)]
+    pub fn direct(options: DirectStyleOptions<'_>) -> Result<Self> {
+        Self::load(None, options)
+    }
+
     pub fn has_frame_variation(&self) -> bool {
         !self.animations.is_empty()
     }
@@ -2869,5 +2879,164 @@ mod tests {
         let intermediate = split_flap_text(target, 0.4, 4.0, 0.30, 16.0);
         assert_eq!(intermediate.chars().nth(4), Some(' '));
         assert_eq!(split_flap_text(target, 3.6, 4.0, 0.30, 16.0), target);
+    }
+
+    // ---- Effects composition tests ----
+    //
+    // These exercise Style::compose() on synthetic glyph masks without fonts or
+    // video, verifying that the visual footprint of each effect family is correct.
+
+    use super::{DirectStyleOptions, Style};
+    use crate::surface::Surface;
+
+    /// A small opaque block centered in a larger transparent canvas.
+    fn synthetic_glyph_surface(width: u32, height: u32) -> Surface {
+        let mut surface = Surface::new(width, height);
+        let inset_x = width / 4;
+        let inset_y = height / 4;
+        for y in inset_y..(height - inset_y) {
+            for x in inset_x..(width - inset_x) {
+                surface.set_pixel(x, y, crate::color::Rgba::new(255, 255, 255, 200));
+            }
+        }
+        surface
+    }
+
+    fn default_direct_options() -> DirectStyleOptions<'static> {
+        DirectStyleOptions {
+            text_color: "#FFFFFFFF",
+            stroke_color: "#000000FF",
+            glow_color: "#00000000",
+            glow_radius: 0,
+            stroke_width_ratio: 0.0,
+            shadow_offset_x_ratio: 0.0,
+            shadow_offset_y_ratio: 0.0,
+            shadow_blur_radius: 0,
+            shadow_color: "#00000000",
+        }
+    }
+
+    #[test]
+    fn flat_fill_produces_uniform_color_in_opaque_region() {
+        let base = synthetic_glyph_surface(32, 32);
+        let style = Style::direct(DirectStyleOptions {
+            text_color: "#FF0000FF",
+            ..default_direct_options()
+        })
+        .unwrap();
+        let composed = style.compose(&base, 16.0, 1).unwrap();
+        // Sample the center pixel — it should be red
+        let center = composed.pixel(16, 16);
+        assert!(center.a > 0, "center pixel should be visible");
+        assert!(
+            center.r > 200,
+            "center pixel should be red, got r={}",
+            center.r
+        );
+    }
+
+    #[test]
+    fn glow_extends_beyond_glyph_boundary() {
+        let width = 64;
+        let height = 48;
+        let base = synthetic_glyph_surface(width, height);
+        let base_bounds = base.alpha_bounds().expect("base has alpha");
+
+        let style = Style::direct(DirectStyleOptions {
+            glow_color: "#00FF00FF",
+            glow_radius: 4,
+            ..default_direct_options()
+        })
+        .unwrap();
+        let composed = style.compose(&base, 16.0, 1).unwrap();
+        let glow_bounds = composed.alpha_bounds().expect("composed has alpha");
+
+        assert!(
+            glow_bounds.0 < base_bounds.0
+                || glow_bounds.1 < base_bounds.1
+                || glow_bounds.2 > base_bounds.2
+                || glow_bounds.3 > base_bounds.3,
+            "glow should extend beyond glyph boundary: base {:?}, glow {:?}",
+            base_bounds,
+            glow_bounds
+        );
+    }
+
+    #[test]
+    fn stroke_widens_the_visible_footprint() {
+        let width = 64;
+        let height = 48;
+        let base = synthetic_glyph_surface(width, height);
+        let base_bounds = base.alpha_bounds().expect("base has alpha");
+
+        let style = Style::direct(DirectStyleOptions {
+            stroke_width_ratio: 0.15,
+            ..default_direct_options()
+        })
+        .unwrap();
+        let composed = style.compose(&base, 16.0, 1).unwrap();
+        let stroke_bounds = composed.alpha_bounds().expect("composed has alpha");
+
+        assert!(
+            stroke_bounds.0 < base_bounds.0
+                || stroke_bounds.1 < base_bounds.1
+                || stroke_bounds.2 > base_bounds.2
+                || stroke_bounds.3 > base_bounds.3,
+            "stroke should widen the visible footprint: base {:?}, stroke {:?}",
+            base_bounds,
+            stroke_bounds
+        );
+    }
+
+    #[test]
+    fn shadow_shifts_the_alpha_centroid() {
+        let width = 64;
+        let height = 48;
+        let base = synthetic_glyph_surface(width, height);
+
+        let style_no_shadow = Style::direct(default_direct_options()).unwrap();
+        let composed_no = style_no_shadow.compose(&base, 16.0, 1).unwrap();
+
+        let style_shadow = Style::direct(DirectStyleOptions {
+            shadow_offset_x_ratio: 0.2,
+            shadow_offset_y_ratio: 0.2,
+            shadow_blur_radius: 2,
+            shadow_color: "#000000FF",
+            ..default_direct_options()
+        })
+        .unwrap();
+        let composed_shadow = style_shadow.compose(&base, 16.0, 1).unwrap();
+
+        // The shadow should make the composed surface wider/taller to the bottom-right
+        let bounds_no = composed_no.alpha_bounds().expect("no-shadow has alpha");
+        let bounds_shadow = composed_shadow.alpha_bounds().expect("shadow has alpha");
+        assert!(
+            bounds_shadow.2 > bounds_no.2 || bounds_shadow.3 > bounds_no.3,
+            "shadow should shift the footprint: no-shadow {:?}, shadow {:?}",
+            bounds_no,
+            bounds_shadow
+        );
+    }
+
+    #[test]
+    fn zero_radius_glow_is_a_no_op() {
+        let base = synthetic_glyph_surface(32, 32);
+
+        let style_no_glow = Style::direct(default_direct_options()).unwrap();
+        let composed_no = style_no_glow.compose(&base, 16.0, 1).unwrap();
+
+        let style_zero_glow = Style::direct(DirectStyleOptions {
+            glow_color: "#00FF00FF",
+            glow_radius: 0,
+            ..default_direct_options()
+        })
+        .unwrap();
+        let composed_zero = style_zero_glow.compose(&base, 16.0, 1).unwrap();
+
+        assert_eq!(
+            composed_no.alpha_bounds(),
+            composed_zero.alpha_bounds(),
+            "glow_radius=0 should not change the footprint"
+        );
     }
 }

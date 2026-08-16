@@ -1,3 +1,5 @@
+mod support;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -6,6 +8,8 @@ use std::{
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+use support::repository_root;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,10 +28,6 @@ struct PlaqueEntry {
     pixel_size: [u32; 2],
     writable_inset: [f64; 4],
     sha256: String,
-}
-
-fn repository_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
 #[test]

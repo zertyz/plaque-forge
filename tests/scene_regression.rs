@@ -1,10 +1,10 @@
-use std::{fs, path::Path};
+mod support;
+
+use std::fs;
 
 use plaque_forge::scene::{LayerRole, Scene, SurfaceSpace};
 
-fn repository_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use support::repository_root;
 
 #[test]
 fn declared_foreground_layers_have_explicit_depth_and_evidence() {

@@ -1,4 +1,6 @@
-use std::{fs, path::Path};
+mod support;
+
+use std::fs;
 
 use plaque_forge::{
     homologation::HomologationContract,
@@ -6,9 +8,7 @@ use plaque_forge::{
 };
 use sha2::{Digest, Sha256};
 
-fn repository_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use support::repository_root;
 
 #[test]
 fn homologated_assets_pin_scene_geometry_and_source_identity() {

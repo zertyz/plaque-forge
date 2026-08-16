@@ -1,8 +1,8 @@
-use std::{fs, path::Path};
+mod support;
 
-fn repository_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use std::fs;
+
+use support::repository_root;
 
 #[test]
 fn all_shipped_style_files_are_valid_toml() {

@@ -1156,4 +1156,299 @@ mod tests {
         assert_eq!(pixels, 3);
         assert_eq!(bounds, Some((1, 0, 2, 2)));
     }
+
+    // ---- Typography fitting component tests ----
+    //
+    // These exercise the full typography::render() pipeline on synthetic inputs
+    // (a deterministic font + a simple writable mask), verifying layout behavior,
+    // input validation, and mask containment without video or FFmpeg.
+
+    use super::{RenderRequest, render};
+    use crate::application::{FitMode, TextAlign, VerticalAlign};
+    use crate::render::effects::{DirectStyleOptions, Style};
+
+    /// Path to a deterministic font for typography tests.
+    fn test_font() -> std::path::PathBuf {
+        let candidates = [
+            "/usr/share/fonts/noto/NotoSerif-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
+            "/usr/share/fonts/noto-serif/NotoSerif-Regular.ttf",
+            "/usr/share/fonts/google-noto-serif/NotoSerif-Regular.ttf",
+        ];
+        for candidate in candidates {
+            let path = std::path::PathBuf::from(candidate);
+            if path.is_file() {
+                return path;
+            }
+        }
+        if let Ok(output) = std::process::Command::new("fc-match")
+            .args(["--format=%{file}", "serif"])
+            .output()
+        {
+            if output.status.success() {
+                let path = std::path::PathBuf::from(
+                    String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                );
+                if path.is_file() {
+                    return path;
+                }
+            }
+        }
+        panic!("no usable test font; install fonts-noto-core");
+    }
+
+    fn default_test_style() -> Style {
+        Style::direct(DirectStyleOptions {
+            text_color: "#FFFFFFFF",
+            stroke_color: "#000000FF",
+            glow_color: "#00000000",
+            glow_radius: 0,
+            stroke_width_ratio: 0.0,
+            shadow_offset_x_ratio: 0.0,
+            shadow_offset_y_ratio: 0.0,
+            shadow_blur_radius: 0,
+            shadow_color: "#00000000",
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn artistic_mode_produces_multi_line_layout() {
+        let width = 200;
+        let height = 120;
+        let mask = vec![255u8; width as usize * height as usize];
+        let style = default_test_style();
+        let font = test_font();
+
+        let result = render(RenderRequest {
+            width,
+            height,
+            mask: &mask,
+            text: "Nós que aqui estamos por vós esperamos",
+            font_path: &font,
+            fit_mode: FitMode::Artistic,
+            requested_font_size: None,
+            supersampling: 1,
+            target_fill: 0.80,
+            max_lines: 4,
+            padding_ratio: 0.03,
+            line_height_ratio: 1.08,
+            text_align: TextAlign::Center,
+            vertical_align: VerticalAlign::Center,
+            style: &style,
+        })
+        .unwrap();
+
+        assert!(
+            result.metrics.lines > 1,
+            "artistic mode should break into multiple lines, got {}",
+            result.metrics.lines
+        );
+        assert!(
+            result.layer.alpha_bounds().is_some(),
+            "rendered text mask should have visible alpha"
+        );
+    }
+
+    #[test]
+    fn maximize_mode_uses_full_writable_region() {
+        let width = 200;
+        let height = 120;
+        let mask = vec![255u8; width as usize * height as usize];
+        let style = default_test_style();
+        let font = test_font();
+
+        let result = render(RenderRequest {
+            width,
+            height,
+            mask: &mask,
+            text: "PLAQUE FORGE",
+            font_path: &font,
+            fit_mode: FitMode::Maximize,
+            requested_font_size: None,
+            supersampling: 1,
+            target_fill: 0.94,
+            max_lines: 3,
+            padding_ratio: 0.03,
+            line_height_ratio: 1.08,
+            text_align: TextAlign::Center,
+            vertical_align: VerticalAlign::Center,
+            style: &style,
+        })
+        .unwrap();
+
+        assert!(
+            result.metrics.fill_ratio > 0.30,
+            "maximize mode should use a significant portion of the region, got {:.2}",
+            result.metrics.fill_ratio
+        );
+    }
+
+    #[test]
+    fn fixed_size_respects_requested_font_size() {
+        let width = 200;
+        let height = 120;
+        let mask = vec![255u8; width as usize * height as usize];
+        let style = default_test_style();
+        let font = test_font();
+        let requested = 18.0_f32;
+
+        let result = render(RenderRequest {
+            width,
+            height,
+            mask: &mask,
+            text: "AB",
+            font_path: &font,
+            fit_mode: FitMode::Fixed,
+            requested_font_size: Some(requested),
+            supersampling: 1,
+            target_fill: 0.80,
+            max_lines: 3,
+            padding_ratio: 0.03,
+            line_height_ratio: 1.08,
+            text_align: TextAlign::Center,
+            vertical_align: VerticalAlign::Center,
+            style: &style,
+        })
+        .unwrap();
+
+        assert!(
+            (result.metrics.font_size - requested).abs() < 0.5,
+            "fixed mode should use requested size {requested:.1}px, got {:.1}px",
+            result.metrics.font_size
+        );
+    }
+
+    #[test]
+    fn vertical_alignment_shifts_mask_position() {
+        let width = 200;
+        let height = 200;
+        let mask = vec![255u8; width as usize * height as usize];
+        let style = default_test_style();
+        let font = test_font();
+
+        let centroid = |va: VerticalAlign| -> f64 {
+            let result = render(RenderRequest {
+                width,
+                height,
+                mask: &mask,
+                text: "TEST",
+                font_path: &font,
+                fit_mode: FitMode::Maximize,
+                requested_font_size: None,
+                supersampling: 1,
+                target_fill: 0.80,
+                max_lines: 1,
+                padding_ratio: 0.03,
+                line_height_ratio: 1.08,
+                text_align: TextAlign::Center,
+                vertical_align: va,
+                style: &style,
+            })
+            .unwrap();
+            let alpha = result.layer.alpha_mask();
+            let mut weighted_y = 0_u64;
+            let mut total_alpha = 0_u64;
+            for y in 0..height {
+                for x in 0..width {
+                    let a = alpha[y as usize * width as usize + x as usize] as u64;
+                    weighted_y += a * y as u64;
+                    total_alpha += a;
+                }
+            }
+            weighted_y as f64 / total_alpha.max(1) as f64
+        };
+
+        let top_centroid = centroid(VerticalAlign::Top);
+        let center_centroid = centroid(VerticalAlign::Center);
+        let bottom_centroid = centroid(VerticalAlign::Bottom);
+
+        assert!(
+            top_centroid < center_centroid,
+            "top centroid ({top_centroid:.1}) should be above center ({center_centroid:.1})"
+        );
+        assert!(
+            center_centroid < bottom_centroid,
+            "center centroid ({center_centroid:.1}) should be above bottom ({bottom_centroid:.1})"
+        );
+    }
+
+    #[test]
+    fn empty_text_is_rejected() {
+        let width = 100;
+        let height = 60;
+        let mask = vec![255u8; width as usize * height as usize];
+        let style = default_test_style();
+        let font = test_font();
+
+        let result = render(RenderRequest {
+            width,
+            height,
+            mask: &mask,
+            text: "   ",
+            font_path: &font,
+            fit_mode: FitMode::Artistic,
+            requested_font_size: None,
+            supersampling: 1,
+            target_fill: 0.80,
+            max_lines: 3,
+            padding_ratio: 0.03,
+            line_height_ratio: 1.08,
+            text_align: TextAlign::Center,
+            vertical_align: VerticalAlign::Center,
+            style: &style,
+        });
+
+        assert!(result.is_err(), "whitespace-only text should be rejected");
+    }
+
+    #[test]
+    fn text_mask_is_contained_within_writable_region() {
+        let width = 120;
+        let height = 80;
+        // Create a mask with a 10px transparent border
+        let inset = 10_u32;
+        let mut mask = vec![0u8; width as usize * height as usize];
+        for y in inset..(height - inset) {
+            for x in inset..(width - inset) {
+                mask[y as usize * width as usize + x as usize] = 255;
+            }
+        }
+        let style = default_test_style();
+        let font = test_font();
+
+        let result = render(RenderRequest {
+            width,
+            height,
+            mask: &mask,
+            text: "HI",
+            font_path: &font,
+            fit_mode: FitMode::Maximize,
+            requested_font_size: None,
+            supersampling: 1,
+            target_fill: 0.80,
+            max_lines: 1,
+            padding_ratio: 0.05,
+            line_height_ratio: 1.08,
+            text_align: TextAlign::Center,
+            vertical_align: VerticalAlign::Center,
+            style: &style,
+        })
+        .unwrap();
+
+        // The rendered text mask's alpha should not extend into the transparent border,
+        // with 2px tolerance for anti-aliasing at boundaries.
+        let tolerance = 2;
+        if let Some((min_x, min_y, max_x, max_y)) = result.layer.alpha_bounds() {
+            assert!(
+                min_x + tolerance >= inset
+                    && min_y + tolerance >= inset
+                    && max_x < width - inset + tolerance
+                    && max_y < height - inset + tolerance,
+                "text mask extends outside writable region: \
+                 alpha bounds ({min_x},{min_y})-({max_x},{max_y}), \
+                 writable starts at ({inset},{inset})"
+            );
+        }
+    }
 }

@@ -788,4 +788,155 @@ mod tests {
         );
         assert!(validate_portable_encoder_args(&[r"C:\looks\grade.cube".into()]).is_err());
     }
+
+    // ---- Per-style golden-mask regression tests ----
+    //
+    // For each shipped .toml style, renders a canonical string on a small synthetic
+    // surface and compares the glyph mask against a reviewed reference. This catches
+    // regressions in any effect when shared infrastructure changes.
+
+    use std::{fs, path::Path};
+
+    use super::{effects, test_font, typography};
+    use crate::application::{FitMode, TextAlign, VerticalAlign};
+
+    fn compare_masks(actual: &[u8], expected: &[u8], tolerance: u8) -> (usize, u8) {
+        let mut differing = 0;
+        let mut max_diff = 0u8;
+        for (&a, &e) in actual.iter().zip(expected.iter()) {
+            let diff = a.abs_diff(e);
+            if diff > tolerance {
+                differing += 1;
+            }
+            max_diff = max_diff.max(diff);
+        }
+        (differing, max_diff)
+    }
+
+    #[test]
+    fn every_shipped_style_produces_a_stable_text_mask() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let styles_dir = root.join("styles");
+        let fixtures_dir = root.join("tests/fixtures/style_masks");
+        let font = test_font();
+        let width = 64_u32;
+        let height = 48_u32;
+        let mask = vec![255u8; width as usize * height as usize];
+        let text = "PLAQUE FORGE";
+        let blessing = std::env::var("PLAQUE_FORGE_BLESS").as_deref() == Ok("1");
+
+        let mut tested = 0;
+        let mut failures = Vec::new();
+
+        for entry in fs::read_dir(&styles_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+                continue;
+            }
+            let style_name = path.file_stem().unwrap().to_string_lossy().into_owned();
+
+            let style = match effects::Style::load(
+                Some(&path),
+                effects::DirectStyleOptions {
+                    text_color: "#FFFFFFFF",
+                    stroke_color: "#000000FF",
+                    glow_color: "#00000000",
+                    glow_radius: 0,
+                    stroke_width_ratio: 0.0,
+                    shadow_offset_x_ratio: 0.0,
+                    shadow_offset_y_ratio: 0.0,
+                    shadow_blur_radius: 0,
+                    shadow_color: "#00000000",
+                },
+            ) {
+                Ok(style) => style,
+                Err(e) => {
+                    failures.push(format!("{style_name}: failed to load style: {e:#}"));
+                    continue;
+                }
+            };
+
+            let result = match typography::render(typography::RenderRequest {
+                width,
+                height,
+                mask: &mask,
+                text,
+                font_path: &font,
+                fit_mode: FitMode::Artistic,
+                requested_font_size: None,
+                supersampling: 1,
+                target_fill: 0.80,
+                max_lines: 3,
+                padding_ratio: 0.03,
+                line_height_ratio: 1.08,
+                text_align: TextAlign::Center,
+                vertical_align: VerticalAlign::Center,
+                style: &style,
+            }) {
+                Ok(result) => result,
+                Err(e) => {
+                    failures.push(format!("{style_name}: render failed: {e:#}"));
+                    continue;
+                }
+            };
+
+            let actual_mask = result.layer.alpha_mask();
+            let reference_path = fixtures_dir.join(format!("{style_name}.expected.png"));
+
+            if blessing {
+                fs::create_dir_all(&fixtures_dir).unwrap();
+                let image = image::ImageBuffer::<image::Luma<u8>, _>::from_raw(
+                    width,
+                    height,
+                    actual_mask.clone(),
+                )
+                .expect("valid mask dimensions");
+                image.save(&reference_path).unwrap_or_else(|e| {
+                    failures.push(format!("{style_name}: failed to save reference: {e}"));
+                });
+            } else if reference_path.is_file() {
+                let reference = image::open(&reference_path)
+                    .expect("reference mask should be a valid image")
+                    .to_luma8()
+                    .into_raw();
+                if actual_mask.len() != reference.len() {
+                    failures.push(format!(
+                        "{style_name}: mask size mismatch ({} vs {})",
+                        actual_mask.len(),
+                        reference.len()
+                    ));
+                } else {
+                    let (differing, max_diff) = compare_masks(&actual_mask, &reference, 2);
+                    let ratio = differing as f64 / actual_mask.len().max(1) as f64;
+                    if ratio > 0.005 {
+                        failures.push(format!(
+                            "{style_name}: {differing}/{} pixels differ (max diff {max_diff}, \
+                             {:.2}% exceed tolerance)",
+                            actual_mask.len(),
+                            ratio * 100.0
+                        ));
+                    }
+                }
+            } else {
+                failures.push(format!(
+                    "{style_name}: golden reference missing at {}; \
+                     run with PLAQUE_FORGE_BLESS=1 to create it",
+                    reference_path.display()
+                ));
+            }
+
+            tested += 1;
+        }
+
+        assert!(
+            tested >= 4,
+            "expected at least 4 style files, found {tested}"
+        );
+        assert!(
+            failures.is_empty(),
+            "style regression failures:\n{}",
+            failures.join("\n")
+        );
+    }
 }
