@@ -127,9 +127,7 @@ impl SegmentationPlan {
 
 pub fn plan(input: PlanningInput<'_>) -> Result<SegmentationPlan> {
     let precision = input.precision_override.unwrap_or(match input.profile {
-        SegmentationProfile::Preview | SegmentationProfile::Balanced => {
-            SegmentationPrecision::Bf16
-        }
+        SegmentationProfile::Preview | SegmentationProfile::Balanced => SegmentationPrecision::Bf16,
         SegmentationProfile::Canonical => SegmentationPrecision::Fp32,
     });
 
@@ -137,16 +135,18 @@ pub fn plan(input: PlanningInput<'_>) -> Result<SegmentationPlan> {
         return explicit_plan(input, precision);
     }
 
-    let optical = input.role == LayerRole::Foreground && input.matte_mode == LayerMatteMode::Optical;
-    let human_matting_candidate = optical
-        && input.subject == LayerSubject::Human
-        && has_frame_zero_area_seed(input.prompts);
+    let optical =
+        input.role == LayerRole::Foreground && input.matte_mode == LayerMatteMode::Optical;
+    let human_matting_candidate =
+        optical && input.subject == LayerSubject::Human && has_frame_zero_area_seed(input.prompts);
 
     let mut reason = vec![format!("profile={:?}", input.profile).to_lowercase()];
     let (semantic_backend, semantic_model, matte_refiner, compile) = if human_matting_candidate
         && input.profile == SegmentationProfile::Canonical
     {
-        reason.push("explicit human subject with frame-0 area seed selects specialist video matting".into());
+        reason.push(
+            "explicit human subject with frame-0 area seed selects specialist video matting".into(),
+        );
         (
             SemanticBackend::MatAnyone2,
             DEFAULT_MATANYONE2_MODEL.to_string(),
@@ -172,7 +172,9 @@ pub fn plan(input: PlanningInput<'_>) -> Result<SegmentationPlan> {
             MatteRefiner::None
         };
         if matte_refiner == MatteRefiner::None {
-            reason.push("categorical/opaque membership does not require optical alpha refinement".into());
+            reason.push(
+                "categorical/opaque membership does not require optical alpha refinement".into(),
+            );
         }
         (
             semantic_backend,
@@ -193,14 +195,38 @@ pub fn plan(input: PlanningInput<'_>) -> Result<SegmentationPlan> {
     })
 }
 
-fn explicit_plan(input: PlanningInput<'_>, precision: SegmentationPrecision) -> Result<SegmentationPlan> {
-    let optical = input.role == LayerRole::Foreground && input.matte_mode == LayerMatteMode::Optical;
+fn explicit_plan(
+    input: PlanningInput<'_>,
+    precision: SegmentationPrecision,
+) -> Result<SegmentationPlan> {
+    let optical =
+        input.role == LayerRole::Foreground && input.matte_mode == LayerMatteMode::Optical;
     let (semantic_backend, default_model, matte_refiner) = match input.backend_override {
-        "sam2" => (SemanticBackend::Sam2, sam2_model_for_profile(input.profile), MatteRefiner::None),
-        "sam2-vitmatte" => (SemanticBackend::Sam2, sam2_model_for_profile(input.profile), MatteRefiner::VitMatte),
-        "cutie" => (SemanticBackend::Cutie, sam2_model_for_profile(input.profile), MatteRefiner::None),
-        "cutie-vitmatte" => (SemanticBackend::Cutie, sam2_model_for_profile(input.profile), MatteRefiner::VitMatte),
-        "sam2-cutie" => (SemanticBackend::Sam2Cutie, sam2_model_for_profile(input.profile), MatteRefiner::None),
+        "sam2" => (
+            SemanticBackend::Sam2,
+            sam2_model_for_profile(input.profile),
+            MatteRefiner::None,
+        ),
+        "sam2-vitmatte" => (
+            SemanticBackend::Sam2,
+            sam2_model_for_profile(input.profile),
+            MatteRefiner::VitMatte,
+        ),
+        "cutie" => (
+            SemanticBackend::Cutie,
+            sam2_model_for_profile(input.profile),
+            MatteRefiner::None,
+        ),
+        "cutie-vitmatte" => (
+            SemanticBackend::Cutie,
+            sam2_model_for_profile(input.profile),
+            MatteRefiner::VitMatte,
+        ),
+        "sam2-cutie" => (
+            SemanticBackend::Sam2Cutie,
+            sam2_model_for_profile(input.profile),
+            MatteRefiner::None,
+        ),
         "sam2-cutie-vitmatte" => (
             SemanticBackend::Sam2Cutie,
             sam2_model_for_profile(input.profile),
@@ -215,7 +241,11 @@ fn explicit_plan(input: PlanningInput<'_>, precision: SegmentationPrecision) -> 
             if !has_frame_zero_area_seed(input.prompts) {
                 bail!("matanyone2 requires a frame-0 box/polygon/quad seed");
             }
-            (SemanticBackend::MatAnyone2, DEFAULT_MATANYONE2_MODEL, MatteRefiner::Native)
+            (
+                SemanticBackend::MatAnyone2,
+                DEFAULT_MATANYONE2_MODEL,
+                MatteRefiner::Native,
+            )
         }
         "sam3.1" | "sam31" | "sam3.1-vitmatte" => {
             if precision != SegmentationPrecision::Bf16 {
@@ -234,7 +264,7 @@ fn explicit_plan(input: PlanningInput<'_>, precision: SegmentationPrecision) -> 
                 MatteRefiner::None
             };
             (SemanticBackend::Sam31, DEFAULT_SAM31_MODEL, matte)
-        },
+        }
         other => bail!("unsupported segmentation backend {other:?}"),
     };
     if matches!(matte_refiner, MatteRefiner::VitMatte) && !optical {
@@ -248,11 +278,16 @@ fn explicit_plan(input: PlanningInput<'_>, precision: SegmentationPrecision) -> 
         semantic_model: override_model(input.model_override, default_model.to_string()),
         matte_refiner,
         compile: input.profile == SegmentationProfile::Preview
-            && matches!(semantic_backend, SemanticBackend::Sam2 | SemanticBackend::Sam2Cutie),
-        reason: vec![format!("explicit backend override: {}", input.backend_override)],
+            && matches!(
+                semantic_backend,
+                SemanticBackend::Sam2 | SemanticBackend::Sam2Cutie
+            ),
+        reason: vec![format!(
+            "explicit backend override: {}",
+            input.backend_override
+        )],
     })
 }
-
 
 fn sam2_model_for_profile(profile: SegmentationProfile) -> &'static str {
     match profile {

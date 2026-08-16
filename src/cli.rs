@@ -725,7 +725,10 @@ mod tests {
         assert_eq!(actual.segmentation_model, expected.segmentation_model);
         assert_eq!(actual.segmentation_device, expected.segmentation_device);
         assert_eq!(actual.segmentation_profile, expected.segmentation_profile);
-        assert_eq!(actual.segmentation_precision, expected.segmentation_precision);
+        assert_eq!(
+            actual.segmentation_precision,
+            expected.segmentation_precision
+        );
         assert_eq!(actual.progress, expected.progress);
         assert_eq!(actual.progress_interval_ms, expected.progress_interval_ms);
         assert_eq!(actual.ffmpeg, expected.ffmpeg);

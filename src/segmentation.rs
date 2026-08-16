@@ -20,8 +20,9 @@ use crate::{
     cli::SegmentArgs,
     model::RectF,
     scene::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMatteMode, LayerRole, LayerSubject,
-        Scene, SceneLayer, SegmentationPrompt, SpatialCoordinates, find_scene, resolve_relative,
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMatteMode, LayerRole,
+        LayerSubject, Scene, SceneLayer, SegmentationPrompt, SpatialCoordinates, find_scene,
+        resolve_relative,
     },
     segmentation_strategy::{
         self, PlanningInput, SegmentationPlan, SegmentationPrecision, SegmentationProfile,
@@ -237,10 +238,12 @@ pub(crate) fn runtime_sha256_for_backend(backend: &str) -> Result<Option<String>
         );
     }
     let sam31 = crate::digest::file_sha256(&sam31_manifest)?;
-    Ok(Some(crate::digest::bytes_sha256(&serde_json::to_vec(&serde_json::json!({
-        "segmentation_runtime": primary,
-        "sam31_runtime": sam31,
-    }))?)))
+    Ok(Some(crate::digest::bytes_sha256(&serde_json::to_vec(
+        &serde_json::json!({
+            "segmentation_runtime": primary,
+            "sam31_runtime": sam31,
+        }),
+    )?)))
 }
 
 fn strip_seed_paths(layer: Option<&mut serde_json::Value>) {
