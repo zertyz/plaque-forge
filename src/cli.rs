@@ -149,14 +149,25 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub segmentation_worker: Option<PathBuf>,
 
-    #[arg(long, default_value = "sam2-cutie-vitmatte")]
+    /// `auto` lets Rust choose the semantic tracker/refiner from scene intent.
+    #[arg(long, default_value = "auto")]
     pub segmentation_backend: String,
 
-    #[arg(long, default_value = "facebook/sam2.1-hiera-large")]
+    /// `auto` uses the model selected by the Rust strategy planner.
+    #[arg(long, default_value = "auto")]
     pub segmentation_model: String,
 
+    /// Execution device only. Numeric precision is controlled independently.
     #[arg(long, default_value = "auto")]
     pub segmentation_device: String,
+
+    /// ML quality/performance policy: preview, balanced, or canonical.
+    #[arg(long, default_value = "balanced")]
+    pub segmentation_profile: String,
+
+    /// Numeric policy: auto, fp32, or bf16. `auto` is resolved from the profile.
+    #[arg(long, default_value = "auto")]
+    pub segmentation_precision: String,
 
     /// Regenerate all ML layer artifacts even when their cache files already exist.
     #[arg(long)]
@@ -235,14 +246,20 @@ pub struct SegmentArgs {
     #[arg(long)]
     pub worker: PathBuf,
 
-    #[arg(long)]
+    #[arg(long, default_value = "auto")]
     pub backend: String,
 
-    #[arg(long)]
+    #[arg(long, default_value = "auto")]
     pub model: String,
 
     #[arg(long, default_value = "auto")]
     pub device: String,
+
+    #[arg(long, default_value = "balanced")]
+    pub profile: String,
+
+    #[arg(long, default_value = "auto")]
+    pub precision: String,
 
     /// Defaults to the layer directory declared by the scene.
     #[arg(long)]
@@ -487,6 +504,8 @@ impl From<AnalyzeArgs> for AnalyzeRequest {
             segmentation_backend: args.segmentation_backend,
             segmentation_model: args.segmentation_model,
             segmentation_device: args.segmentation_device,
+            segmentation_profile: args.segmentation_profile,
+            segmentation_precision: args.segmentation_precision,
             force_ml: args.force_ml,
             progress: args.progress,
             progress_interval_ms: args.progress_interval_ms,
@@ -705,6 +724,8 @@ mod tests {
         assert_eq!(actual.segmentation_backend, expected.segmentation_backend);
         assert_eq!(actual.segmentation_model, expected.segmentation_model);
         assert_eq!(actual.segmentation_device, expected.segmentation_device);
+        assert_eq!(actual.segmentation_profile, expected.segmentation_profile);
+        assert_eq!(actual.segmentation_precision, expected.segmentation_precision);
         assert_eq!(actual.progress, expected.progress);
         assert_eq!(actual.progress_interval_ms, expected.progress_interval_ms);
         assert_eq!(actual.ffmpeg, expected.ffmpeg);

@@ -124,6 +124,9 @@ pub struct SegmentationPrompt {
     #[serde(default, skip_serializing_if = "is_source_pixels")]
     pub coordinates: SpatialCoordinates,
     pub object: Option<String>,
+    /// Optional open-vocabulary concept for backends such as SAM 3.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concept: Option<String>,
     pub box_bounds: Option<[f64; 4]>,
     #[serde(default)]
     pub positive_points: Vec<[f64; 2]>,
@@ -143,6 +146,17 @@ pub enum LayerRole {
     Reflection,
     Shadow,
     Modulation,
+}
+
+/// Optional semantic subject hint used only when a specialist model genuinely
+/// requires domain knowledge Rust cannot infer from pixels or geometry alone.
+/// Unspecified keeps the planner generic for arbitrary future video themes.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayerSubject {
+    #[default]
+    Unspecified,
+    Human,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -224,6 +238,9 @@ pub struct LayerGenerator {
     pub runtime_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_sha256: Option<String>,
+    /// SHA-256 of the sealed Rust-generated segmentation plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,6 +293,9 @@ pub struct SceneLayer {
     pub affects_tracking: bool,
     #[serde(default)]
     pub matte: LayerMatte,
+    /// Optional specialist-model hint. Leave unspecified for generic objects.
+    #[serde(default)]
+    pub subject: LayerSubject,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
 }
@@ -705,6 +725,11 @@ impl SegmentationPrompt {
         if let Some(object) = &self.object {
             validate_id(object, &format!("{description} object"))?;
         }
+        if let Some(concept) = &self.concept
+            && concept.trim().is_empty()
+        {
+            bail!("{description} concept must not be empty");
+        }
         if let Some(bounds) = self.box_bounds {
             match self.coordinates {
                 SpatialCoordinates::SourcePixels => {
@@ -753,8 +778,9 @@ impl SegmentationPrompt {
             && self.negative_points.is_empty()
             && self.polygon.is_empty()
             && self.quad.is_none()
+            && self.concept.is_none()
         {
-            bail!("{description} does not contain a box, point, polygon, or quad");
+            bail!("{description} does not contain a concept, box, point, polygon, or quad");
         }
         Ok(())
     }
@@ -779,6 +805,7 @@ impl SegmentationPrompt {
             frame: self.frame,
             coordinates: SpatialCoordinates::SourcePixels,
             object: self.object.clone(),
+            concept: self.concept.clone(),
             box_bounds: self.box_bounds.map(scale_rect),
             positive_points: self
                 .positive_points
@@ -914,6 +941,7 @@ impl LayerArtifact {
             ("prompt_sha256", generator.prompt_sha256.as_deref()),
             ("worker_sha256", generator.worker_sha256.as_deref()),
             ("request_sha256", generator.request_sha256.as_deref()),
+            ("plan_sha256", generator.plan_sha256.as_deref()),
         ] {
             validate_optional_sha256(value, name, true)?;
         }

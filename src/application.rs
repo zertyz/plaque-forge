@@ -82,9 +82,16 @@ pub struct AnalyzeRequest {
     pub force: bool,
     pub if_needed: bool,
     pub segmentation_worker: Option<PathBuf>,
+    /// `auto` delegates semantic model/refiner selection to Rust.
     pub segmentation_backend: String,
+    /// `auto` uses the model selected by the Rust strategy planner.
     pub segmentation_model: String,
+    /// Execution backend only; does not imply numeric precision.
     pub segmentation_device: String,
+    /// preview | balanced | canonical
+    pub segmentation_profile: String,
+    /// auto | fp32 | bf16. Resolved before device selection.
+    pub segmentation_precision: String,
     pub force_ml: bool,
     pub progress: ProgressMode,
     pub progress_interval_ms: u64,
@@ -199,9 +206,11 @@ impl AnalyzeRequest {
             force: false,
             if_needed: false,
             segmentation_worker: None,
-            segmentation_backend: "sam2-cutie-vitmatte".into(),
-            segmentation_model: "facebook/sam2.1-hiera-large".into(),
+            segmentation_backend: "auto".into(),
+            segmentation_model: "auto".into(),
             segmentation_device: "auto".into(),
+            segmentation_profile: "balanced".into(),
+            segmentation_precision: "auto".into(),
             force_ml: false,
             progress: ProgressMode::Auto,
             progress_interval_ms: 500,

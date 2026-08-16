@@ -51,6 +51,7 @@ mod review;
 pub mod scene;
 mod scene_commands;
 mod segmentation;
+pub mod segmentation_strategy;
 mod staged_output;
 mod surface;
 mod verify;

@@ -12,7 +12,20 @@ mkdir -p "$root"
 PYTHONPYCACHEPREFIX="$root" python3 -m py_compile \
   tools/segmentation_runtime.py \
   tools/segmentation_worker.py \
-  tools/test_segmentation_runtime.py
-PYTHONPATH=tools PYTHONPYCACHEPREFIX="$root" python3 tools/test_segmentation_runtime.py
-bash -n scripts/setup_segmentation.sh scripts/analyze_assets.sh tools/segmentation-worker
+  tools/sam31_worker.py \
+  tools/compare_segmentation_outputs.py \
+  tools/test_segmentation_runtime.py \
+  tools/test_compare_segmentation_outputs.py \
+  tools/test_sam31_worker.py
+PYTHONPATH=tools PYTHONPYCACHEPREFIX="$root" python3 -m unittest \
+  tools/test_segmentation_runtime.py \
+  tools/test_compare_segmentation_outputs.py \
+  tools/test_sam31_worker.py
+bash -n \
+  scripts/setup_segmentation.sh \
+  scripts/setup_sam31.sh \
+  scripts/analyze_assets.sh \
+  scripts/compare_segmentation_devices.sh \
+  scripts/bakeoff_segmentation_backends.sh \
+  tools/segmentation-worker
 printf 'segmentation worker/setup contracts: OK\n'

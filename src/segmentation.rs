@@ -20,15 +20,19 @@ use crate::{
     cli::SegmentArgs,
     model::RectF,
     scene::{
-        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerRole, Scene, SceneLayer,
-        SegmentationPrompt, SpatialCoordinates, find_scene, resolve_relative,
+        LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMatteMode, LayerRole, LayerSubject,
+        Scene, SceneLayer, SegmentationPrompt, SpatialCoordinates, find_scene, resolve_relative,
+    },
+    segmentation_strategy::{
+        self, PlanningInput, SegmentationPlan, SegmentationPrecision, SegmentationProfile,
+        SemanticBackend,
     },
     video::{self, VideoInfo},
     workspace,
 };
 
-const WORKER_REQUEST_FORMAT: &str = "plaque-forge.segmentation-request/1";
-const WORKER_RESULT_FORMAT: &str = "plaque-forge.segmentation-result/1";
+const WORKER_REQUEST_FORMAT: &str = "plaque-forge.segmentation-request/2";
+const WORKER_RESULT_FORMAT: &str = "plaque-forge.segmentation-result/2";
 const TEMP_LAYER_CACHE_MAX_AGE: Duration = Duration::from_secs(14 * 24 * 60 * 60);
 const TEMP_LAYER_CACHE_MAX_ENTRIES: usize = 32;
 
@@ -69,6 +73,8 @@ struct WorkerRequest {
     backend: String,
     model: String,
     device: String,
+    plan: SegmentationPlan,
+    plan_sha256: String,
     prompt_sha256: String,
     worker_sha256: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,6 +109,8 @@ struct WorkerLayer {
     id: String,
     role: LayerRole,
     affects_layout: bool,
+    matte_mode: LayerMatteMode,
+    subject: LayerSubject,
     active_frames: Option<[usize; 2]>,
     prompts: Vec<crate::scene::SegmentationPrompt>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -123,6 +131,8 @@ struct WorkerResult {
     backend: String,
     model: String,
     version: String,
+    plan_sha256: String,
+    precision: SegmentationPrecision,
     frames: usize,
     mean_confidence: f64,
     minimum_confidence: f64,
@@ -135,6 +145,19 @@ struct WorkerResult {
     mean_coverage: f64,
     maximum_coverage: f64,
     soft_edge_pixels: u64,
+    execution: Vec<WorkerStageResult>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkerStageResult {
+    stage: String,
+    device: String,
+    precision: String,
+    seconds: f64,
+    cache_hit: bool,
+    #[serde(default)]
+    note: Option<String>,
 }
 
 fn seal_request(mut request: WorkerRequest) -> Result<WorkerRequest> {
@@ -168,6 +191,58 @@ fn prompt_sha256(layer: &WorkerLayer) -> Result<String> {
     Ok(crate::digest::bytes_sha256(&serde_json::to_vec(&value)?))
 }
 
+fn plan_sha256(plan: &SegmentationPlan) -> Result<String> {
+    Ok(crate::digest::bytes_sha256(&serde_json::to_vec(plan)?))
+}
+
+fn resolve_plan(
+    layer: &SceneLayer,
+    backend: &str,
+    model: &str,
+    profile: &str,
+    precision: &str,
+) -> Result<SegmentationPlan> {
+    segmentation_strategy::plan(PlanningInput {
+        profile: SegmentationProfile::parse(profile)?,
+        precision_override: SegmentationPrecision::parse(precision)?,
+        backend_override: backend,
+        model_override: model,
+        role: layer.role,
+        matte_mode: layer.matte.mode,
+        subject: layer.subject,
+        prompts: &layer.prompts,
+    })
+}
+
+fn runtime_sha256_for_plan(plan: &SegmentationPlan) -> Result<Option<String>> {
+    if plan.semantic_backend == SemanticBackend::Sam31 {
+        runtime_sha256_for_backend("sam3.1")
+    } else {
+        runtime_sha256()
+    }
+}
+
+pub(crate) fn runtime_sha256_for_backend(backend: &str) -> Result<Option<String>> {
+    let primary = runtime_sha256()?;
+    if !matches!(backend, "sam3.1" | "sam31" | "sam3.1-vitmatte") {
+        return Ok(primary);
+    }
+    let sam31_manifest = std::env::var_os("PLAQUE_FORGE_SAM31_RUNTIME_MANIFEST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("plaque-forge-sam31/runtime-manifest.json"));
+    if !sam31_manifest.is_file() {
+        bail!(
+            "SAM 3.1 plan requires its isolated CUDA runtime; run ./scripts/setup_sam31.sh first (expected {})",
+            sam31_manifest.display()
+        );
+    }
+    let sam31 = crate::digest::file_sha256(&sam31_manifest)?;
+    Ok(Some(crate::digest::bytes_sha256(&serde_json::to_vec(&serde_json::json!({
+        "segmentation_runtime": primary,
+        "sam31_runtime": sam31,
+    }))?)))
+}
+
 fn strip_seed_paths(layer: Option<&mut serde_json::Value>) {
     let Some(seeds) = layer
         .and_then(|value| value.get_mut("seed_masks"))
@@ -187,6 +262,7 @@ pub(crate) fn worker_sha256(worker: &Path) -> Result<String> {
     for path in [
         worker.to_path_buf(),
         worker.with_file_name("segmentation_worker.py"),
+        worker.with_file_name("segmentation_runtime.py"),
         worker.with_file_name("segmentation-requirements.txt"),
     ] {
         if path.is_file() {
@@ -222,6 +298,8 @@ fn worker_layer(layer: &crate::scene::SceneLayer, info: &VideoInfo) -> Result<Wo
         id: layer.id.clone(),
         role: layer.role,
         affects_layout: layer.affects_layout,
+        matte_mode: layer.matte.mode,
+        subject: layer.subject,
         active_frames: layer.active_frames,
         prompts: layer
             .prompts
@@ -240,6 +318,7 @@ struct LayerCacheIdentity<'a> {
     prompt_sha256: &'a str,
     worker_sha256: &'a str,
     runtime_sha256: Option<&'a str>,
+    plan_sha256: &'a str,
 }
 
 fn temporary_layer_cache(identity: LayerCacheIdentity<'_>) -> PathBuf {
@@ -252,6 +331,7 @@ fn temporary_layer_cache(identity: LayerCacheIdentity<'_>) -> PathBuf {
             "prompt_sha256": identity.prompt_sha256,
             "worker_sha256": identity.worker_sha256,
             "runtime_sha256": identity.runtime_sha256,
+            "plan_sha256": identity.plan_sha256,
         }))
         .expect("cache identity is serializable"),
     );
@@ -283,6 +363,7 @@ fn layer_cache_is_current(path: &Path, expected: LayerCacheIdentity<'_>) -> bool
         && generator.prompt_sha256.as_deref() == Some(expected.prompt_sha256)
         && generator.worker_sha256.as_deref() == Some(expected.worker_sha256)
         && generator.runtime_sha256.as_deref() == expected.runtime_sha256
+        && generator.plan_sha256.as_deref() == Some(expected.plan_sha256)
 }
 
 pub(crate) fn prompted_artifact_matches_source_and_prompt(
@@ -388,8 +469,16 @@ fn run_with_executor(
     let source_sha256 = crate::digest::file_sha256(&args.input)?;
     let worker_layer = worker_layer(layer, &info)?;
     let prompt_sha256 = prompt_sha256(&worker_layer)?;
+    let plan = resolve_plan(
+        layer,
+        &args.backend,
+        &args.model,
+        &args.profile,
+        &args.precision,
+    )?;
+    let plan_sha256 = plan_sha256(&plan)?;
     let worker_sha256 = worker_sha256(&args.worker)?;
-    let runtime_sha256 = runtime_sha256()?;
+    let runtime_sha256 = runtime_sha256_for_plan(&plan)?;
     let trajectory = plaque
         .trajectory
         .as_ref()
@@ -400,9 +489,11 @@ fn run_with_executor(
         .transpose()?;
     let request = seal_request(WorkerRequest {
         format: WORKER_REQUEST_FORMAT.into(),
-        backend: args.backend.clone(),
-        model: args.model.clone(),
+        backend: plan.backend_label().to_string(),
+        model: plan.semantic_model.clone(),
         device: args.device.clone(),
+        plan: plan.clone(),
+        plan_sha256,
         prompt_sha256,
         worker_sha256,
         runtime_sha256,
@@ -428,10 +519,12 @@ fn run_with_executor(
     fs::write(&request_path, serde_json::to_vec_pretty(&request)?)?;
 
     eprintln!(
-        "[ml] launching segmentation worker: layer={:?}, backend={}, model={}, device={}, worker={}",
+        "[ml] launching segmentation worker: layer={:?}, profile={:?}, backend={}, model={}, precision={:?}, device={}, worker={}",
         layer.id,
-        args.backend,
-        args.model,
+        plan.profile,
+        plan.backend_label(),
+        plan.semantic_model,
+        plan.precision,
         args.device,
         args.worker.display()
     );
@@ -463,6 +556,8 @@ pub struct PromptedLayersRequest<'a> {
     pub backend: &'a str,
     pub model: &'a str,
     pub device: &'a str,
+    pub profile: &'a str,
+    pub precision: &'a str,
     pub force: bool,
     pub ffprobe: &'a Path,
     pub info: &'a VideoInfo,
@@ -483,6 +578,8 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         backend,
         model,
         device,
+        profile,
+        precision,
         force,
         ffprobe,
         info,
@@ -513,7 +610,6 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         return Ok(0);
     }
     let expected_worker = worker_sha256(worker)?;
-    let expected_runtime = runtime_sha256()?;
     prune_temporary_layer_cache()?;
     let mut pending = Vec::new();
     let mut reused = 0usize;
@@ -521,14 +617,20 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         let output = output_root.join(&layer.id);
         let artifact = output.join("artifact.toml");
         let prompt = prompt_sha256(&worker_layer(layer, info)?)?;
+        let plan = resolve_plan(layer, backend, model, profile, precision)?;
+        let plan_hash = plan_sha256(&plan)?;
+        let planned_backend = plan.backend_label().to_string();
+        let planned_model = plan.semantic_model.clone();
+        let expected_runtime = runtime_sha256_for_plan(&plan)?;
         let expected = || LayerCacheIdentity {
-            backend,
-            model,
+            backend: &planned_backend,
+            model: &planned_model,
             device,
             source_sha256,
             prompt_sha256: &prompt,
             worker_sha256: &expected_worker,
             runtime_sha256: expected_runtime.as_deref(),
+            plan_sha256: &plan_hash,
         };
         if !force && layer_cache_is_current(&artifact, expected()) {
             reused += 1;
@@ -580,6 +682,8 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
                 backend: backend.to_string(),
                 model: model.to_string(),
                 device: device.to_string(),
+                profile: profile.to_string(),
+                precision: precision.to_string(),
                 output: Some(output_root.join(layer)),
                 force: false,
                 ffprobe: ffprobe.to_path_buf(),
@@ -587,16 +691,27 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
             commands,
         )?;
         let artifact = output_root.join(layer).join("artifact.toml");
+        let scene_layer = prompted
+            .iter()
+            .copied()
+            .find(|candidate| candidate.id == *layer)
+            .context("pending prompted layer disappeared from the scene")?;
+        let plan = resolve_plan(scene_layer, backend, model, profile, precision)?;
+        let plan_hash = plan_sha256(&plan)?;
+        let planned_backend = plan.backend_label().to_string();
+        let planned_model = plan.semantic_model.clone();
+        let expected_runtime = runtime_sha256_for_plan(&plan)?;
         store_temporary_layer_cache(
             &artifact,
             LayerCacheIdentity {
-                backend,
-                model,
+                backend: &planned_backend,
+                model: &planned_model,
                 device,
                 source_sha256,
                 prompt_sha256: prompt,
                 worker_sha256: &expected_worker,
                 runtime_sha256: expected_runtime.as_deref(),
+                plan_sha256: &plan_hash,
             },
         )?;
     }
@@ -691,6 +806,8 @@ pub struct AutomaticForegroundRequest<'a> {
     pub backend: &'a str,
     pub model: &'a str,
     pub device: &'a str,
+    pub profile: &'a str,
+    pub precision: &'a str,
     pub info: &'a VideoInfo,
     pub plaque: RectF,
     pub seed_masks: &'a Path,
@@ -715,6 +832,8 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
         id: "automatic-foreground".to_string(),
         role: LayerRole::Foreground,
         affects_layout: false,
+        matte_mode: LayerMatteMode::Opaque,
+        subject: LayerSubject::Unspecified,
         active_frames: None,
         seed_masks: prompts
             .iter()
@@ -729,14 +848,27 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             .collect::<Result<Vec<_>>>()?,
         prompts,
     };
+    let plan = segmentation_strategy::plan(PlanningInput {
+        profile: SegmentationProfile::parse(request.profile)?,
+        precision_override: SegmentationPrecision::parse(request.precision)?,
+        backend_override: request.backend,
+        model_override: request.model,
+        role: LayerRole::Foreground,
+        matte_mode: LayerMatteMode::Opaque,
+        subject: LayerSubject::Unspecified,
+        prompts: &worker_layer.prompts,
+    })?;
+    let plan_hash = plan_sha256(&plan)?;
     let request_document = seal_request(WorkerRequest {
         format: WORKER_REQUEST_FORMAT.into(),
-        backend: request.backend.to_string(),
-        model: request.model.to_string(),
+        backend: plan.backend_label().to_string(),
+        model: plan.semantic_model.clone(),
         device: request.device.to_string(),
+        plan: plan.clone(),
+        plan_sha256: plan_hash,
         prompt_sha256: prompt_sha256(&worker_layer)?,
         worker_sha256: worker_sha256(request.worker)?,
-        runtime_sha256: runtime_sha256()?,
+        runtime_sha256: runtime_sha256_for_plan(&plan)?,
         request_sha256: String::new(),
         source: WorkerSource {
             path: request
@@ -792,10 +924,12 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
     fs::write(&request_path, serde_json::to_vec_pretty(&request_document)?)?;
 
     eprintln!(
-        "[ml] automatic foreground required: {} seed frame(s), backend={}, model={}, device={}",
+        "[ml] automatic foreground required: {} seed frame(s), profile={:?}, backend={}, model={}, precision={:?}, device={}",
         request_document.layer.prompts.len(),
-        request.backend,
-        request.model,
+        plan.profile,
+        plan.backend_label(),
+        plan.semantic_model,
+        plan.precision,
         request.device
     );
     if let Err(error) = run_worker_process(
@@ -1138,6 +1272,7 @@ fn automatic_foreground_prompts(
             // alpha only after propagation; duplicate hypotheses are harmless under
             // max-union, while conflated semantic actors are not recoverable.
             object: Some(format!("automatic-foreground-{frame}")),
+            concept: None,
             box_bounds: Some(bounds),
             positive_points: vec![positive],
             negative_points: Vec::new(),
@@ -1166,6 +1301,8 @@ fn validate_worker_output(
         || result.backend != request.backend
         || result.model != request.model
         || result.version.trim().is_empty()
+        || result.plan_sha256 != request.plan_sha256
+        || result.precision != request.plan.precision
         || result.frames != info.frames
         || result.request_sha256 != request.request_sha256
         || result.source_sha256 != request.source.sha256
@@ -1178,6 +1315,15 @@ fn validate_worker_output(
         || ![result.mean_coverage, result.maximum_coverage]
             .iter()
             .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        || result.execution.iter().any(|stage| {
+            stage.stage.trim().is_empty()
+                || stage.device.trim().is_empty()
+                || stage.precision.trim().is_empty()
+                || !stage.seconds.is_finite()
+                || stage.seconds < 0.0
+                || (stage.cache_hit && stage.seconds > 0.1)
+                || stage.note.as_deref().is_some_and(str::is_empty)
+        })
     {
         bail!("worker result.json does not match the request or source");
     }
@@ -1203,6 +1349,7 @@ fn validate_worker_output(
         || generator.worker_sha256.as_deref() != Some(request.worker_sha256.as_str())
         || generator.runtime_sha256.as_deref() != request.runtime_sha256.as_deref()
         || generator.request_sha256.as_deref() != Some(request.request_sha256.as_str())
+        || generator.plan_sha256.as_deref() != Some(request.plan_sha256.as_str())
     {
         bail!("artifact generator provenance differs from result.json");
     }
@@ -1420,6 +1567,7 @@ mod prompt_validation_tests {
             frame: 7,
             coordinates: SpatialCoordinates::SourcePixels,
             object: None,
+            concept: None,
             box_bounds: None,
             positive_points: vec![positive],
             negative_points: Vec::new(),

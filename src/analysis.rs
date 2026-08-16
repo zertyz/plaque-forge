@@ -79,6 +79,8 @@ pub struct SegmentationConfig {
     pub backend: String,
     pub model: String,
     pub device: String,
+    pub profile: String,
+    pub precision: String,
     pub worker_sha256: String,
     pub runtime_sha256: Option<String>,
 }

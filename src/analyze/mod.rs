@@ -164,10 +164,12 @@ pub fn run(
     // worker failure therefore cannot leave a partial tree under assets/analysis.
     if let Some(worker) = args.segmentation_worker.as_deref() {
         eprintln!(
-            "[ml] segmentation enabled: worker={}, backend={}, model={}, device={}",
+            "[ml] segmentation enabled: worker={}, backend={}, model={}, profile={}, precision={}, device={}",
             worker.display(),
             args.segmentation_backend,
             args.segmentation_model,
+            args.segmentation_profile,
+            args.segmentation_precision,
             args.segmentation_device
         );
         let generated = crate::segmentation::ensure_prompted_layers(
@@ -179,6 +181,8 @@ pub fn run(
                 backend: &args.segmentation_backend,
                 model: &args.segmentation_model,
                 device: &args.segmentation_device,
+                profile: &args.segmentation_profile,
+                precision: &args.segmentation_precision,
                 force: args.force_ml,
                 ffprobe: &args.ffprobe,
                 info: &info,
@@ -361,6 +365,8 @@ pub fn run(
                         backend: &args.segmentation_backend,
                         model: &args.segmentation_model,
                         device: &args.segmentation_device,
+                        profile: &args.segmentation_profile,
+                        precision: &args.segmentation_precision,
                         info: &info,
                         plaque: candidate.rect,
                         seed_masks: &partial.join(OCCLUDER_DIR),
@@ -1076,8 +1082,12 @@ fn segmentation_config(args: &AnalyzeRequest) -> Result<Option<SegmentationConfi
                 backend: args.segmentation_backend.clone(),
                 model: args.segmentation_model.clone(),
                 device: args.segmentation_device.clone(),
+                profile: args.segmentation_profile.clone(),
+                precision: args.segmentation_precision.clone(),
                 worker_sha256: crate::segmentation::worker_sha256(worker)?,
-                runtime_sha256: crate::segmentation::runtime_sha256()?,
+                runtime_sha256: crate::segmentation::runtime_sha256_for_backend(
+                    &args.segmentation_backend,
+                )?,
             })
         })
         .transpose()

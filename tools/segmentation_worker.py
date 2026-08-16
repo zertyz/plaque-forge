@@ -2,6 +2,7 @@
 import argparse
 import gc
 import hashlib
+import fcntl
 import importlib.metadata
 import json
 import os
@@ -23,6 +24,11 @@ from segmentation_runtime import (
     load_sam2_video_predictor,
     model_revision,
 )
+
+WORKER_PROTOCOL = "plaque-forge.segmentation-request/2"
+RESULT_PROTOCOL = "plaque-forge.segmentation-result/2"
+FRAME_CACHE_FORMAT = "plaque-forge.frame-cache/1"
+STAGE_METRICS = []
 
 
 # Upstream dependencies emit several warnings that are expected in Plaque Forge's
@@ -112,14 +118,63 @@ def release_device(device):
         pass
 
 
-def run_component(name, requested, operation, allow_xpu=True):
+def backend_label_from_plan(plan):
+    semantic = plan.get("semantic_backend")
+    matte = plan.get("matte_refiner")
+    if semantic == "sam2":
+        return "sam2-vitmatte" if matte == "vitmatte" else "sam2"
+    if semantic == "cutie":
+        return "cutie-vitmatte" if matte == "vitmatte" else "cutie"
+    if semantic == "sam2-cutie":
+        return "sam2-cutie-vitmatte" if matte == "vitmatte" else "sam2-cutie"
+    if semantic == "matanyone2":
+        return "matanyone2"
+    if semantic == "sam3.1":
+        return "sam3.1-vitmatte" if matte == "vitmatte" else "sam3.1"
+    raise ValueError(f"unsupported sealed semantic backend: {semantic!r}")
+
+
+def requested_precision(request):
+    precision = request.get("plan", {}).get("precision")
+    if precision not in {"fp32", "bf16"}:
+        raise ValueError(f"unsupported sealed precision policy: {precision!r}")
+    return precision
+
+
+def precision_context(torch, device, precision):
+    if precision == "fp32":
+        return nullcontext()
+    if precision != "bf16":
+        raise ValueError(f"unsupported precision: {precision}")
+    device_type = device.split(":", 1)[0]
+    if device_type not in {"cpu", "cuda", "xpu"}:
+        raise RuntimeError(f"BF16 autocast is unsupported on device {device!r}")
+    return torch.autocast(device_type=device_type, dtype=torch.bfloat16)
+
+
+def record_stage(stage, device, precision, seconds, *, cache_hit=False, note=None):
+    record = {
+        "stage": stage,
+        "device": device,
+        "precision": precision,
+        "seconds": round(float(seconds), 6),
+        "cache_hit": bool(cache_hit),
+    }
+    if note:
+        record["note"] = str(note)
+    STAGE_METRICS.append(record)
+
+
+def run_component(name, requested, operation, *, precision="fp32", allow_xpu=True):
     failures = []
     for device in device_candidates(requested, allow_xpu=allow_xpu):
         try:
             started = time.monotonic()
             result = operation(device)
+            elapsed = time.monotonic() - started
             release_device(device)
-            print(f"{name}: {device}, {time.monotonic() - started:.1f}s", file=sys.stderr)
+            record_stage(name, device, precision, elapsed)
+            print(f"{name}: {device}/{precision}, {elapsed:.1f}s", file=sys.stderr)
             return result, device
         except RuntimeError as error:
             release_device(device)
@@ -130,31 +185,97 @@ def run_component(name, requested, operation, allow_xpu=True):
     raise RuntimeError("; ".join(failures))
 
 
-def extract_frames(source, directory):
-    directory.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-noautorotate",
-            "-i",
-            str(source),
-            "-start_number",
-            "0",
-            "-c:v",
-            "png",
-            "-pix_fmt",
-            "rgba",
-            "-f",
-            "image2",
-            "-y",
-            str(directory / "%06d.png"),
-        ],
-        check=True,
-    )
-    return sorted(directory.glob("*.png"))
+def private_runtime_root():
+    root = Path(os.environ.get("PLAQUE_FORGE_PYTHON_ROOT", "/tmp/plaque-forge-python"))
+    if root != Path("/tmp/plaque-forge-python") and not os.environ.get("PLAQUE_FORGE_ALLOW_CUSTOM_RUNTIME_ROOT"):
+        raise RuntimeError(f"unexpected segmentation runtime root: {root}")
+    return root
+
+
+def frame_cache_key(request):
+    identity = {
+        "format": FRAME_CACHE_FORMAT,
+        "source_sha256": request["source"]["sha256"],
+        "width": request["source"]["width"],
+        "height": request["source"]["height"],
+        "frames": request["source"]["frames"],
+        "decoder": "ffmpeg-noautorotate-png-rgba",
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def cache_lock(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def prune_frame_cache(root, maximum_entries=12):
+    if not root.is_dir():
+        return
+    entries = [path for path in root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+    entries.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    for stale in entries[maximum_entries:]:
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def extract_frames_cached(request):
+    cache_root = private_runtime_root() / "cache" / "decoded-frames"
+    key = frame_cache_key(request)
+    target = cache_root / key
+    metadata = target / "cache.json"
+    lock = cache_lock(cache_root / ".locks" / f"{key}.lock")
+    try:
+        if metadata.is_file():
+            document = json.loads(metadata.read_text(encoding="utf-8"))
+            frames = sorted(target.glob("*.png"))
+            if document.get("format") == FRAME_CACHE_FORMAT and len(frames) == request["source"]["frames"]:
+                record_stage("Decode frames", "cpu", "lossless", 0.0, cache_hit=True)
+                os.utime(target, None)
+                print(f"Decode frames: cache hit ({len(frames)} lossless PNGs)", file=sys.stderr)
+                return frames
+        staging = cache_root / f".{key}.{os.getpid()}.incoming"
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True, exist_ok=True)
+        started = time.monotonic()
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-noautorotate",
+                "-i", str(request["source"]["path"]), "-start_number", "0",
+                "-c:v", "png", "-pix_fmt", "rgba", "-f", "image2", "-y",
+                str(staging / "%06d.png"),
+            ],
+            check=True,
+        )
+        frames = sorted(staging.glob("*.png"))
+        if len(frames) != request["source"]["frames"]:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise RuntimeError(
+                f"decoded {len(frames)} frames, expected {request['source']['frames']}"
+            )
+        (staging / "cache.json").write_text(
+            json.dumps(
+                {
+                    "format": FRAME_CACHE_FORMAT,
+                    "source_sha256": request["source"]["sha256"],
+                    "frames": len(frames),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        shutil.rmtree(target, ignore_errors=True)
+        staging.rename(target)
+        elapsed = time.monotonic() - started
+        record_stage("Decode frames", "cpu", "lossless", elapsed)
+        print(f"Decode frames: cache miss, {elapsed:.1f}s", file=sys.stderr)
+        prune_frame_cache(cache_root)
+        return sorted(target.glob("*.png"))
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
 
 
 def require_lossless_frames(frames, expected, stage):
@@ -264,6 +385,8 @@ def sam2_masks(request, frames, device):
     from sam2 import sam2_video_predictor as predictor_module
     from sam2.utils import misc as sam2_misc
 
+    precision = requested_precision(request)
+
     # Upstream SAM2 filters directory input by a JPEG-only suffix even though its PIL
     # decoder already supports PNG. Install a narrow eager loader so model input stays
     # lossless and the filename truthfully describes its bytes.
@@ -326,15 +449,30 @@ def sam2_masks(request, frames, device):
             flush=True,
         )
     predictor = load_sam2_video_predictor(request["model"], device)
+    compile_label = "eager"
+    if request.get("plan", {}).get("compile"):
+        # Compilation is deliberately a preview-only policy because upstream notes
+        # that compiled inference can introduce small numerical prediction variance.
+        image_encoder = getattr(predictor, "image_encoder", None)
+        if image_encoder is not None and hasattr(torch, "compile"):
+            try:
+                predictor.image_encoder = torch.compile(
+                    image_encoder,
+                    mode="reduce-overhead",
+                    fullgraph=False,
+                )
+                compile_label = "compiled-image-encoder"
+            except Exception as error:
+                compile_label = "compile-unavailable"
+                print(f"[ml] SAM2 compile unavailable; continuing eager: {error}", file=sys.stderr)
 
-    # SAM2 unconditionally compresses its temporal memory to BF16 before storing
-    # it. That is appropriate under the documented accelerator autocast path, but
-    # CPU inference otherwise feeds BF16 memory into FP32 projection weights and
-    # fails in memory attention. Keep the CPU fallback genuinely full precision by
-    # restoring stored memory tensors to FP32 at the two points where upstream
-    # performs that compression. This is intentionally instance-local: accelerator
-    # predictors retain upstream's efficient BF16 memory contract.
-    if device.startswith("cpu"):
+    # SAM2 compresses temporal memory to BF16 before storing it. Precision is part
+    # of the Rust-sealed plan, not a side effect of the selected device: FP32 plans
+    # therefore restore stored memory tensors to FP32 at the two upstream compression
+    # points, while BF16 plans retain the efficient upstream memory representation.
+    # This instance-local patch keeps CPU/XPU/CUDA fallback from silently changing
+    # the numerical policy.
+    if precision == "fp32":
         original_single_frame = predictor._run_single_frame_inference
         original_memory_encoder = predictor._run_memory_encoder
 
@@ -354,20 +492,15 @@ def sam2_masks(request, frames, device):
 
     state = predictor.init_state(video_path=str(frames[0].parent), offload_video_to_cpu=True)
     prompts = request["layer"]["prompts"]
+    precision = requested_precision(request)
     active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
     probabilities = [None] * len(frames)
     first = min(prompt["frame"] for prompt in prompts)
     last = max(prompt["frame"] for prompt in prompts)
     objects = {}
-    # Upstream SAM2 stores accelerator video memory in BF16. Its documented CUDA
-    # inference path uses BF16 autocast; the same contract is required on Intel XPU
-    # once more than one object exercises memory attention. CPU stays full FP32 via
-    # the instance-local storage adapters above.
-    autocast = (
-        torch.autocast(device_type=device.split(":", 1)[0], dtype=torch.bfloat16)
-        if device.startswith(("xpu", "cuda"))
-        else nullcontext()
-    )
+    # Precision is part of the Rust-sealed plan. A device fallback must not silently
+    # change arithmetic from BF16 to FP32 or vice versa.
+    autocast = precision_context(torch, device, precision)
     with torch.inference_mode(), autocast:
         for prompt in prompts:
             object_name = prompt.get("object") or "default"
@@ -429,7 +562,9 @@ def sam2_masks(request, frames, device):
     probabilities = [empty.copy() if probability is None else probability for probability in probabilities]
     if not native_postprocessing:
         probabilities = [cleanup_small_mask_defects(probability) for probability in probabilities]
-    return probabilities, f"sam2-{package_version('sam-2', 'sam2')}"
+    return probabilities, (
+        f"sam2-{package_version('sam-2', 'sam2')}+{precision}+{compile_label}"
+    )
 
 
 def load_cutie(device):
@@ -460,6 +595,7 @@ def cutie_masks(request, frames, device, guides=None):
     from cutie.inference.inference_core import InferenceCore
     from torchvision.transforms.functional import to_tensor
 
+    precision = requested_precision(request)
     prompts = request["layer"]["prompts"]
     active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
     if device == "cpu":
@@ -473,7 +609,7 @@ def cutie_masks(request, frames, device, guides=None):
     def propagate(indices):
         processor = InferenceCore(model, cfg=model.cfg)
         output = {}
-        with torch.inference_mode():
+        with torch.inference_mode(), precision_context(torch, device, precision):
             for position, frame in enumerate(indices):
                 image = to_tensor(Image.open(frames[frame]).convert("RGB")).to(device).float()
                 correction = position == 0 or frame in prompt_frames
@@ -503,10 +639,11 @@ def cutie_masks(request, frames, device, guides=None):
     )
 
 
-def refine_vitmatte(probabilities, frames, model_name, device):
+def refine_vitmatte(request, probabilities, frames, model_name, device):
     import torch
     from transformers import VitMatteForImageMatting, VitMatteImageProcessor
 
+    precision = requested_precision(request)
     revision = model_revision(model_name)
     processor = VitMatteImageProcessor.from_pretrained(model_name, **revision)
     model = VitMatteForImageMatting.from_pretrained(model_name, **revision).to(device).eval()
@@ -542,8 +679,8 @@ def refine_vitmatte(probabilities, frames, model_name, device):
         crop_trimap = Image.fromarray(trimap[top:bottom, left:right])
         inputs = processor(images=crop, trimaps=crop_trimap, return_tensors="pt")
         inputs = {key: value.to(device) for key, value in inputs.items()}
-        with torch.inference_mode():
-            alpha = model(**inputs).alphas[0, 0].clamp(0, 1).cpu().numpy()
+        with torch.inference_mode(), precision_context(torch, device, precision):
+            alpha = model(**inputs).alphas[0, 0].float().clamp(0, 1).cpu().numpy()
         alpha = alpha[: crop.height, : crop.width]
         guard = cv2.GaussianBlur(support.astype(np.float32), (0, 0), 2.0).clip(0, 1)
         matte = np.zeros(probability.shape, dtype=np.float32)
@@ -633,6 +770,7 @@ def matanyone2_masks(request, output, size, frames, device):
     import matanyone2.model.matanyone2 as model_module
     from matanyone2 import InferenceCore, MatAnyone2
 
+    precision = requested_precision(request)
     prompts = request["layer"]["prompts"]
     if min(prompt["frame"] for prompt in prompts) != 0:
         raise ValueError("MatAnyone2 requires a frame-0 area seed")
@@ -645,142 +783,320 @@ def matanyone2_masks(request, output, size, frames, device):
     ).to(device).eval()
     processor = InferenceCore(model, device=device)
     work = output / "matanyone2"
-    processor.process_video(
-        input_path=request["source"]["path"],
-        mask_path=str(seed_path),
-        output_path=str(work),
-        save_image=True,
-        r_erode=0,
-        r_dilate=0,
-    )
+    with torch.inference_mode(), precision_context(torch, device, precision):
+        processor.process_video(
+            input_path=request["source"]["path"],
+            mask_path=str(seed_path),
+            output_path=str(work),
+            save_image=True,
+            r_erode=0,
+            r_dilate=0,
+        )
     alpha_paths = sorted(work.glob("*/pha/*.png"))
     if len(alpha_paths) != frames:
         raise RuntimeError(f"MatAnyone2 produced {len(alpha_paths)} masks, expected {frames}")
-    return [np.asarray(Image.open(path).convert("L"), dtype=np.float32) / 255 for path in alpha_paths], (
-        f"matanyone2-{package_version('matanyone2')}"
+    # Preserve the model's native PNG precision. Converting through PIL "L" used to
+    # quantize the matte to 8 bits before Plaque Forge re-encoded it as 16-bit PNG.
+    return [probability_from_png(path) for path in alpha_paths], (
+        f"matanyone2-{package_version('matanyone2')}+{precision}"
     )
 
 
 def sam2_cache_key(request):
     identity = {
+        "format": "plaque-forge.sam2-cache/2",
         "model": request["model"],
         "source_sha256": request["source"]["sha256"],
         "frames": request["source"]["frames"],
         "prompts": request["layer"]["prompts"],
+        "seed_masks": [
+            {"frame": seed["frame"], "sha256": seed["sha256"]}
+            for seed in request["layer"].get("seed_masks", [])
+        ],
+        "plan_sha256": request["plan_sha256"],
+        "requested_device": request.get("device", "auto"),
+        "runtime_sha256": request.get("runtime_sha256"),
     }
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
-def cached_sam2(request, frames, requested_device, cache_root):
-    metadata_path = cache_root / "sam2.json"
-    mask_root = cache_root / "sam2"
-    if metadata_path.is_file():
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        paths = sorted(mask_root.glob("*.png"))
-        if metadata.get("key") == sam2_cache_key(request) and len(paths) == len(frames):
-            probabilities = [
-                probability_from_png(path) for path in paths
-            ]
-            print("SAM 2: checkpoint", file=sys.stderr)
-            return probabilities, metadata["version"], metadata["device"]
-
-    (probabilities, version), device = run_component(
-        "SAM 2", requested_device, lambda candidate: sam2_masks(request, frames, candidate)
-    )
-    mask_root.mkdir(parents=True, exist_ok=True)
-    for frame, probability in enumerate(probabilities):
-        save_probability_png(mask_root / f"{frame:06}.png", probability)
-    metadata_path.write_text(
-        json.dumps(
-            {"key": sam2_cache_key(request), "version": version, "device": device}, indent=2
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return probabilities, version, device
+def prune_stage_cache(root, maximum_entries=20):
+    if not root.is_dir():
+        return
+    entries = [path for path in root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+    entries.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    for stale in entries[maximum_entries:]:
+        shutil.rmtree(stale, ignore_errors=True)
 
 
-def model_masks(request, frames, requested_device, cache_root):
-    backend = request["backend"]
-    expected_frames = request["source"]["frames"]
-    require_lossless_frames(frames, expected_frames, "model startup")
-    if backend == "sam2-vitmatte":
-        probabilities, version, device = cached_sam2(
-            request, frames, requested_device, cache_root
-        )
-        version += f"@{device}"
-    elif backend == "cutie-vitmatte":
+def cutie_cache_key(request, guided):
+    identity = {
+        "format": "plaque-forge.cutie-cache/1",
+        "source_sha256": request["source"]["sha256"],
+        "prompt_sha256": request["prompt_sha256"],
+        "plan_sha256": request["plan_sha256"],
+        "requested_device": request.get("device", "auto"),
+        "runtime_sha256": request.get("runtime_sha256"),
+        "precision": requested_precision(request),
+        "guided_by_sam2": bool(guided),
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def cached_cutie(request, frames, requested_device, guides=None, *, allow_xpu=True):
+    key = cutie_cache_key(request, guides is not None)
+    cache_root = private_runtime_root() / "cache" / "model-stages" / "cutie"
+    target = cache_root / key
+    metadata_path = target / "cache.json"
+    mask_root = target / "masks"
+    lock = cache_lock(cache_root / ".locks" / f"{key}.lock")
+    try:
+        candidate_devices = device_candidates(requested_device, allow_xpu=allow_xpu)
+        if metadata_path.is_file():
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            paths = sorted(mask_root.glob("*.png"))
+            if (
+                metadata.get("key") == key
+                and metadata.get("device") in candidate_devices
+                and metadata.get("precision") == requested_precision(request)
+                and len(paths) == len(frames)
+            ):
+                probabilities = [probability_from_png(path) for path in paths]
+                os.utime(target, None)
+                record_stage(
+                    "Cutie",
+                    metadata["device"],
+                    metadata["precision"],
+                    0.0,
+                    cache_hit=True,
+                )
+                print("Cutie: persistent cache hit", file=sys.stderr)
+                return probabilities, metadata["version"], metadata["device"]
+
         (probabilities, version), device = run_component(
             "Cutie",
             requested_device,
-            lambda candidate: cutie_masks(request, frames, candidate),
-            allow_xpu=True,
+            lambda candidate: cutie_masks(request, frames, candidate, guides=guides),
+            precision=requested_precision(request),
+            allow_xpu=allow_xpu,
         )
-        version += f"@{device}"
-    elif backend == "sam2-cutie-vitmatte":
-        sam2, sam2_version, sam2_device = cached_sam2(
-            request, frames, requested_device, cache_root
+        staging = cache_root / f".{key}.{os.getpid()}.incoming"
+        shutil.rmtree(staging, ignore_errors=True)
+        (staging / "masks").mkdir(parents=True, exist_ok=True)
+        for frame, probability in enumerate(probabilities):
+            save_probability_png(staging / "masks" / f"{frame:06}.png", probability)
+        (staging / "cache.json").write_text(
+            json.dumps(
+                {
+                    "format": "plaque-forge.cutie-cache/1",
+                    "key": key,
+                    "version": version,
+                    "device": device,
+                    "precision": requested_precision(request),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
         )
-        require_lossless_frames(frames, expected_frames, "Cutie startup")
-        (cutie, cutie_version), cutie_device = run_component(
-            "Cutie",
+        shutil.rmtree(target, ignore_errors=True)
+        staging.rename(target)
+        prune_stage_cache(cache_root)
+        return probabilities, version, device
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
+
+
+def cached_sam2(request, frames, requested_device):
+    key = sam2_cache_key(request)
+    cache_root = private_runtime_root() / "cache" / "model-stages" / "sam2"
+    target = cache_root / key
+    metadata_path = target / "cache.json"
+    mask_root = target / "masks"
+    lock = cache_lock(cache_root / ".locks" / f"{key}.lock")
+    try:
+        if metadata_path.is_file():
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            paths = sorted(mask_root.glob("*.png"))
+            candidate_devices = device_candidates(requested_device, allow_xpu=True)
+            if (
+                metadata.get("key") == key
+                and metadata.get("device") in candidate_devices
+                and metadata.get("precision") == requested_precision(request)
+                and len(paths) == len(frames)
+            ):
+                probabilities = [probability_from_png(path) for path in paths]
+                os.utime(target, None)
+                record_stage(
+                    "SAM 2",
+                    metadata["device"],
+                    metadata["precision"],
+                    0.0,
+                    cache_hit=True,
+                )
+                print("SAM 2: persistent cache hit", file=sys.stderr)
+                return probabilities, metadata["version"], metadata["device"]
+
+        (probabilities, version), device = run_component(
+            "SAM 2",
             requested_device,
-            # SAM2 turns sparse points/boxes into semantic per-frame guides.  Feeding
-            # those guides into Cutie is materially better than asking Cutie to track
-            # the coarse prompt boxes themselves: it preserves disconnected objects,
-            # corrects every authored prompt frame, and still lets the independent
-            # sequence scorer choose SAM2 when Cutie's temporal memory is worse.
-            lambda candidate: cutie_masks(request, frames, candidate, guides=sam2),
-            # Short XPU smoke tests pass, but full-resolution temporal memory can
-            # terminate the Level Zero device. CPU runs the identical weights and
-            # arithmetic contract without first wasting work on a doomed XPU pass.
-            allow_xpu=False,
+            lambda candidate: sam2_masks(request, frames, candidate),
+            precision=requested_precision(request),
         )
-        # Repeated boxes for one authored foreground object are a spatial contract,
-        # not merely loose hints.  Constrain both independent candidates before
-        # scoring so a temporally stable background leak cannot win selection.
+        staging = cache_root / f".{key}.{os.getpid()}.incoming"
+        shutil.rmtree(staging, ignore_errors=True)
+        (staging / "masks").mkdir(parents=True, exist_ok=True)
+        for frame, probability in enumerate(probabilities):
+            save_probability_png(staging / "masks" / f"{frame:06}.png", probability)
+        (staging / "cache.json").write_text(
+            json.dumps(
+                {
+                    "format": "plaque-forge.sam2-cache/2",
+                    "key": key,
+                    "version": version,
+                    "device": device,
+                    "precision": requested_precision(request),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        shutil.rmtree(target, ignore_errors=True)
+        staging.rename(target)
+        prune_stage_cache(cache_root)
+        return probabilities, version, device
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
+
+
+def sam31_masks(request, output):
+    """Run the optional SAM 3.1 backend in its isolated Python 3.12/CUDA runtime."""
+    if requested_precision(request) != "bf16":
+        raise RuntimeError("SAM 3.1 integration currently requires the sealed BF16 policy")
+    root = Path(os.environ.get("PLAQUE_FORGE_SAM31_ROOT", "/tmp/plaque-forge-sam31"))
+    python = root / "venv" / "bin" / "python"
+    manifest = root / "runtime-manifest.json"
+    bridge = Path(__file__).with_name("sam31_worker.py")
+    if not python.is_file() or not manifest.is_file():
+        raise RuntimeError(
+            "SAM 3.1 runtime is not installed; run ./scripts/setup_sam31.sh after obtaining gated model access"
+        )
+    work = output / ".sam31"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, exist_ok=True)
+    request_path = work / "request.json"
+    request_path.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
+    started = time.monotonic()
+    subprocess.run(
+        [str(python), str(bridge), "--request", str(request_path), "--output", str(work)],
+        check=True,
+        env={
+            **os.environ,
+            "PLAQUE_FORGE_SAM31_ROOT": str(root),
+            "HF_HOME": str(root / "cache" / "huggingface"),
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+        },
+    )
+    elapsed = time.monotonic() - started
+    metadata = json.loads((work / "result.json").read_text(encoding="utf-8"))
+    paths = sorted((work / "masks").glob("*.png"))
+    if len(paths) != request["source"]["frames"]:
+        raise RuntimeError(
+            f"SAM 3.1 bridge produced {len(paths)} masks, expected {request['source']['frames']}"
+        )
+    record_stage("SAM 3.1", metadata.get("device", "cuda"), "bf16", elapsed)
+    return [probability_from_png(path) for path in paths], metadata["version"], metadata.get(
+        "device", "cuda"
+    )
+
+
+def model_masks(request, frames, requested_device, output):
+    plan = request["plan"]
+    semantic_backend = plan["semantic_backend"]
+    matte_refiner = plan["matte_refiner"]
+    precision = requested_precision(request)
+    expected_frames = request["source"]["frames"]
+    require_lossless_frames(frames, expected_frames, "model startup")
+
+    if semantic_backend == "sam2":
+        probabilities, version, device = cached_sam2(request, frames, requested_device)
+        version += f"@{device}"
+    elif semantic_backend == "cutie":
+        probabilities, version, device = cached_cutie(
+            request, frames, requested_device, allow_xpu=True
+        )
+        version += f"@{device}/{precision}"
+    elif semantic_backend == "sam2-cutie":
+        sam2, sam2_version, sam2_device = cached_sam2(request, frames, requested_device)
+        require_lossless_frames(frames, expected_frames, "Cutie startup")
+        # Full-resolution Cutie temporal memory has historically destabilized
+        # Level Zero on this workload. Device fallback may change; precision may not.
+        cutie, cutie_version, cutie_device = cached_cutie(
+            request, frames, requested_device, guides=sam2, allow_xpu=False
+        )
         sam2 = constrain_to_authored_motion_envelope(request, sam2)
         cutie = constrain_to_authored_motion_envelope(request, cutie)
         probabilities, selection = select_sequence_candidate(request, frames, sam2, cutie)
-        version = f"{sam2_version}@{sam2_device}+{cutie_version}@{cutie_device}"
-        version += f"+selected-{selection}"
+        version = (
+            f"{sam2_version}@{sam2_device}+{cutie_version}@{cutie_device}/{precision}"
+            f"+selected-{selection}"
+        )
+    elif semantic_backend == "sam3.1":
+        probabilities, version, device = sam31_masks(request, output)
+        version += f"@{device}/bf16"
     else:
-        raise ValueError(f"unsupported backend: {backend}")
+        raise ValueError(f"unsupported sealed semantic backend: {semantic_backend}")
+
     probabilities = constrain_to_authored_motion_envelope(request, probabilities)
     role = request["layer"].get("role")
-    if role == "writing-surface":
-        # A writing-surface mask represents categorical material membership, not
-        # optical opacity. Feeding an opaque, low-contrast iron/cloud face through
-        # an image-matting model can legitimately return a near-zero alpha even
-        # though SAM2 identified the semantic object correctly. Preserve the
-        # strongest selected semantic sequence for tracking/depth support; soft
-        # alpha matting remains mandatory for foreground occluders below.
-        probabilities = [
-            (np.asarray(probability, dtype=np.float32) >= 0.5).astype(np.float32)
-            for probability in probabilities
-        ]
-        matte_version = "categorical-material-support-p50"
-        print("ViTMatte: skipped for categorical writing-surface membership", file=sys.stderr)
-    else:
+    matte_mode = request["layer"].get("matte_mode", "optical")
+
+    if matte_refiner == "none":
+        if role == "writing-surface" or matte_mode == "opaque":
+            probabilities = [
+                (np.asarray(probability, dtype=np.float32) >= 0.5).astype(np.float32)
+                for probability in probabilities
+            ]
+            matte_version = "categorical-membership-p50"
+        else:
+            matte_version = "semantic-probability"
+        print(
+            f"ViTMatte: skipped by Rust plan (role={role}, matte={matte_mode})",
+            file=sys.stderr,
+        )
+    elif matte_refiner == "vitmatte":
         require_lossless_frames(frames, expected_frames, "ViTMatte startup")
         probabilities, matte_device = run_component(
             "ViTMatte",
             requested_device,
             lambda candidate: refine_vitmatte(
-                probabilities, frames, "hustvl/vitmatte-base-composition-1k", candidate
+                request,
+                probabilities,
+                frames,
+                "hustvl/vitmatte-base-composition-1k",
+                candidate,
             ),
+            precision=precision,
         )
-        matte_version = f"vitmatte-{package_version('transformers')}@{matte_device}"
+        matte_version = f"vitmatte-{package_version('transformers')}@{matte_device}/{precision}"
+    elif matte_refiner == "native":
+        # Native alpha is produced by specialist backends (currently MatAnyone2)
+        # and therefore never reaches this function.
+        raise RuntimeError("native matte refinement reached a non-native semantic executor")
+    else:
+        raise ValueError(f"unsupported sealed matte refiner: {matte_refiner}")
+
     probabilities = constrain_to_authored_motion_envelope(request, probabilities)
     probabilities = preserve_authored_prompt_evidence(request, probabilities)
-    require_lossless_frames(frames, expected_frames, "temporal stabilization startup")
     started = time.monotonic()
-    # Semantic material membership is already produced independently for every
-    # frame by SAM2/Cutie. Alpha blending it across time would blur boundaries and
-    # reintroduce non-membership. Optical alpha stabilization is for foreground
-    # translucency only.
-    if role != "writing-surface":
+    if role == "foreground" and matte_mode == "optical" and matte_refiner != "none":
         probabilities = stabilize_alpha(probabilities, frames)
+    elapsed = time.monotonic() - started
+    record_stage("Temporal stabilization", "cpu", "fp32", elapsed)
     probabilities = constrain_to_authored_motion_envelope(request, probabilities)
     probabilities = preserve_authored_prompt_evidence(request, probabilities)
     if request["layer"].get("active_frames"):
@@ -790,7 +1106,7 @@ def model_masks(request, frames, requested_device, cache_root):
             probability if active_start <= frame <= active_end else empty.copy()
             for frame, probability in enumerate(probabilities)
         ]
-    print(f"Temporal stabilization: {time.monotonic() - started:.1f}s", file=sys.stderr)
+    print(f"Temporal stabilization: {elapsed:.1f}s", file=sys.stderr)
     return probabilities, f"{version}+{matte_version}"
 
 
@@ -954,6 +1270,7 @@ def verify_sam2_device(device):
             frames.append(path)
         request = {
             "model": "facebook/sam2.1-hiera-large",
+            "plan": {"precision": "fp32", "compile": False},
             "source": {"width": 64, "height": 64},
             "layer": {
                 "active_frames": [0, 1],
@@ -1113,13 +1430,16 @@ def write_output(request, output, probabilities, version):
             else ""
         )
         + f"request_sha256 = {json.dumps(request['request_sha256'])}\n"
+        + f"plan_sha256 = {json.dumps(request['plan_sha256'])}\n"
     )
     (output / "artifact.toml").write_text(artifact, encoding="utf-8")
     result = {
-        "format": "plaque-forge.segmentation-result/1",
+        "format": RESULT_PROTOCOL,
         "backend": backend,
         "model": model,
         "version": version,
+        "plan_sha256": request["plan_sha256"],
+        "precision": requested_precision(request),
         "frames": len(probabilities),
         "mean_confidence": float(np.mean(confidences)),
         "minimum_confidence": float(np.min(confidences)),
@@ -1132,6 +1452,7 @@ def write_output(request, output, probabilities, version):
         "mean_coverage": float(np.mean(coverages)),
         "maximum_coverage": float(np.max(coverages)),
         "soft_edge_pixels": soft_edge_pixels,
+        "execution": list(STAGE_METRICS),
     }
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
@@ -1145,6 +1466,7 @@ def remove_owned_directory(root, path):
 
 
 def main():
+    STAGE_METRICS.clear()
     parser = argparse.ArgumentParser()
     parser.add_argument("--request", type=Path)
     parser.add_argument("--output", type=Path)
@@ -1163,47 +1485,50 @@ def main():
         backend=request.get("backend"),
         model=request.get("model"),
         requested_device=request.get("device", "auto"),
+        profile=request.get("plan", {}).get("profile"),
+        precision=request.get("plan", {}).get("precision"),
         source_sha256=request.get("source", {}).get("sha256"),
         source_name=Path(request.get("source", {}).get("path", "source")).name,
     )
     print(
         f"[ml] Python worker active: pid={os.getpid()}, backend={request.get('backend')}, "
-        f"model={request.get('model')}, requested_device={request.get('device', 'auto')}",
+        f"model={request.get('model')}, profile={request.get('plan', {}).get('profile')}, "
+        f"precision={request.get('plan', {}).get('precision')}, "
+        f"requested_device={request.get('device', 'auto')}",
         file=sys.stderr,
         flush=True,
     )
-    if request.get("format") != "plaque-forge.segmentation-request/1":
+    if request.get("format") != WORKER_PROTOCOL:
         raise ValueError("unsupported worker protocol")
+    sealed_plan = request.get("plan") or {}
+    if request.get("backend") != backend_label_from_plan(sealed_plan):
+        raise ValueError("top-level backend differs from Rust-sealed segmentation plan")
+    if request.get("model") != sealed_plan.get("semantic_model"):
+        raise ValueError("top-level model differs from Rust-sealed segmentation plan")
     if file_sha256(request["source"]["path"]) != request["source"]["sha256"]:
         raise ValueError("source changed after the segmentation request was created")
     args.output.mkdir(parents=True, exist_ok=True)
-    backend = request["backend"]
     frame_count = request["source"]["frames"]
     size = (request["source"]["width"], request["source"]["height"])
-    frame_dir = args.output / "frames"
-    frames = None
-    if backend != "matanyone2":
-        frames = extract_frames(request["source"]["path"], frame_dir)
-        if len(frames) != frame_count:
-            raise RuntimeError(f"decoded {len(frames)} frames, expected {frame_count}")
-
+    semantic_backend = sealed_plan.get("semantic_backend")
     requested_device = request.get("device", "auto")
-    if backend == "matanyone2":
+    precision = requested_precision(request)
+    if semantic_backend == "matanyone2":
         (probabilities, version), device = run_component(
             "MatAnyone2",
             requested_device,
             lambda candidate: matanyone2_masks(
                 request, args.output, size, frame_count, candidate
             ),
+            precision=precision,
         )
-        version += f"@{device}"
+        version += f"@{device}/{precision}"
     else:
+        frames = extract_frames_cached(request)
+        require_lossless_frames(frames, frame_count, "model startup")
         probabilities, version = model_masks(
-            request, frames, requested_device, args.output / ".worker-cache"
+            request, frames, requested_device, args.output
         )
-
-    if frame_dir.exists():
-        remove_owned_directory(args.output, frame_dir)
     write_output(request, args.output, probabilities, version)
     runtime_log("completed", frames=len(probabilities), version=version)
     print(
@@ -1211,9 +1536,7 @@ def main():
         file=sys.stderr,
         flush=True,
     )
-    cache_root = args.output / ".worker-cache"
-    if cache_root.exists():
-        remove_owned_directory(args.output, cache_root)
+
 
 
 if __name__ == "__main__":

@@ -42,6 +42,43 @@ class SegmentationRuntimeContractTests(unittest.TestCase):
             ),
         )
 
+    def test_preview_sam2_model_is_also_pinned_and_offline(self):
+        calls = {}
+
+        def download(**kwargs):
+            calls["download"] = kwargs
+            return "/cache/sam2.1_hiera_small.pt"
+
+        def build(config, checkpoint, **kwargs):
+            calls["build"] = (config, checkpoint, kwargs)
+            return "preview-predictor"
+
+        predictor = load_sam2_video_predictor(
+            "facebook/sam2.1-hiera-small",
+            "xpu",
+            downloader=download,
+            builder=build,
+        )
+
+        self.assertEqual(predictor, "preview-predictor")
+        self.assertEqual(
+            calls["download"],
+            {
+                "repo_id": "facebook/sam2.1-hiera-small",
+                "filename": "sam2.1_hiera_small.pt",
+                "revision": "6c381d9c16faed5e8a7c4a2cd99918bdca8316e4",
+                "local_files_only": True,
+            },
+        )
+        self.assertEqual(
+            calls["build"],
+            (
+                "configs/sam2.1/sam2.1_hiera_s.yaml",
+                "/cache/sam2.1_hiera_small.pt",
+                {"device": "xpu"},
+            ),
+        )
+
     def test_unknown_model_preserves_upstream_loading_contract(self):
         calls = {}
 

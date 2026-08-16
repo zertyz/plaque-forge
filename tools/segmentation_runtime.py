@@ -6,6 +6,11 @@ without installing PyTorch, SAM2, or Hugging Face.
 """
 
 MODEL_SPECS = {
+    "facebook/sam2.1-hiera-small": {
+        "revision": "6c381d9c16faed5e8a7c4a2cd99918bdca8316e4",
+        "sam2_config": "configs/sam2.1/sam2.1_hiera_s.yaml",
+        "sam2_checkpoint": "sam2.1_hiera_small.pt",
+    },
     "facebook/sam2.1-hiera-large": {
         "revision": "665f8e2ad61cf5f53d65644ff27c8ee525124610",
         "sam2_config": "configs/sam2.1/sam2.1_hiera_l.yaml",
