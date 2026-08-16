@@ -52,10 +52,10 @@ jobs:
             python3-numpy \
             python3-pil
 
-      - name: Install the minimum supported Rust toolchain
+      - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.89.0 --profile minimal --component clippy,rustfmt
-          rustup override set 1.89.0
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
 
       - name: Run deterministic code gate
         run: ./scripts/check.sh
@@ -95,10 +95,10 @@ jobs:
             libopencv-dev \
             pkg-config
 
-      - name: Install the minimum supported Rust toolchain
+      - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.89.0 --profile minimal
-          rustup override set 1.89.0
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Render and enforce homologated behavior
         run: ./scripts/check_homologated_assets.sh
@@ -136,10 +136,10 @@ jobs:
             libopencv-dev \
             pkg-config
 
-      - name: Install the minimum supported Rust toolchain
+      - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.89.0 --profile minimal
-          rustup override set 1.89.0
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Exercise captured pure-Rust analysis regressions
         run: ./scripts/check_analysis_regressions.sh

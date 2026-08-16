@@ -2,7 +2,6 @@
 name = "plaque-forge"
 version = "0.10.0"
 edition = "2024"
-rust-version = "1.89"
 description = "Analyze, render, and verify moving title plaques in video"
 license = "MIT"
 

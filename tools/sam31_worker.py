@@ -11,8 +11,12 @@ import json
 import os
 from pathlib import Path
 
-import numpy as np
-from PIL import Image
+try:
+    import numpy as np
+    from PIL import Image
+except ImportError:
+    np = None
+    Image = None
 
 
 def save_probability_png(path: Path, probability) -> None:

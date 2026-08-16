@@ -16,9 +16,15 @@ import warnings
 from contextlib import nullcontext
 from pathlib import Path
 
-import cv2
-import numpy as np
-from PIL import Image, ImageDraw
+try:
+    import cv2
+    import numpy as np
+    from PIL import Image, ImageDraw
+except ImportError:
+    cv2 = None
+    np = None
+    Image = None
+    ImageDraw = None
 
 from segmentation_runtime import (
     MODEL_REVISIONS,
