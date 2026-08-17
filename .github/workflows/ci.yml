@@ -76,7 +76,7 @@ jobs:
 
       - name: Install the dependency scanner
         run: |
-          pacman -Syu --noconfirm --needed rustup pkgconf git
+          pacman -Syu --noconfirm --needed clang rustup pkgconf git
           git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           rustup toolchain install stable --profile minimal
           rustup default stable
