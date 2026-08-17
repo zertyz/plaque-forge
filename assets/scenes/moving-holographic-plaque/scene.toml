@@ -9,3 +9,4 @@ space = "scene-plane"
 depth = "declared-only"
 reference_frame = 72
 bounds = [84.0, 55.0, 557.0, 321.0]
+trajectory = "trajectory.toml"

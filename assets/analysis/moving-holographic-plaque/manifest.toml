@@ -3,11 +3,11 @@ format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
 analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
-reference_frame = 72
+reference_frame = 0
 canonical_width = 557
 canonical_height = 321
 surface_space = "scene-plane"
-trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow"
+trajectory_model = "reviewed-dense-quad-track-240-frames"
 loop_closed = true
 has_occluder = false
 occlusion_mode = "declared-only"
@@ -35,22 +35,27 @@ model = "auto"
 device = "auto"
 profile = "balanced"
 precision = "auto"
-worker_sha256 = "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9"
+worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [scenes]
 surface_id = "main"
-locked_keyframes = 0
+locked_keyframes = 240
 guide_keyframes = 0
 
 [scenes.manifest]
 path = "../../scenes/moving-holographic-plaque/scene.toml"
-sha256 = "b35b7d7982c1a2a7c02ec64f82c99dfa968e94edf0ebd4babf4cb53bd2ca3a80"
-semantic_sha256 = "20650b0eb0daf9f23fd43159f82b0457d78d72c840b83fec3d0a2425d22228d6"
+sha256 = "e5cf5ab51411a1934f9ccd48a0ce593a4e82965eac823e3066fe9f26d1c5460b"
+semantic_sha256 = "277ed88a43b9699c02104c99eeb050453adbe6af27d8e40e4eb0ddf8d4b3e720"
+
+[scenes.trajectory]
+path = "../../scenes/moving-holographic-plaque/trajectory.toml"
+sha256 = "1f1389f6eed79884213aea78e877f69f927bd5cf1942a2957ddc789fd39f7e9a"
+semantic_sha256 = "5131f04ce05a025b7b9484b2f880b545638745cc70a2c5d4e1a29c5146e72f54"
 
 [confidence]
 plaque_detection = 0.92
-motion = 0.7769626902513169
-extraction = 0.8738250641789291
+motion = 0.99
+extraction = 0.9026275608651151
 occlusion = 0.8
-overall = 0.8407669259328328
+overall = 0.9005449595469219

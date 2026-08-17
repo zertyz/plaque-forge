@@ -24,14 +24,15 @@ Options:
   -h, --help                  Show this help.
 
 With no asset names, the current recovery experiments are tested:
-  16_9_dungeon_spider_iron_plaque   current geometry vs crossing-web-aware scene
+  rusty-plaque-with-object-in-front-parallax-and-plaque-moves
+                                      current tracker vs reviewed v0.8 dense trajectory
   16_9_swamp_wooden_plaque          current vs recovered v0.8 geometry
   9_16_background_ogre_dear         current vs recovered v0.8 geometry
   9_16_dungeon_spider_iron_plaque   current vs recovered v0.8 geometry
   9_16_swamp_wooden_plaque          current vs recovered v0.8 geometry
 
-The 16:9 dungeon experiment keeps the retained current geometry fixed and compares
-foreground-web semantics under classic-glow, bronze-relief, and bronze-relief-banded.
+The accepted 16:9 dungeon and moving-holographic champions have left the bakeoff.
+Their remaining work belongs to canonical homologation or later generic algorithm improvement.
 
 Results are written under output/quality-bakeoff/<asset>/.
 USAGE
@@ -73,7 +74,7 @@ case "$ml_mode" in auto|on|off) ;; *) die "--ml must be auto, on, or off" ;; esa
 
 if (( ${#cases[@]} == 0 )); then
   cases=(
-    16_9_dungeon_spider_iron_plaque
+    rusty-plaque-with-object-in-front-parallax-and-plaque-moves
     16_9_swamp_wooden_plaque
     9_16_background_ogre_dear
     9_16_dungeon_spider_iron_plaque
@@ -244,75 +245,120 @@ make_v08_scene() {
 }
 
 
-WEB_SCENE=""
-make_crossing_web_scene() {
+HISTORICAL_TRAJECTORY_SCENE=""
+make_v08_locked_trajectory_scene() {
   local name="$1"
-  [[ "$name" == "16_9_dungeon_spider_iron_plaque" ]] || die "crossing-web challenger is only authored for 16_9_dungeon_spider_iron_plaque"
+  [[ "$name" == "rusty-plaque-with-object-in-front-parallax-and-plaque-moves" ]] ||
+    die "v0.8 trajectory challenger is only authored for rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
   local original="assets/scenes/$name/scene.toml"
+  local input="assets/$name.mp4"
   [[ -f "$original" ]] || die "scene not found: $original"
+  [[ -f "$input" ]] || die "input video not found: $input"
 
-  local dir="assets/.quality-bakeoff/${name}-crossing-web"
+  local historical_motion="scripts/.quality-recovery/rusty-plaque-with-object-in-front-parallax-and-plaque-moves-v0.8-motion.json.gz"
+  local historical_motion_sha expected_historical_motion_sha
+  [[ -f "$historical_motion" ]] || die "recovered v0.8 trajectory input missing: $historical_motion"
+  historical_motion_sha="$(sha256sum "$historical_motion" | awk '{print $1}')"
+  expected_historical_motion_sha="34600cea073d7718d30ee48ede58d04b677db91d2694bb43764ef2e4aaca297e"
+  [[ "$historical_motion_sha" == "$expected_historical_motion_sha" ]] ||
+    die "recovered v0.8 trajectory input hash mismatch; refusing to use corrupted recovery data"
+
+  local source_sha expected_sha
+  source_sha="$(sha256sum "$input" | awk '{print $1}')"
+  expected_sha="7415a7b03289eac8cb92fa6c7e0b9d4d1f44095c1eb70923c04481c574f7ba1e"
+  [[ "$source_sha" == "$expected_sha" ]] ||
+    die "rusty moving-plaque source hash differs from the v0.8 reviewed source; refusing to replay its trajectory"
+
+  local dir="assets/.quality-bakeoff/${name}-v0.8-locked-trajectory"
   local candidate="$dir/scene.toml"
+  local trajectory="$dir/trajectory.toml"
   rm -rf -- "$dir"
   mkdir -p "$dir"
   TEMP_SCENES+=("$dir")
-  cp "$original" "$candidate"
-  cat >> "$candidate" <<'EOF'
 
-# Quality-recovery challenger: the translucent web crosses in front of the title
-# plane. Optical alpha preserves the strands while affects_tracking excludes those
-# pixels from plaque motion evidence during the crossing.
-[[layers]]
-id = "crossing-web"
-role = "foreground"
-surface = "main"
-in_front_of = "main"
-active_frames = [94, 136]
-affects_layout = false
-affects_tracking = true
-matte = { mode = "optical", support_threshold = 0.03, solid_threshold = 0.20 }
+  python3 - "$historical_motion" "$trajectory" "$source_sha" <<'PY_TRAJECTORY'
+import gzip
+import hashlib
+import json
+import math
+import sys
+from pathlib import Path
 
-[[layers.prompts]]
-frame = 95
-coordinates = "source-pixels"
-object = "crossing-web"
-box_bounds = [0.0, 0.0, 520.0, 720.0]
-positive_points = [[70.0, 55.0], [160.0, 25.0], [250.0, 115.0], [105.0, 240.0], [210.0, 360.0], [280.0, 520.0]]
-negative_points = [[470.0, 250.0], [470.0, 600.0]]
+motion_path = Path(sys.argv[1])
+output_path = Path(sys.argv[2])
+source_sha = sys.argv[3]
+raw = gzip.decompress(motion_path.read_bytes())
+expected_raw_sha = "8c6012b35621477b4ab2f23a81c7cbf699a7efb477ea3f2a5bc435551511ae82"
+raw_sha = hashlib.sha256(raw).hexdigest()
+if raw_sha != expected_raw_sha:
+    raise SystemExit(f"recovered v0.8 motion payload hash mismatch: {raw_sha}")
+entries = json.loads(raw.decode("utf-8"))
+if len(entries) != 240:
+    raise SystemExit(f"expected 240 historical motion samples, got {len(entries)}")
 
-[[layers.prompts]]
-frame = 105
-coordinates = "source-pixels"
-object = "crossing-web"
-box_bounds = [0.0, 0.0, 700.0, 720.0]
-positive_points = [[90.0, 60.0], [230.0, 90.0], [360.0, 150.0], [130.0, 280.0], [260.0, 380.0], [390.0, 520.0]]
-negative_points = [[650.0, 250.0], [650.0, 650.0]]
+# v0.8 used the same reviewed reference-frame plaque rectangle as the current scene.
+x, y, width, height = 322.0, 46.0, 634.0, 133.0
+corners = ((x, y), (x + width, y), (x + width, y + height), (x, y + height))
 
-[[layers.prompts]]
-frame = 115
-coordinates = "source-pixels"
-object = "crossing-web"
-box_bounds = [0.0, 0.0, 1050.0, 720.0]
-positive_points = [[120.0, 40.0], [300.0, 80.0], [520.0, 120.0], [760.0, 90.0], [250.0, 300.0], [520.0, 390.0], [760.0, 520.0]]
-negative_points = [[1030.0, 300.0], [1000.0, 650.0]]
+def project(matrix, point):
+    px, py = point
+    denominator = matrix[2][0] * px + matrix[2][1] * py + matrix[2][2]
+    if not math.isfinite(denominator) or abs(denominator) < 1.0e-12:
+        raise ValueError("historical trajectory contains a singular homography")
+    qx = (matrix[0][0] * px + matrix[0][1] * py + matrix[0][2]) / denominator
+    qy = (matrix[1][0] * px + matrix[1][1] * py + matrix[1][2]) / denominator
+    if not math.isfinite(qx) or not math.isfinite(qy):
+        raise ValueError("historical trajectory contains a non-finite projected point")
+    return qx, qy
 
-[[layers.prompts]]
-frame = 125
-coordinates = "source-pixels"
-object = "crossing-web"
-box_bounds = [450.0, 0.0, 830.0, 720.0]
-positive_points = [[620.0, 40.0], [780.0, 90.0], [960.0, 120.0], [1130.0, 180.0], [720.0, 320.0], [930.0, 420.0], [1120.0, 560.0]]
-negative_points = [[480.0, 300.0], [500.0, 650.0]]
+lines = [
+    '# Temporary recovery artifact generated from the human-reviewed v0.8 analysis.\n',
+    'format = "plaque-forge.trajectory/1"\n',
+    'surface = "main"\n',
+    'coordinates = "source-pixels"\n',
+    f'source_sha256 = "{source_sha}"\n',
+]
+for expected_frame, entry in enumerate(entries):
+    frame = int(entry["frame"])
+    if frame != expected_frame:
+        raise ValueError(f"historical motion frames are not dense at {expected_frame}: got {frame}")
+    matrix = entry["transform"]["values"]
+    quad = [project(matrix, corner) for corner in corners]
+    visibility = float(entry.get("plaque_visibility", 1.0))
+    lines.append('\n[[keyframes]]\n')
+    lines.append(f'frame = {frame}\n')
+    lines.append('quad = [\n')
+    for qx, qy in quad:
+        lines.append(f'  [{qx:.9f}, {qy:.9f}],\n')
+    lines.append(']\n')
+    lines.append('locked = true\n')
+    lines.append(f'visibility = {min(1.0, max(0.0, visibility)):.9f}\n')
+output_path.write_text(''.join(lines), encoding='utf-8')
+PY_TRAJECTORY
 
-[[layers.prompts]]
-frame = 135
-coordinates = "source-pixels"
-object = "crossing-web"
-box_bounds = [900.0, 0.0, 380.0, 720.0]
-positive_points = [[1030.0, 40.0], [1170.0, 100.0], [1230.0, 230.0], [1130.0, 380.0], [1210.0, 540.0]]
-negative_points = [[900.0, 250.0], [900.0, 650.0]]
-EOF
-  WEB_SCENE="$candidate"
+  python3 - "$original" "$candidate" <<'PY_SCENE'
+import sys
+from pathlib import Path
+source = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines(keepends=True)
+output = []
+in_surface = False
+inserted = False
+for line in source:
+    if line.strip() == "[[surfaces]]" and not inserted:
+        in_surface = True
+    elif in_surface and line.startswith("[") and line.strip() != "[[surfaces]]":
+        output.append('trajectory = "trajectory.toml"\n')
+        inserted = True
+        in_surface = False
+    output.append(line)
+if in_surface and not inserted:
+    output.append('trajectory = "trajectory.toml"\n')
+    inserted = True
+if not inserted:
+    raise SystemExit("failed to locate the first surface table")
+Path(sys.argv[2]).write_text(''.join(output), encoding="utf-8")
+PY_SCENE
+  HISTORICAL_TRAJECTORY_SCENE="$candidate"
 }
 
 analyze_variant() {
@@ -416,74 +462,57 @@ for name in "${cases[@]}"; do
   out="output/quality-bakeoff/$name"
   mkdir -p "$out"
 
-  if [[ "$name" == "16_9_dungeon_spider_iron_plaque" ]]; then
-    make_crossing_web_scene "$name"
-    web_scene="$WEB_SCENE"
-    cp "$current_scene" "$out/current-geometry.scene.toml"
-    cp "$web_scene" "$out/current-geometry-web-aware.scene.toml"
+  if [[ "$name" == "rusty-plaque-with-object-in-front-parallax-and-plaque-moves" ]]; then
+    [[ "$use_ml" == true ]] ||
+      die "rusty moving-plaque comparison requires --ml on (or --ml auto with a ready runtime) because the current scene has generated chain foregrounds"
+    make_v08_locked_trajectory_scene "$name"
+    historical_scene="$HISTORICAL_TRAJECTORY_SCENE"
+    cp "$current_scene" "$out/current-tracker.scene.toml"
+    cp "$historical_scene" "$out/v0.8-locked-trajectory.scene.toml"
+    cp "$(dirname "$historical_scene")/trajectory.toml" "$out/v0.8-locked-trajectory.toml"
     {
-      sha256sum "$current_scene" "$web_scene" "$neutral_style_file" "$banded_bronze"
-      sha256sum styles/bronze-relief.toml
+      sha256sum "$current_scene" "$historical_scene" "$(dirname "$historical_scene")/trajectory.toml" "$neutral_style_file"
     } > "$out/input-sha256.txt"
 
-    current_analysis="$out/current-geometry/analysis"
-    web_analysis="$out/current-geometry-web-aware/analysis"
-    if [[ "$force_analysis" == true || ! -f "$current_analysis/manifest.toml" ]]; then
-      analyze_variant "$name" current-geometry "$current_scene" "$out/current-geometry"
-    else
-      printf '\n=== reuse analysis %s / current-geometry ===\n' "$name"
+    current_analysis="$out/current-tracker/analysis"
+    historical_analysis="$out/v0.8-locked-trajectory/analysis"
+    analyze_variant "$name" current-tracker "$current_scene" "$out/current-tracker"
+    # The layer prompts and source bytes are identical. Seed the historical-trajectory
+    # analysis with the current chain artifact and let provenance validation decide
+    # whether it can be reused rather than blindly paying for the same ML pass twice.
+    if [[ ! -f "$historical_analysis/manifest.toml" \
+          && -d "$current_analysis/layers/chains" \
+          && ! -d "$historical_analysis/layers/chains" ]]; then
+      mkdir -p "$historical_analysis/layers"
+      cp -a "$current_analysis/layers/chains" "$historical_analysis/layers/chains"
     fi
-    # Seed the challenger with the already-reviewed spider layer so the analyzer can
-    # deterministically reuse that expensive prompted artifact while generating only
-    # the new crossing-web layer. The stale partial bundle is transactionally replaced.
-    if [[ ! -f "$web_analysis/manifest.toml" \
-          && -d "$current_analysis/layers/spider" \
-          && ! -d "$web_analysis/layers/spider" ]]; then
-      mkdir -p "$web_analysis/layers"
-      cp -a "$current_analysis/layers/spider" "$web_analysis/layers/spider"
-    fi
-    analyze_variant "$name" current-geometry-web-aware "$web_scene" "$out/current-geometry-web-aware"
-
-    render_variant_if_missing "$name" current-geometry "$current_scene" "$current_analysis" "$neutral_style_file" "$out"
-    render_variant "$name" current-geometry-web-aware "$web_scene" "$web_analysis" "$neutral_style_file" "$out"
+    analyze_variant "$name" v0.8-locked-trajectory "$historical_scene" "$out/v0.8-locked-trajectory"
+    render_variant "$name" current-tracker "$current_scene" "$current_analysis" "$neutral_style_file" "$out"
+    render_variant "$name" v0.8-locked-trajectory "$historical_scene" "$historical_analysis" "$neutral_style_file" "$out"
     side_by_side \
-      "$out/current-geometry.lossless.mkv" \
-      "$out/current-geometry-web-aware.lossless.mkv" \
-      "$out/current-vs-web-aware.mp4"
-
-    current_bronze="styles/bronze-relief.toml"
-    render_variant_if_missing "$name" current-geometry__current-bronze "$current_scene" "$current_analysis" "$current_bronze" "$out"
-    render_variant_if_missing "$name" current-geometry__banded-bronze "$current_scene" "$current_analysis" "$banded_bronze" "$out"
-    render_variant "$name" web-aware__current-bronze "$web_scene" "$web_analysis" "$current_bronze" "$out"
-    render_variant "$name" web-aware__banded-bronze "$web_scene" "$web_analysis" "$banded_bronze" "$out"
-    side_by_side \
-      "$out/current-geometry__current-bronze.lossless.mkv" \
-      "$out/web-aware__current-bronze.lossless.mkv" \
-      "$out/current-bronze__baseline-vs-web-aware.mp4"
-    side_by_side \
-      "$out/current-geometry__banded-bronze.lossless.mkv" \
-      "$out/web-aware__banded-bronze.lossless.mkv" \
-      "$out/banded-bronze__baseline-vs-web-aware.mp4"
+      "$out/current-tracker.lossless.mkv" \
+      "$out/v0.8-locked-trajectory.lossless.mkv" \
+      "$out/current-vs-v0.8-locked-trajectory.mp4"
 
     cat > "$out/README.txt" <<'EOF'
-16:9 dungeon crossing-web recovery experiment
+Rusty moving plaque trajectory recovery
 
-The current authored plaque geometry is the retained baseline. The rejected v0.8 geometry is
-not rerun for this asset. The only challenger adds an optical crossing-web foreground layer.
+LEFT  = current automatic tracker
+RIGHT = dense locked trajectory reconstructed from the human-reviewed v0.8 analysis
+
+Both candidates keep the current scene's chain prompts, current segmentation policy, current
+renderer, and current verifier. The intended variable is only plaque trajectory. If the right-hand
+candidate fixes the rotated/unstable title plane while chains remain wrong, that cleanly separates
+the tracking regression from the foreground-compositing regression.
 
 Review:
-  current-vs-web-aware.mp4
-  current-bronze__baseline-vs-web-aware.mp4
-  banded-bronze__baseline-vs-web-aware.mp4
-
-LEFT  = current geometry and current foreground model
-RIGHT = same geometry plus explicit crossing-web optical foreground/tracking exclusion
-
-Promotion requires the web to remain source-visible over the title while plaque motion stays
-stable through the crossing.
+  current-vs-v0.8-locked-trajectory.mp4
+  current-tracker.lossless.mkv
+  v0.8-locked-trajectory.lossless.mkv
 EOF
     continue
   fi
+
 
   make_v08_scene "$name"
   historical_scene="$HISTORICAL_SCENE"
@@ -511,7 +540,7 @@ EOF
     "$out/v0.8-geometry.lossless.mkv" \
     "$out/geometry-side-by-side.mp4"
 
-  if [[ "$name" == 16_9_dungeon_spider_iron_plaque || "$name" == 9_16_dungeon_spider_iron_plaque ]]; then
+  if [[ "$name" == 9_16_dungeon_spider_iron_plaque ]]; then
     current_bronze="styles/bronze-relief.toml"
     [[ -f "$current_bronze" ]] || die "current bronze style missing: $current_bronze"
 
@@ -541,7 +570,7 @@ No candidate is a winner merely because it came from an older commit. Promotion 
 visual review plus non-regressing verification/homologation.
 EOF
 
-  if [[ "$name" == 16_9_dungeon_spider_iron_plaque || "$name" == 9_16_dungeon_spider_iron_plaque ]]; then
+  if [[ "$name" == 9_16_dungeon_spider_iron_plaque ]]; then
     cat >> "$out/README.txt" <<'EOF'
 
 Dungeon 2x2 preview (dungeon-geometry-style-2x2.mp4):

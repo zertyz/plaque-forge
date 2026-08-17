@@ -79,18 +79,18 @@ A single case can be run while iterating:
 
 ```bash
 ./scripts/bakeoff_historical_quality.sh --ml on \
-  16_9_dungeon_spider_iron_plaque
+  rusty-plaque-with-object-in-front-parallax-and-plaque-moves
 ```
 
 You may use a different stable benchmark title, but compare candidates with the exact same text,
-font and ML policy:
+font and policy:
 
 ```bash
 ./scripts/bakeoff_historical_quality.sh \
   --ml on \
-  --text 'WITH THE BIGGER POTENTIAL OF SEEING FURTHER' \
+  --text 'Now with bigger potential! Seeing things that others cannot see!' \
   --font-family 'Noto Serif' \
-  16_9_dungeon_spider_iron_plaque
+  rusty-plaque-with-object-in-front-parallax-and-plaque-moves
 ```
 
 The harness writes only under `output/quality-bakeoff/` plus a temporary
@@ -128,20 +128,41 @@ v0.8 geometry   + current bronze      | v0.8 geometry   + banded bronze
 
 That factorial comparison distinguishes a geometry regression from a material/style regression.
 
-### 16:9 dungeon crossing-web challenger
+### Settled: 16:9 dungeon spider plaque
 
-The retained current geometry was materially better than the recovered v0.8 geometry, but the
-translucent web still crosses in front of the title without being preserved and coincides with a
-short plaque-motion disturbance. The next isolated challenger therefore keeps geometry unchanged
-and adds one source-pixel foreground layer named `crossing-web`:
+Human review selected the current authored geometry as the champion. The recovered v0.8 geometry
+was rejected because it placed text outside the plaque and became severely unstable during the
+web crossing. The optical-web challenger improved foreground recognition but did not materially
+improve the final title behavior, so it is not promoted into the canonical scene.
 
-- active only during the crossing;
-- optical matte, so translucent strands retain measured alpha;
-- `in_front_of = "main"`, so the original web is restored over rendered typography;
-- `affects_tracking = true`, so web pixels are excluded from plaque-motion evidence.
+The accepted contract protects the current plaque geometry and the opaque spider/source
+preservation witnesses. The remaining translucent-web disturbance is deliberately deferred for a
+later tracker/matting investigation rather than growing more one-off scene policy in this pass.
 
-For this asset inspect `current-vs-web-aware.mp4` plus the current and banded bronze comparison
-previews. The v0.8 geometry is no longer part of this asset's active experiment.
+### Settled: moving holographic plaque
+
+Human review selected the recovered dense v0.8 trajectory as the perfect result. That exact
+240-frame source-pixel trajectory is now promoted into the canonical scene as reviewed locked
+motion. The temporary archived moving-holographic recovery payload is removed from the harness.
+
+A later generic-tracker improvement may use this canonical reviewed trajectory as an oracle, but
+production rendering no longer depends on rediscovering a motion solution that is already known
+to be correct for this asset.
+
+### Rusty moving plaque: isolate trajectory before foreground restoration
+
+The next regression has two visible symptoms: the title plane is rotated/misplaced, and chains are
+not reliably restored in front. The first challenger changes only trajectory. The archived v0.8
+analysis used the same source bytes and the same `[322,46,634,133]` reference rectangle, so its
+240-frame motion can be replayed through the current scene and current chain segmentation.
+
+```text
+LEFT  current automatic tracker + current chains
+RIGHT reviewed v0.8 trajectory + current chains
+```
+
+If the right-hand candidate fixes plaque lock but chains are still wrong, the next experiment can
+focus solely on foreground restoration instead of mixing the two regressions.
 
 ## Promotion rule
 

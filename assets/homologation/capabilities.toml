@@ -23,6 +23,7 @@ id = "foreground-crossing-title"
 description = "Opaque foreground object crosses title pixels and must remain visually in front."
 representative_asset = "16_9_dungeon_spider_iron_plaque"
 scene = "../scenes/16_9_dungeon_spider_iron_plaque/scene.toml"
+contract = "16_9_dungeon_spider_iron_plaque/contract.toml"
 
 [[capabilities]]
 id = "non-rectangular-writable-region"
