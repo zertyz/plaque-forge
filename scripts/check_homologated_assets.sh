@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 # Audit the capability inventory first so CI retains coverage evidence even when a later
 # expensive render fails. Incomplete coverage is deliberate until a human accepts each
 # representative output.
-target/release/plaque-forge homologation-coverage \
+cargo run --release -- homologation-coverage \
   --matrix assets/homologation/capabilities.toml \
   --report output/homologation-coverage.json
 
@@ -34,7 +34,7 @@ for item in "${cases[@]}"; do
     --fit artistic \
     "$case_name"
 
-  target/release/plaque-forge homologate \
+  cargo run --release -- homologate \
     --contract "$contract" \
     --rendered "$rendered" \
     --report "$report" \
