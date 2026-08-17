@@ -132,3 +132,39 @@ fn every_homologation_contract_is_represented_by_the_capability_matrix() {
         }
     }
 }
+
+#[test]
+fn every_capability_scene_resolves_and_has_valid_source_and_surfaces() {
+    let root = repository_root().join("assets/homologation");
+    let matrix_path = root.join("capabilities.toml");
+    let matrix = plaque_forge::homologation::matrix::CapabilityMatrix::load(&matrix_path).unwrap();
+
+    for cap in &matrix.capabilities {
+        let scene_path = resolve_relative(&matrix_path, &cap.scene);
+        assert!(
+            scene_path.is_file(),
+            "capability {} references missing scene {}",
+            cap.id,
+            scene_path.display()
+        );
+        let scene = Scene::load(&scene_path).unwrap_or_else(|e| {
+            panic!(
+                "capability {} scene {} failed to load: {e:#}",
+                cap.id,
+                scene_path.display()
+            )
+        });
+        assert!(
+            !scene.surfaces.is_empty(),
+            "capability {} scene has no surfaces",
+            cap.id
+        );
+        let source_path = resolve_relative(&scene_path, &scene.source);
+        assert!(
+            source_path.is_file(),
+            "capability {} source video is missing at {}",
+            cap.id,
+            source_path.display()
+        );
+    }
+}
