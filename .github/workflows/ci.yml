@@ -80,7 +80,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           rustup toolchain install stable --profile minimal
           rustup default stable
-          cargo install cargo-audit --version 0.22.2 --locked
+          cargo install cargo-audit --locked --root /usr/local
 
       - name: Reject new RustSec findings
         run: ./scripts/audit_dependencies.sh
