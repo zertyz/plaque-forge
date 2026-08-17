@@ -142,3 +142,55 @@ fn surface_apply_alpha_mask_scales_alpha_channel_only() {
     assert!((surface.pixel(1, 0).a as i32 - 128).abs() <= 1);
     assert_eq!(surface.pixel(2, 0).a, 0);
 }
+
+#[test]
+fn filter_circular_dilation_exact_radius_bounds() {
+    use plaque_forge::render::effects::filters::dilate_alpha_circular;
+
+    let size = 11;
+    let center = 5;
+    let mut source = vec![0u8; size * size];
+    source[center * size + center] = 255;
+
+    let radius = 3;
+    let dilated = dilate_alpha_circular(&source, size, size, radius);
+
+    // Center must be 255
+    assert_eq!(dilated[center * size + center], 255);
+
+    // Cardinal endpoints (x ± radius, y) and (x, y ± radius) must be reached
+    assert_eq!(dilated[center * size + (center + radius)], 255);
+    assert_eq!(dilated[center * size + (center - radius)], 255);
+    assert_eq!(dilated[(center + radius) * size + center], 255);
+    assert_eq!(dilated[(center - radius) * size + center], 255);
+
+    // Diagonal corner (center + radius, center + radius) is distance sqrt(18) = 4.24 > 3, must be 0
+    assert_eq!(
+        dilated[(center + radius) * size + (center + radius)],
+        0,
+        "circular dilation must not fill square corners"
+    );
+}
+
+#[test]
+fn shader_procedural_material_interpolates_smoothly_within_bounds() {
+    use plaque_forge::render::effects::shaders::{gold_color, lerp_color};
+
+    let dark = Rgba::new(80, 50, 20, 255);
+    let mid = Rgba::new(180, 140, 50, 255);
+    let light = Rgba::new(240, 210, 100, 255);
+    let highlight = Rgba::new(255, 255, 220, 255);
+
+    // Lerp extremes
+    assert_eq!(lerp_color(dark, light, 0.0), dark);
+    assert_eq!(lerp_color(dark, light, 1.0), light);
+
+    // Gold color evaluation over interval
+    for step in 0..=100 {
+        let t = step as f32 / 100.0;
+        let color = gold_color(dark, mid, light, highlight, t);
+        assert_eq!(color.a, 255);
+        assert!(color.r >= 80, "red channel stays within expected bounds");
+        assert!(color.g >= 50, "green channel stays within expected bounds");
+    }
+}

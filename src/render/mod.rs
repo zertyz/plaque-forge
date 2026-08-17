@@ -1,5 +1,5 @@
-mod effects;
-mod typography;
+pub mod effects;
+pub mod typography;
 
 use std::{collections::HashMap, fs, path::Path};
 
