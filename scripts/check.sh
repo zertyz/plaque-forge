@@ -17,4 +17,6 @@ if (( parser_status != 2 )); then
   exit 1
 fi
 
-git diff --check
+if git -c safe.directory="*" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -c safe.directory="*" diff --check
+fi

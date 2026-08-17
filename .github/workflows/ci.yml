@@ -54,6 +54,7 @@ jobs:
             python-pillow \
             git \
             rustup
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
 
       - name: Install Rust toolchain
         run: |
@@ -76,6 +77,7 @@ jobs:
       - name: Install the dependency scanner
         run: |
           pacman -Syu --noconfirm --needed rustup pkgconf git
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           rustup toolchain install stable --profile minimal
           rustup default stable
           cargo install cargo-audit --version 0.22.2 --locked
@@ -105,6 +107,7 @@ jobs:
             pkgconf \
             git \
             rustup
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
 
       - name: Install Rust toolchain
         run: |
