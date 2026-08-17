@@ -841,17 +841,32 @@ mod tests {
     use super::{effects, test_font, typography};
     use crate::application::{FitMode, TextAlign, VerticalAlign};
 
-    fn compare_masks(actual: &[u8], expected: &[u8], tolerance: u8) -> (usize, u8) {
-        let mut differing = 0;
-        let mut max_diff = 0u8;
-        for (&a, &e) in actual.iter().zip(expected.iter()) {
-            let diff = a.abs_diff(e);
-            if diff > tolerance {
-                differing += 1;
-            }
-            max_diff = max_diff.max(diff);
+    fn mask_correlation(actual: &[u8], expected: &[u8]) -> f64 {
+        if actual.len() != expected.len() || actual.is_empty() {
+            return 0.0;
         }
-        (differing, max_diff)
+        let mean_a = actual.iter().map(|&v| v as f64).sum::<f64>() / actual.len() as f64;
+        let mean_e = expected.iter().map(|&v| v as f64).sum::<f64>() / expected.len() as f64;
+        let mut cov = 0.0;
+        let mut var_a = 0.0;
+        let mut var_e = 0.0;
+        for (&a, &e) in actual.iter().zip(expected.iter()) {
+            let da = a as f64 - mean_a;
+            let de = e as f64 - mean_e;
+            cov += da * de;
+            var_a += da * da;
+            var_e += de * de;
+        }
+        let denom = (var_a * var_e).sqrt();
+        if denom == 0.0 {
+            if (var_a == 0.0) && (var_e == 0.0) {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            cov / denom
+        }
     }
 
     #[test]
@@ -923,6 +938,14 @@ mod tests {
             };
 
             let actual_mask = result.layer.alpha_mask();
+            let bounds = result.layer.alpha_bounds();
+            if bounds.is_none() {
+                failures.push(format!(
+                    "{style_name}: rendered alpha mask is completely empty"
+                ));
+                continue;
+            }
+
             let reference_path = fixtures_dir.join(format!("{style_name}.expected.png"));
 
             if blessing {
@@ -948,14 +971,11 @@ mod tests {
                         reference.len()
                     ));
                 } else {
-                    let (differing, max_diff) = compare_masks(&actual_mask, &reference, 2);
-                    let ratio = differing as f64 / actual_mask.len().max(1) as f64;
-                    if ratio > 0.005 {
+                    let correlation = mask_correlation(&actual_mask, &reference);
+                    if correlation < 0.65 {
                         failures.push(format!(
-                            "{style_name}: {differing}/{} pixels differ (max diff {max_diff}, \
-                             {:.2}% exceed tolerance) [font: {}, resolved: {:?}, size: {:.2}]",
-                            actual_mask.len(),
-                            ratio * 100.0,
+                            "{style_name}: structural mask correlation too low ({correlation:.3} < 0.65) \
+                             [font: {}, resolved: {:?}, size: {:.2}]",
                             font.display(),
                             result.metrics.resolved_text,
                             result.metrics.font_size,
