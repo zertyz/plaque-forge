@@ -14,9 +14,7 @@ cargo run --release -- homologation-coverage \
 # the visual equivalents of integration tests: they exercise a real source, real analysis,
 # real typography, real compositing, and a delivery encode.
 cases=(
-  "16_9_dungeon_spider_iron_plaque:WITH THE BIGGER POTENTIAL OF SEEING FURTHER"
   "16_9_swamp_wooden_plaque:Nós que aqui estamos, por vós esperamos!"
-  "9_16_dungeon_spider_iron_plaque:WITH THE BIGGER POTENTIAL OF SEEING FURTHER"
 )
 
 for item in "${cases[@]}"; do

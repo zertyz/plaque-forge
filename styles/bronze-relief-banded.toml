@@ -1,0 +1,40 @@
+# Banded bronze/gold relief with warm depth, dark separation, bevel and moving shine.
+version = 2
+
+[material]
+type = "gold"
+dark = "#4B260DFF"
+mid = "#B87333FF"
+light = "#E8B86CFF"
+highlight = "#FFE2A4FF"
+
+[[effects]]
+type = "shadow"
+offset_x = 0.018
+offset_y = 0.035
+blur_radius = 4
+color = "#140B05B8"
+
+[[effects]]
+type = "extrude"
+depth = 0.045
+angle_degrees = 62
+color = "#3A1E0DDD"
+
+[[effects]]
+type = "stroke"
+width = 0.032
+color = "#4A260FFF"
+
+[[effects]]
+type = "bevel"
+width = 0.030
+highlight = "#FFF0C0B8"
+shadow = "#321707B8"
+
+[[animations]]
+type = "shine"
+period_seconds = 3.2
+width = 0.10
+angle_degrees = 14
+color = "#FFF4D0A8"

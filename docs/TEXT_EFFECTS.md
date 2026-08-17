@@ -98,6 +98,7 @@ Notable presets:
 - `chromatic-glitch`
 - `classic-glow`
 - `bronze-relief`
+- `bronze-relief-banded`
 - `gold-shine`
 - `chrome-shine`
 - `holographic-foil`
