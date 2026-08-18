@@ -1,0 +1,7 @@
+format = "plaque-forge.layer/1"
+kind = "alpha-sequence"
+coordinates = "source-pixels"
+pattern = "masks/%06d.png"
+first_frame = 120
+last_frame = 239
+affects_layout = false

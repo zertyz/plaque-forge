@@ -23,16 +23,15 @@ Options:
   --force-analysis            Rebuild bakeoff analysis even when a compatible cache exists.
   -h, --help                  Show this help.
 
-With no asset names, the current recovery experiments are tested:
-  rusty-plaque-with-object-in-front-parallax-and-plaque-moves
-                                      current tracker vs reviewed v0.8 dense trajectory
+With no asset names, the remaining recovery experiments are tested:
   16_9_swamp_wooden_plaque          current vs recovered v0.8 geometry
   9_16_background_ogre_dear         current vs recovered v0.8 geometry
   9_16_dungeon_spider_iron_plaque   current vs recovered v0.8 geometry
   9_16_swamp_wooden_plaque          current vs recovered v0.8 geometry
 
-The accepted 16:9 dungeon and moving-holographic champions have left the bakeoff.
-Their remaining work belongs to canonical homologation or later generic algorithm improvement.
+The accepted 16:9 dungeon, moving-holographic, and rusty moving-plaque champions have left
+the bakeoff. Their remaining work belongs to canonical homologation or later generic algorithm
+improvement.
 
 Results are written under output/quality-bakeoff/<asset>/.
 USAGE
@@ -74,7 +73,6 @@ case "$ml_mode" in auto|on|off) ;; *) die "--ml must be auto, on, or off" ;; esa
 
 if (( ${#cases[@]} == 0 )); then
   cases=(
-    rusty-plaque-with-object-in-front-parallax-and-plaque-moves
     16_9_swamp_wooden_plaque
     9_16_background_ogre_dear
     9_16_dungeon_spider_iron_plaque
@@ -245,121 +243,6 @@ make_v08_scene() {
 }
 
 
-HISTORICAL_TRAJECTORY_SCENE=""
-make_v08_locked_trajectory_scene() {
-  local name="$1"
-  [[ "$name" == "rusty-plaque-with-object-in-front-parallax-and-plaque-moves" ]] ||
-    die "v0.8 trajectory challenger is only authored for rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
-  local original="assets/scenes/$name/scene.toml"
-  local input="assets/$name.mp4"
-  [[ -f "$original" ]] || die "scene not found: $original"
-  [[ -f "$input" ]] || die "input video not found: $input"
-
-  local historical_motion="scripts/.quality-recovery/rusty-plaque-with-object-in-front-parallax-and-plaque-moves-v0.8-motion.json.gz"
-  local historical_motion_sha expected_historical_motion_sha
-  [[ -f "$historical_motion" ]] || die "recovered v0.8 trajectory input missing: $historical_motion"
-  historical_motion_sha="$(sha256sum "$historical_motion" | awk '{print $1}')"
-  expected_historical_motion_sha="34600cea073d7718d30ee48ede58d04b677db91d2694bb43764ef2e4aaca297e"
-  [[ "$historical_motion_sha" == "$expected_historical_motion_sha" ]] ||
-    die "recovered v0.8 trajectory input hash mismatch; refusing to use corrupted recovery data"
-
-  local source_sha expected_sha
-  source_sha="$(sha256sum "$input" | awk '{print $1}')"
-  expected_sha="7415a7b03289eac8cb92fa6c7e0b9d4d1f44095c1eb70923c04481c574f7ba1e"
-  [[ "$source_sha" == "$expected_sha" ]] ||
-    die "rusty moving-plaque source hash differs from the v0.8 reviewed source; refusing to replay its trajectory"
-
-  local dir="assets/.quality-bakeoff/${name}-v0.8-locked-trajectory"
-  local candidate="$dir/scene.toml"
-  local trajectory="$dir/trajectory.toml"
-  rm -rf -- "$dir"
-  mkdir -p "$dir"
-  TEMP_SCENES+=("$dir")
-
-  python3 - "$historical_motion" "$trajectory" "$source_sha" <<'PY_TRAJECTORY'
-import gzip
-import hashlib
-import json
-import math
-import sys
-from pathlib import Path
-
-motion_path = Path(sys.argv[1])
-output_path = Path(sys.argv[2])
-source_sha = sys.argv[3]
-raw = gzip.decompress(motion_path.read_bytes())
-expected_raw_sha = "8c6012b35621477b4ab2f23a81c7cbf699a7efb477ea3f2a5bc435551511ae82"
-raw_sha = hashlib.sha256(raw).hexdigest()
-if raw_sha != expected_raw_sha:
-    raise SystemExit(f"recovered v0.8 motion payload hash mismatch: {raw_sha}")
-entries = json.loads(raw.decode("utf-8"))
-if len(entries) != 240:
-    raise SystemExit(f"expected 240 historical motion samples, got {len(entries)}")
-
-# v0.8 used the same reviewed reference-frame plaque rectangle as the current scene.
-x, y, width, height = 322.0, 46.0, 634.0, 133.0
-corners = ((x, y), (x + width, y), (x + width, y + height), (x, y + height))
-
-def project(matrix, point):
-    px, py = point
-    denominator = matrix[2][0] * px + matrix[2][1] * py + matrix[2][2]
-    if not math.isfinite(denominator) or abs(denominator) < 1.0e-12:
-        raise ValueError("historical trajectory contains a singular homography")
-    qx = (matrix[0][0] * px + matrix[0][1] * py + matrix[0][2]) / denominator
-    qy = (matrix[1][0] * px + matrix[1][1] * py + matrix[1][2]) / denominator
-    if not math.isfinite(qx) or not math.isfinite(qy):
-        raise ValueError("historical trajectory contains a non-finite projected point")
-    return qx, qy
-
-lines = [
-    '# Temporary recovery artifact generated from the human-reviewed v0.8 analysis.\n',
-    'format = "plaque-forge.trajectory/1"\n',
-    'surface = "main"\n',
-    'coordinates = "source-pixels"\n',
-    f'source_sha256 = "{source_sha}"\n',
-]
-for expected_frame, entry in enumerate(entries):
-    frame = int(entry["frame"])
-    if frame != expected_frame:
-        raise ValueError(f"historical motion frames are not dense at {expected_frame}: got {frame}")
-    matrix = entry["transform"]["values"]
-    quad = [project(matrix, corner) for corner in corners]
-    visibility = float(entry.get("plaque_visibility", 1.0))
-    lines.append('\n[[keyframes]]\n')
-    lines.append(f'frame = {frame}\n')
-    lines.append('quad = [\n')
-    for qx, qy in quad:
-        lines.append(f'  [{qx:.9f}, {qy:.9f}],\n')
-    lines.append(']\n')
-    lines.append('locked = true\n')
-    lines.append(f'visibility = {min(1.0, max(0.0, visibility)):.9f}\n')
-output_path.write_text(''.join(lines), encoding='utf-8')
-PY_TRAJECTORY
-
-  python3 - "$original" "$candidate" <<'PY_SCENE'
-import sys
-from pathlib import Path
-source = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines(keepends=True)
-output = []
-in_surface = False
-inserted = False
-for line in source:
-    if line.strip() == "[[surfaces]]" and not inserted:
-        in_surface = True
-    elif in_surface and line.startswith("[") and line.strip() != "[[surfaces]]":
-        output.append('trajectory = "trajectory.toml"\n')
-        inserted = True
-        in_surface = False
-    output.append(line)
-if in_surface and not inserted:
-    output.append('trajectory = "trajectory.toml"\n')
-    inserted = True
-if not inserted:
-    raise SystemExit("failed to locate the first surface table")
-Path(sys.argv[2]).write_text(''.join(output), encoding="utf-8")
-PY_SCENE
-  HISTORICAL_TRAJECTORY_SCENE="$candidate"
-}
 
 analyze_variant() {
   local name="$1" tag="$2" scene="$3" out="$4"
@@ -461,57 +344,6 @@ for name in "${cases[@]}"; do
   current_scene="assets/scenes/$name/scene.toml"
   out="output/quality-bakeoff/$name"
   mkdir -p "$out"
-
-  if [[ "$name" == "rusty-plaque-with-object-in-front-parallax-and-plaque-moves" ]]; then
-    [[ "$use_ml" == true ]] ||
-      die "rusty moving-plaque comparison requires --ml on (or --ml auto with a ready runtime) because the current scene has generated chain foregrounds"
-    make_v08_locked_trajectory_scene "$name"
-    historical_scene="$HISTORICAL_TRAJECTORY_SCENE"
-    cp "$current_scene" "$out/current-tracker.scene.toml"
-    cp "$historical_scene" "$out/v0.8-locked-trajectory.scene.toml"
-    cp "$(dirname "$historical_scene")/trajectory.toml" "$out/v0.8-locked-trajectory.toml"
-    {
-      sha256sum "$current_scene" "$historical_scene" "$(dirname "$historical_scene")/trajectory.toml" "$neutral_style_file"
-    } > "$out/input-sha256.txt"
-
-    current_analysis="$out/current-tracker/analysis"
-    historical_analysis="$out/v0.8-locked-trajectory/analysis"
-    analyze_variant "$name" current-tracker "$current_scene" "$out/current-tracker"
-    # The layer prompts and source bytes are identical. Seed the historical-trajectory
-    # analysis with the current chain artifact and let provenance validation decide
-    # whether it can be reused rather than blindly paying for the same ML pass twice.
-    if [[ ! -f "$historical_analysis/manifest.toml" \
-          && -d "$current_analysis/layers/chains" \
-          && ! -d "$historical_analysis/layers/chains" ]]; then
-      mkdir -p "$historical_analysis/layers"
-      cp -a "$current_analysis/layers/chains" "$historical_analysis/layers/chains"
-    fi
-    analyze_variant "$name" v0.8-locked-trajectory "$historical_scene" "$out/v0.8-locked-trajectory"
-    render_variant "$name" current-tracker "$current_scene" "$current_analysis" "$neutral_style_file" "$out"
-    render_variant "$name" v0.8-locked-trajectory "$historical_scene" "$historical_analysis" "$neutral_style_file" "$out"
-    side_by_side \
-      "$out/current-tracker.lossless.mkv" \
-      "$out/v0.8-locked-trajectory.lossless.mkv" \
-      "$out/current-vs-v0.8-locked-trajectory.mp4"
-
-    cat > "$out/README.txt" <<'EOF'
-Rusty moving plaque trajectory recovery
-
-LEFT  = current automatic tracker
-RIGHT = dense locked trajectory reconstructed from the human-reviewed v0.8 analysis
-
-Both candidates keep the current scene's chain prompts, current segmentation policy, current
-renderer, and current verifier. The intended variable is only plaque trajectory. If the right-hand
-candidate fixes the rotated/unstable title plane while chains remain wrong, that cleanly separates
-the tracking regression from the foreground-compositing regression.
-
-Review:
-  current-vs-v0.8-locked-trajectory.mp4
-  current-tracker.lossless.mkv
-  v0.8-locked-trajectory.lossless.mkv
-EOF
-    continue
-  fi
 
 
   make_v08_scene "$name"

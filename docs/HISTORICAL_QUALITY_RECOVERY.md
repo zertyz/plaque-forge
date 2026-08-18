@@ -75,23 +75,13 @@ quality policy:
 ./scripts/bakeoff_historical_quality.sh --ml on
 ```
 
-A single case can be run while iterating:
+A single remaining geometry case can be run while iterating, for example:
 
 ```bash
-./scripts/bakeoff_historical_quality.sh --ml on \
-  rusty-plaque-with-object-in-front-parallax-and-plaque-moves
+./scripts/bakeoff_historical_quality.sh --ml on 16_9_swamp_wooden_plaque
 ```
 
-You may use a different stable benchmark title, but compare candidates with the exact same text,
-font and policy:
-
-```bash
-./scripts/bakeoff_historical_quality.sh \
-  --ml on \
-  --text 'Now with bigger potential! Seeing things that others cannot see!' \
-  --font-family 'Noto Serif' \
-  rusty-plaque-with-object-in-front-parallax-and-plaque-moves
-```
+Use the exact same text, font, and policy for both candidates in any comparison.
 
 The harness writes only under `output/quality-bakeoff/` plus a temporary
 `assets/.quality-bakeoff/` directory that is removed on exit. It does not replace canonical
@@ -149,20 +139,15 @@ A later generic-tracker improvement may use this canonical reviewed trajectory a
 production rendering no longer depends on rediscovering a motion solution that is already known
 to be correct for this asset.
 
-### Rusty moving plaque: isolate trajectory before foreground restoration
+### Settled: rusty moving plaque with crossing chains
 
-The next regression has two visible symptoms: the title plane is rotated/misplaced, and chains are
-not reliably restored in front. The first challenger changes only trajectory. The archived v0.8
-analysis used the same source bytes and the same `[322,46,634,133]` reference rectangle, so its
-240-frame motion can be replayed through the current scene and current chain segmentation.
+Human review selected the current automatic tracker as the perfect plaque-motion solution. The
+reviewed chain alpha sequence, which is byte-identical across archived releases 0.5 through 0.8,
+was promoted as an authored foreground artifact. The canonical scene keeps that foreground
+compositing-only (`affects_tracking = false`), so the recovered chains cannot perturb the accepted
+tracker. The resulting canonical render was reviewed as perfect.
 
-```text
-LEFT  current automatic tracker + current chains
-RIGHT reviewed v0.8 trajectory + current chains
-```
-
-If the right-hand candidate fixes plaque lock but chains are still wrong, the next experiment can
-focus solely on foreground restoration instead of mixing the two regressions.
+The temporary archived rusty trajectory payload and its bakeoff branch are therefore removed.
 
 ## Promotion rule
 
