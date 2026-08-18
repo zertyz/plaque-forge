@@ -55,6 +55,14 @@ pub struct HomologationContract {
 pub struct GeometryContract {
     pub tracking_bounds: [f64; 4],
     pub writable_bounds: [f64; 4],
+    /// Optional identity of an authored writable-region mask. This keeps a homologated
+    /// irregular writing surface byte-stable without forcing it into a lossy rectangle.
+    #[serde(default)]
+    pub writable_mask_sha256: Option<String>,
+    /// Optional identity of an authored reviewed trajectory. Automatic trackers remain
+    /// implementation details; only explicitly promoted trajectory assets are pinned.
+    #[serde(default)]
+    pub trajectory_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -157,6 +165,12 @@ impl HomologationContract {
             rect_contains(self.geometry.tracking_bounds, self.geometry.writable_bounds),
             "homologated writable bounds must be contained inside tracking bounds"
         );
+        if let Some(sha256) = self.geometry.writable_mask_sha256.as_deref() {
+            validate_sha256(sha256, "geometry.writable_mask_sha256")?;
+        }
+        if let Some(sha256) = self.geometry.trajectory_sha256.as_deref() {
+            validate_sha256(sha256, "geometry.trajectory_sha256")?;
+        }
         ensure!(
             self.typography.lines > 0,
             "typography.lines must be positive"
@@ -453,6 +467,46 @@ fn check_scene_geometry(
         )),
         None => {
             failures.push("homologated surface no longer declares a writable region".to_string())
+        }
+    }
+    if let Some(expected) = contract.geometry.writable_mask_sha256.as_deref() {
+        match surface.writable_region.as_ref() {
+            Some(crate::writable_region::WritableRegion::Mask { path, .. }) => {
+                let path = resolve_relative(scene_path, path);
+                match crate::digest::file_sha256(&path) {
+                    Ok(actual) => {
+                        check_equal("writable mask SHA-256", actual.as_str(), expected, failures)
+                    }
+                    Err(error) => failures.push(format!(
+                        "failed to hash homologated writable mask {}: {error:#}",
+                        path.display()
+                    )),
+                }
+            }
+            Some(_) => failures.push(
+                "homologation pins a writable mask but the surface no longer uses one".to_string(),
+            ),
+            None => {}
+        }
+    }
+    if let Some(expected) = contract.geometry.trajectory_sha256.as_deref() {
+        match surface.trajectory.as_ref() {
+            Some(path) => {
+                let path = resolve_relative(scene_path, path);
+                match crate::digest::file_sha256(&path) {
+                    Ok(actual) => {
+                        check_equal("trajectory SHA-256", actual.as_str(), expected, failures)
+                    }
+                    Err(error) => failures.push(format!(
+                        "failed to hash homologated trajectory {}: {error:#}",
+                        path.display()
+                    )),
+                }
+            }
+            None => failures.push(
+                "homologation pins a reviewed trajectory but the surface no longer declares one"
+                    .to_string(),
+            ),
         }
     }
     Ok(())

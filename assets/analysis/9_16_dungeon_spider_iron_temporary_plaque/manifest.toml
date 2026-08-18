@@ -1,0 +1,82 @@
+# Generated analysis cache. Regenerate with analyze.
+format = "plaque-forge.analysis/1"
+status = "complete"
+source_is_text_free = true
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+reference_frame = 0
+canonical_width = 435
+canonical_height = 253
+surface_space = "scene-plane"
+trajectory_model = "reviewed-dense-quad-track-240-frames"
+loop_closed = false
+has_occluder = true
+occlusion_mode = "automatic"
+automatic_ml_foreground = true
+analysis_gate_passed = true
+
+[source]
+path = "../../9_16_dungeon_spider_iron_temporary_plaque.mp4"
+sha256 = "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961"
+width = 720
+height = 1280
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 143.0
+y = 173.0
+width = 435.0
+height = 253.0
+
+[segmentation]
+backend = "auto"
+model = "auto"
+device = "auto"
+profile = "balanced"
+precision = "auto"
+worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
+
+[[layers]]
+id = "instrument-housing"
+role = "foreground"
+coordinates = "source-pixels"
+kind = "alpha-sequence"
+affects_layout = false
+affects_tracking = false
+path = "layers/instrument-housing/%06d.png"
+first_frame = 0
+last_frame = 239
+
+[layers.matte]
+mode = "opaque"
+support_threshold = 0.03
+solid_threshold = 0.2
+
+[scenes]
+surface_id = "main"
+locked_keyframes = 240
+guide_keyframes = 0
+
+[scenes.manifest]
+path = "../../scenes/9_16_dungeon_spider_iron_temporary_plaque/scene.toml"
+sha256 = "a718120a44a0eb67d258cfdd46455459acd362f760ba4f5c5c22cf909174e6d1"
+semantic_sha256 = "4159603562dbb86ff9e93c5115e2a46c81da1be94ab3a09d1353fec1e0369d4c"
+
+[scenes.trajectory]
+path = "../../scenes/9_16_dungeon_spider_iron_temporary_plaque/trajectory.toml"
+sha256 = "8c948a99d1fe48e7fd3c8e826d75c416d63b9e745956ce740b38140fae98c30f"
+semantic_sha256 = "0cee3b2aa26c812348aaf3584f48d1cb14523355c1aa551721e91ced1b332076"
+
+[[scenes.layer_artifacts]]
+path = "../../scenes/9_16_dungeon_spider_iron_temporary_plaque/instrument-housing/artifact.toml"
+sha256 = "a961fd073bf5de7a5e43c104ac98187cc959fa6103768ca67aa958aca4e5ead8"
+semantic_sha256 = "40150fb12a690c8e276ca6dcd50daae82a9383771d62a24a75a55af480bb4eee"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.99
+extraction = 0.6337538049157241
+occlusion = 0.8552516197809116
+overall = 0.8515672266338729

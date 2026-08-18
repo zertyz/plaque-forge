@@ -8,7 +8,7 @@ use image::{GrayImage, ImageBuffer, Luma, RgbaImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    analysis::{Analysis, CONTENT_MASK_FILE, OCCLUDER_DIR},
+    analysis::{Analysis, CONTENT_MASK_FILE, LAYERS_DIR, OCCLUDER_DIR},
     analyze::extraction::transformed_rect,
     application::{RenderRequest, TitleSource},
     image_io::load_luma,
@@ -201,10 +201,15 @@ fn render_to(
             args.input.display()
         );
     }
-    let current_scene = crate::scene::current_scene_provenance(
+    // Generated prompted layers belong to the selected analysis bundle. Recomputing
+    // scene provenance from the scene path would accidentally consult the canonical
+    // assets/analysis cache and reject a valid explicit --analysis bundle.
+    let generated_layer_root = args.analysis.join(LAYERS_DIR);
+    let current_scene = crate::scene::current_scene_provenance_with_generated_layer_root(
         &args.input,
         args.scene.as_deref(),
         args.surface.as_deref(),
+        Some(&generated_layer_root),
     )?;
     let scenes_match = match (&pack.manifest.scenes, &current_scene) {
         (None, None) => true,

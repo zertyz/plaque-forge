@@ -15,6 +15,84 @@ shape = "rounded-rect"
 bounds = [160.0, 190.0, 401.0, 215.0]
 radius = 22.0
 
+# The spider itself is opaque scene material and must always be restored above
+# typography. Keep it out of tracking: the automatic depth path remains responsible
+# for the translucent web, while this authored layer prevents the spider body/legs
+# from being treated as part of the writing plane or painted over by the title.
+[[layers]]
+id = "spider"
+role = "foreground"
+surface = "main"
+in_front_of = "main"
+active_frames = [116, 205]
+affects_layout = false
+affects_tracking = false
+matte = { mode = "opaque", support_threshold = 0.03, solid_threshold = 0.20 }
+
+[[layers.prompts]]
+frame = 120
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [174.0, 184.0, 102.0, 112.0]
+positive_points = [[216.0, 242.0], [203.0, 214.0], [238.0, 205.0], [190.0, 252.0], [246.0, 273.0]]
+negative_points = [[164.0, 240.0], [286.0, 240.0], [230.0, 175.0]]
+
+[[layers.prompts]]
+frame = 132
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [225.0, 168.0, 137.0, 108.0]
+positive_points = [[278.0, 226.0], [255.0, 194.0], [307.0, 201.0], [245.0, 246.0], [329.0, 239.0]]
+negative_points = [[213.0, 225.0], [373.0, 225.0], [293.0, 160.0]]
+
+[[layers.prompts]]
+frame = 144
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [300.0, 164.0, 126.0, 108.0]
+positive_points = [[346.0, 220.0], [328.0, 190.0], [379.0, 191.0], [319.0, 240.0], [397.0, 238.0]]
+negative_points = [[288.0, 220.0], [438.0, 220.0], [360.0, 155.0]]
+
+[[layers.prompts]]
+frame = 156
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [382.0, 169.0, 139.0, 113.0]
+positive_points = [[431.0, 225.0], [411.0, 198.0], [462.0, 191.0], [399.0, 250.0], [493.0, 244.0]]
+negative_points = [[370.0, 225.0], [532.0, 225.0], [448.0, 160.0]]
+
+[[layers.prompts]]
+frame = 168
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [401.0, 192.0, 122.0, 113.0]
+positive_points = [[450.0, 250.0], [432.0, 219.0], [480.0, 215.0], [420.0, 273.0], [499.0, 274.0]]
+negative_points = [[389.0, 250.0], [535.0, 250.0], [465.0, 181.0]]
+
+[[layers.prompts]]
+frame = 180
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [414.0, 207.0, 121.0, 111.0]
+positive_points = [[463.0, 266.0], [446.0, 235.0], [489.0, 230.0], [433.0, 291.0], [510.0, 292.0]]
+negative_points = [[402.0, 266.0], [547.0, 266.0], [478.0, 198.0]]
+
+[[layers.prompts]]
+frame = 192
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [404.0, 210.0, 126.0, 113.0]
+positive_points = [[457.0, 269.0], [440.0, 238.0], [486.0, 235.0], [426.0, 296.0], [505.0, 296.0]]
+negative_points = [[392.0, 269.0], [542.0, 269.0], [470.0, 201.0]]
+
+[[layers.prompts]]
+frame = 204
+coordinates = "source-pixels"
+object = "spider"
+box_bounds = [405.0, 210.0, 126.0, 113.0]
+positive_points = [[458.0, 270.0], [441.0, 239.0], [487.0, 236.0], [427.0, 297.0], [506.0, 297.0]]
+negative_points = [[393.0, 270.0], [543.0, 270.0], [471.0, 201.0]]
+
 # The iron face is the title's physical writing surface. This lossless, per-frame
 # support matte limits material-point tracking to the plaque; it is deliberately
 # not used as a deforming outline or as a substitute for the rigid four-corner

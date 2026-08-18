@@ -1,0 +1,28 @@
+format = "plaque-forge.homologation/1"
+asset = "moving-holographic-plaque"
+source = "../../moving-holographic-plaque.mp4"
+scene = "../../scenes/moving-holographic-plaque/scene.toml"
+analysis = "../../analysis/moving-holographic-plaque"
+surface = "main"
+source_sha256 = "e80a833e980293e2861d7509939bb3ce569b0440f8409a9293414fd498ea215a"
+
+[geometry]
+tracking_bounds = [84.0, 55.0, 557.0, 321.0]
+writable_bounds = [113.0, 93.0, 499.0, 260.0]
+writable_mask_sha256 = "9531fa143f031661d392c756c44ccb49d486d6c40525a4092aec4a475c0c63fa"
+trajectory_sha256 = "1f1389f6eed79884213aea78e877f69f927bd5cf1942a2957ddc789fd39f7e9a"
+
+[render]
+text = "SEEING FURTHER\nTHAN BEFORE"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "296e7d2ed962bb1c881e379312beddb39cd9539dbc7b67c2658c80f1e46810cc"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "SEEING FURTHER\nTHAN BEFORE"
+
+[typography]
+lines = 2
+maximum_font_size = 120.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

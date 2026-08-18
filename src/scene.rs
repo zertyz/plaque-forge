@@ -1123,20 +1123,32 @@ pub fn layer_artifact_provenance(
     Ok(output)
 }
 
-pub fn layer_artifact_path(scene_path: &Path, layer: &SceneLayer) -> Option<PathBuf> {
+fn layer_artifact_path_with_generated_root(
+    scene_path: &Path,
+    layer: &SceneLayer,
+    generated_layer_root: Option<&Path>,
+) -> Option<PathBuf> {
     if let Some(artifact) = &layer.artifact {
         return Some(resolve_relative(scene_path, artifact));
     }
     if layer.prompts.is_empty() {
         return None;
     }
+    if let Some(root) = generated_layer_root {
+        return Some(root.join(&layer.id).join("artifact.toml"));
+    }
 
     Some(crate::workspace::layer_path(scene_path, &layer.id).join("artifact.toml"))
 }
 
-pub fn selected_layer_artifacts(
+pub fn layer_artifact_path(scene_path: &Path, layer: &SceneLayer) -> Option<PathBuf> {
+    layer_artifact_path_with_generated_root(scene_path, layer, None)
+}
+
+fn selected_layer_artifacts_with_generated_root(
     scene: &LoadedScene,
     surface_id: &str,
+    generated_layer_root: Option<&Path>,
 ) -> Result<Vec<(SceneLayer, PathBuf, LayerArtifact)>> {
     scene
         .document
@@ -1144,17 +1156,38 @@ pub fn selected_layer_artifacts(
         .iter()
         .filter(|layer| layer.surface == surface_id)
         .filter_map(|layer| {
-            layer_artifact_path(&scene.path, layer).map(|path| {
-                LayerArtifact::load(&path).map(|document| (layer.clone(), path, document))
-            })
+            layer_artifact_path_with_generated_root(&scene.path, layer, generated_layer_root).map(
+                |path| LayerArtifact::load(&path).map(|document| (layer.clone(), path, document)),
+            )
         })
         .collect()
+}
+
+pub fn selected_layer_artifacts(
+    scene: &LoadedScene,
+    surface_id: &str,
+) -> Result<Vec<(SceneLayer, PathBuf, LayerArtifact)>> {
+    selected_layer_artifacts_with_generated_root(scene, surface_id, None)
 }
 
 pub fn current_scene_provenance(
     input: &Path,
     explicit_scene: Option<&Path>,
     requested_surface: Option<&str>,
+) -> Result<Option<SceneProvenance>> {
+    current_scene_provenance_with_generated_layer_root(
+        input,
+        explicit_scene,
+        requested_surface,
+        None,
+    )
+}
+
+pub(crate) fn current_scene_provenance_with_generated_layer_root(
+    input: &Path,
+    explicit_scene: Option<&Path>,
+    requested_surface: Option<&str>,
+    generated_layer_root: Option<&Path>,
 ) -> Result<Option<SceneProvenance>> {
     let loaded = find_scene(input, explicit_scene)?;
     let mut identity = SceneProvenance::default();
@@ -1168,7 +1201,11 @@ pub fn current_scene_provenance(
                 format!("failed to hash injected plaque image {}", path.display())
             })?);
         }
-        for (_, path, artifact) in selected_layer_artifacts(loaded, &selected.id)? {
+        for (_, path, artifact) in selected_layer_artifacts_with_generated_root(
+            loaded,
+            &selected.id,
+            generated_layer_root,
+        )? {
             identity
                 .layer_artifacts
                 .push(layer_artifact_provenance(&path, &artifact)?);
@@ -1573,6 +1610,31 @@ mod tests {
         scene.validate().unwrap();
         assert_eq!(scene.select_surface(None).unwrap().id, "right");
         assert_eq!(scene.select_surface(Some("left")).unwrap().id, "left");
+    }
+
+    #[test]
+    fn generated_layer_provenance_can_resolve_inside_an_explicit_analysis_bundle() {
+        let layer: SceneLayer = toml::from_str(
+            r#"
+                id = "foreground"
+                role = "foreground"
+                surface = "main"
+                [[prompts]]
+                frame = 0
+                object = "subject"
+            "#,
+        )
+        .unwrap();
+        let path = layer_artifact_path_with_generated_root(
+            Path::new("assets/scenes/example/scene.toml"),
+            &layer,
+            Some(Path::new("output/experiment/analysis/layers")),
+        )
+        .unwrap();
+        assert_eq!(
+            path,
+            PathBuf::from("output/experiment/analysis/layers/foreground/artifact.toml")
+        );
     }
 
     #[test]

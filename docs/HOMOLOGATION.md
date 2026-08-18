@@ -54,7 +54,9 @@ for older bytes is not valid for a replacement render. `render_assets.sh` theref
 removes stale verification/homologation reports after a successful replacement.
 
 CI runs the homologation gate separately from the fast code gate because it performs a
-real video render and decode.
+real video render and decode. The permanent CI set is deliberately representative rather
+than exhaustive: static fitting, reviewed projective motion, moving foreground/parallax,
+and retracting portrait occlusion each have one accepted sentinel.
 
 ## Adding a new homologated case
 
@@ -63,8 +65,8 @@ real video render and decode.
 3. Prefer invariants and sparse reviewed witnesses over a whole-video golden comparison.
 4. For foreground crossings, choose a few representative frames and masks covering the
    pixels whose depth ordering matters.
-5. Add the case to `scripts/check_homologated_assets.sh` when it is important enough to
-   pay the CI runtime cost.
+5. When the case is important enough to pay the CI runtime cost, set `ci = true` for its
+   capability and add the matching contract render to `scripts/check_homologated_assets.sh`.
 6. Verify that the new test fails when the accepted behavior is intentionally broken.
 
 Do not silently weaken a contract to make a regression green. If intended behavior

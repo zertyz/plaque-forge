@@ -10,27 +10,26 @@ cargo run --release -- homologation-coverage \
   --matrix assets/homologation/capabilities.toml \
   --report output/homologation-coverage.json
 
-# Keep the expensive CI sentinel set intentionally small and high-value. These cases are
-# the visual equivalents of integration tests: they exercise a real source, real analysis,
-# real typography, real compositing, and a delivery encode.
-cases=(
-  "16_9_dungeon_spider_iron_plaque:WITH THE BIGGER POTENTIAL OF SEEING FURTHER"
-  "16_9_swamp_wooden_plaque:Nós que aqui estamos, por vós esperamos!"
-  "9_16_dungeon_spider_iron_plaque:WITH THE BIGGER POTENTIAL OF SEEING FURTHER"
-)
+# Keep the expensive CI sentinel set intentionally small and behaviorally diverse.
+# Each case uses the exact text/style sentinel from its accepted homologation contract.
+run_case() {
+  local case_name="$1"
+  local text="$2"
+  local style="$3"
+  local contract="assets/homologation/$case_name/contract.toml"
+  local report="output/$case_name.homologation.json"
+  local rendered="output/$case_name.hevc.mkv"
+  local diagnostics="output/regressions"
 
-for item in "${cases[@]}"; do
-  case_name="${item%%:*}"
-  text="${item#*:}"
-  contract="assets/homologation/$case_name/contract.toml"
-  report="output/$case_name.homologation.json"
-  rendered="output/$case_name.hevc.mkv"
-  diagnostics="output/regressions"
+  [[ -f "$contract" ]] || {
+    printf 'missing CI homologation contract: %s\n' "$contract" >&2
+    exit 2
+  }
 
   ./scripts/render_assets.sh \
     --text "$text" \
     --font-family "Noto Serif" \
-    --style gold-shine \
+    --style "$style" \
     --fit artistic \
     "$case_name"
 
@@ -42,6 +41,26 @@ for item in "${cases[@]}"; do
 
   printf 'homologated: %s\n' "$rendered"
   printf 'acceptance:  %s\n' "$report"
-done
+}
+
+run_case \
+  "16_9_swamp_wooden_plaque" \
+  "Nós que aqui estamos, por vós esperamos!" \
+  "gold-shine"
+
+run_case \
+  "moving-holographic-plaque" \
+  $'SEEING FURTHER\nTHAN BEFORE' \
+  "classic-glow"
+
+run_case \
+  "rusty-plaque-with-object-in-front-parallax-and-plaque-moves" \
+  $'SEEING\nFURTHER' \
+  "classic-glow"
+
+run_case \
+  "9_16_dungeon_spider_iron_temporary_plaque" \
+  $'Seeing what\nothers cannot\nsee!' \
+  "classic-glow"
 
 printf 'coverage:    %s\n' "output/homologation-coverage.json"

@@ -7,13 +7,13 @@ last_frame = 205
 affects_layout = false
 
 [generator]
-backend = "sam2-cutie"
+backend = "sam2"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+bf16+eager@xpu+cutie-1.0.0@cpu/bf16+selected-sam2+categorical-membership-p50"
+version = "sam2-1.0+bf16+eager@xpu+categorical-membership-p50"
 requested_device = "auto"
 source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
 prompt_sha256 = "995d786c1df8173dbab5ec028a74b19bc3063e5d2b91c125a15e2444bfff1f48"
-worker_sha256 = "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9"
+worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
-request_sha256 = "071847284aef368bb11c0751e3d6971de5cc9867124581553b244783a9df3726"
-plan_sha256 = "d67f03ffbc1051bc75ab1c8cb9838c53caf592c9aeb671194367edf4adacba6d"
+request_sha256 = "015d65251a6f26527322036c51095094e0d71498a2f59bd74b3a9e3d668500d6"
+plan_sha256 = "eae5dc3453a197828c9bb6efe1b39509a2256cfeed27ca3cf25da6cf7418317a"

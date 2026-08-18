@@ -741,6 +741,45 @@ def cutie_masks(request, frames, device, guides=None):
     )
 
 
+def optical_trimap_known_foreground(request, frame_index, probability):
+    """Return sparse known-foreground seeds for an optical matte.
+
+    Semantic membership is not optical opacity.  A translucent foreground such as a
+    web may have very confident semantic support while most pixels inside that support
+    are still transparent.  ViTMatte therefore receives only sparse certain-foreground
+    seeds; the wider semantic region remains unknown trimap.
+    """
+    height, width = probability.shape
+    known = np.zeros((height, width), dtype=np.uint8)
+
+    # Exact authored positive points are the strongest supervision available.
+    for prompt in request["layer"]["prompts"]:
+        if prompt["frame"] != frame_index:
+            continue
+        for x, y in prompt.get("positive_points", []):
+            x = int(round(np.clip(x, 0, width - 1)))
+            y = int(round(np.clip(y, 0, height - 1)))
+            cv2.circle(known, (x, y), 1, 1, thickness=-1, lineType=cv2.LINE_AA)
+
+    # Between authored corrections, provide sparse semantic anchors rather than an
+    # eroded solid body.  One local maximum per tile gives ViTMatte enough foreground
+    # evidence without declaring transparent holes to be opaque.
+    if not known.any():
+        stride = 32
+        for top in range(0, height, stride):
+            for left in range(0, width, stride):
+                tile = probability[top : min(top + stride, height), left : min(left + stride, width)]
+                if tile.size == 0 or float(tile.max(initial=0.0)) < 0.92:
+                    continue
+                _, maximum, _, location = cv2.minMaxLoc(tile)
+                if maximum < 0.92:
+                    continue
+                x = left + location[0]
+                y = top + location[1]
+                known[y, x] = 1
+    return known
+
+
 def refine_vitmatte(request, probabilities, frames, model_name, device):
     import torch
     from transformers import VitMatteForImageMatting, VitMatteImageProcessor
@@ -757,19 +796,33 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
     if hit:
         print(f"[ml] ViTMatte resident-model hit: {model_name} on {device}", file=sys.stderr)
     output = []
-    for probability, frame_path in zip(probabilities, frames):
+    optical_foreground = (
+        request["layer"].get("role") == "foreground"
+        and request["layer"].get("matte_mode", "optical") == "optical"
+    )
+    for frame_index, (probability, frame_path) in enumerate(zip(probabilities, frames)):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
         kernel = np.ones((3, 3), np.uint8)
-        foreground = cv2.erode((probability >= 0.82).astype(np.uint8), kernel)
-        if not foreground.any():
-            foreground = (probability >= 0.60).astype(np.uint8)
+        if optical_foreground:
+            foreground = optical_trimap_known_foreground(request, frame_index, probability)
+        else:
+            foreground = cv2.erode((probability >= 0.82).astype(np.uint8), kernel)
+            if not foreground.any():
+                foreground = (probability >= 0.60).astype(np.uint8)
         # SAM2 probabilities below roughly 0.35 are semantic uncertainty, not
         # evidence that a pixel may be opaque. The former 0.08 support threshold
         # often admitted most of a frame into ViTMatte's unknown trimap, allowing
         # dark background/actors to become false solid occluders. A modest dilation
         # around calibrated semantic support still leaves room for translucent
         # hair, vines, and web strands without filling their holes.
-        support = cv2.dilate((probability >= 0.35).astype(np.uint8), kernel, iterations=3)
+        if optical_foreground:
+            support = cv2.dilate(
+                (probability >= 0.30).astype(np.uint8), kernel, iterations=1
+            )
+        else:
+            support = cv2.dilate(
+                (probability >= 0.35).astype(np.uint8), kernel, iterations=3
+            )
         trimap = np.zeros(probability.shape, dtype=np.uint8)
         trimap[support > 0] = 128
         trimap[foreground > 0] = 255
@@ -833,7 +886,7 @@ def warp_alpha(alpha, source_gray, target_gray, forward, backward):
     return warped, weight.astype(np.float32)
 
 
-def stabilize_alpha(probabilities, frames):
+def stabilize_alpha(probabilities, frames, blend_strength=0.32, propagation_headroom=None):
     if len(probabilities) < 2:
         return probabilities
     original = [np.asarray(value, dtype=np.float32).clip(0, 1) for value in probabilities]
@@ -854,7 +907,7 @@ def stabilize_alpha(probabilities, frames):
         warped, weight = warp_alpha(
             forward[-1], gray[frame - 1], gray[frame], flow, backward_flow
         )
-        blend = 0.32 * weight
+        blend = blend_strength * weight
         forward.append(segment[frame] * (1 - blend) + warped * blend)
     backward = [None] * len(segment)
     backward[-1] = segment[-1]
@@ -863,12 +916,17 @@ def stabilize_alpha(probabilities, frames):
         warped, weight = warp_alpha(
             backward[frame + 1], gray[frame + 1], gray[frame], flow, forward_flow
         )
-        blend = 0.32 * weight
+        blend = blend_strength * weight
         backward[frame] = segment[frame] * (1 - blend) + warped * blend
-    smoothed = [
-        (0.50 * current + 0.25 * before + 0.25 * after).clip(0, 1).astype(np.float32)
-        for current, before, after in zip(segment, forward, backward)
-    ]
+    smoothed = []
+    for current, before, after in zip(segment, forward, backward):
+        value = (0.50 * current + 0.25 * before + 0.25 * after).clip(0, 1)
+        if propagation_headroom is not None:
+            # Temporal propagation may reinforce real thin strands but must not keep
+            # a strong invisible occluder alive when the current-frame matte no longer
+            # supports it.
+            value = np.minimum(value, np.clip(current + propagation_headroom, 0, 1))
+        smoothed.append(value.astype(np.float32))
     output = original.copy()
     output[start : end + 1] = smoothed
     return output
@@ -1209,7 +1267,12 @@ def model_masks(request, frames, requested_device, output):
     probabilities = preserve_authored_prompt_evidence(request, probabilities)
     started = time.monotonic()
     if role == "foreground" and matte_mode == "optical" and matte_refiner != "none":
-        probabilities = stabilize_alpha(probabilities, frames)
+        probabilities = stabilize_alpha(
+            probabilities,
+            frames,
+            blend_strength=0.20,
+            propagation_headroom=0.08,
+        )
     elapsed = time.monotonic() - started
     record_stage("Temporal stabilization", "cpu", "fp32", elapsed)
     probabilities = constrain_to_authored_motion_envelope(request, probabilities)

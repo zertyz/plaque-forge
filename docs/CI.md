@@ -14,10 +14,11 @@ This detector is an optimization only. It must prefer a false positive over miss
 
 ## CI gates
 
-The main workflow keeps the normal Rust/code and homologation gates and adds:
+The main workflow keeps the normal Rust/code gates and adds:
 
-1. **analysis-no-ml-gate**: runs the six captured regression witnesses through `analyze_assets.sh --force --no-ml`. This protects the promised no-Python degradation path and reviewed static-layer compatibility.
-2. **segmentation-runtime-gate**: on segmentation-tooling changes, installs/reuses a CPU-profile `/tmp/plaque-forge-python`, executes the complete setup smoke, and then repeats verification with Hugging Face and Transformers offline.
+1. **homologation-gate**: renders the deliberately small `ci = true` capability set and validates each exact human-accepted contract. The sentinels cover static fitting, reviewed projective motion, moving foreground/parallax, and retracting portrait occlusion.
+2. **analysis-no-ml-gate**: runs the six captured regression witnesses through `analyze_assets.sh --force --no-ml`. This protects the promised no-Python degradation path and reviewed static-layer compatibility.
+3. **segmentation-runtime-gate**: on segmentation-tooling changes, installs/reuses a CPU-profile `/tmp/plaque-forge-python`, executes the complete setup smoke, and then repeats verification with Hugging Face and Transformers offline.
 
 The CPU profile exists for hosted CI portability. It is a runtime/setup sentinel, not currently the canonical producer of committed ML analysis artifacts.
 

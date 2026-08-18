@@ -67,86 +67,17 @@ box_bounds = [0.0, 12.0, 910.0, 255.0]
 positive_points = [[120.0, 120.0], [430.0, 125.0], [770.0, 145.0]]
 negative_points = [[735.0, 55.0], [980.0, 175.0], [480.0, 300.0]]
 
-# The late green hummingbird is a distinct object in front of the cloud plane.
-# It first enters from the right near frame 121, crosses the writable region, and
-# then leaves it upward. Keeping this semantic object separate from the cloud
-# prevents its cast shadow from being treated as solid foreground material.
+# Reviewed late foreground evidence. This authored mask sequence is intentionally
+# render/tracking evidence rather than a semantic object identity: it captures the
+# foreground material that actually crosses the cloud, including the ogre hat and
+# the late hummingbird. Keeping it authored avoids temporal ML flicker.
 [[layers]]
-id = "crossing-hummingbird"
+id = "late-foreground"
 role = "foreground"
 surface = "main"
 in_front_of = "main"
+artifact = "late-foreground/artifact.toml"
+active_frames = [120, 239]
 affects_layout = false
-active_frames = [128, 239]
-
-[[layers.prompts]]
-frame = 130
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [930.0, 0.0, 350.0, 310.0]
-positive_points = [[1040.0, 180.0], [1160.0, 220.0], [1150.0, 70.0]]
-negative_points = [[940.0, 90.0], [1100.0, 330.0]]
-
-[[layers.prompts]]
-frame = 134
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [835.0, 115.0, 310.0, 255.0]
-positive_points = [[910.0, 190.0], [980.0, 280.0], [1040.0, 170.0]]
-negative_points = [[850.0, 125.0], [1155.0, 220.0], [1000.0, 390.0]]
-
-[[layers.prompts]]
-frame = 140
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [790.0, 105.0, 345.0, 275.0]
-positive_points = [[875.0, 190.0], [930.0, 285.0], [1020.0, 170.0]]
-negative_points = [[800.0, 120.0], [1160.0, 185.0], [900.0, 400.0]]
-
-[[layers.prompts]]
-frame = 157
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [760.0, 35.0, 310.0, 335.0]
-positive_points = [[850.0, 190.0], [930.0, 285.0], [975.0, 145.0]]
-negative_points = [[720.0, 135.0], [1130.0, 180.0], [880.0, 390.0]]
-
-[[layers.prompts]]
-frame = 170
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [745.0, 150.0, 325.0, 255.0]
-positive_points = [[830.0, 215.0], [930.0, 295.0], [850.0, 275.0]]
-negative_points = [[760.0, 160.0], [1100.0, 250.0], [950.0, 430.0]]
-
-[[layers.prompts]]
-frame = 180
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [785.0, 95.0, 330.0, 310.0]
-positive_points = [[850.0, 205.0], [930.0, 300.0], [1015.0, 205.0]]
-negative_points = [[800.0, 110.0], [1130.0, 240.0], [900.0, 430.0]]
-
-[[layers.prompts]]
-frame = 196
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [665.0, 0.0, 260.0, 150.0]
-positive_points = [[710.0, 40.0], [760.0, 30.0], [820.0, 75.0]]
-negative_points = [[650.0, 100.0], [940.0, 90.0]]
-
-[[layers.prompts]]
-frame = 220
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [690.0, 5.0, 180.0, 145.0]
-positive_points = [[760.0, 42.0], [820.0, 85.0], [830.0, 120.0]]
-negative_points = [[670.0, 80.0], [890.0, 100.0]]
-
-[[layers.prompts]]
-frame = 239
-coordinates = "source-pixels"
-object = "crossing-hummingbird"
-box_bounds = [670.0, 5.0, 185.0, 145.0]
-positive_points = [[745.0, 45.0], [800.0, 85.0], [820.0, 120.0]]
-negative_points = [[650.0, 90.0], [880.0, 100.0]]
+affects_tracking = true
+matte = { mode = "opaque", support_threshold = 0.03, solid_threshold = 0.20 }

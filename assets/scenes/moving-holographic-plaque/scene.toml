@@ -9,3 +9,11 @@ space = "scene-plane"
 depth = "declared-only"
 reference_frame = 72
 bounds = [84.0, 55.0, 557.0, 321.0]
+trajectory = "trajectory.toml"
+
+# Frozen from the human-accepted canonical content mask so homologation can pin
+# the exact irregular writing cavity without approximating it as a rectangle.
+[surfaces.writable_region]
+shape = "mask"
+bounds = [113.0, 93.0, 499.0, 260.0]
+path = "writable-mask.png"

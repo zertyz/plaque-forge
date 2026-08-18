@@ -17,6 +17,8 @@ id = "projective-moving-plaque"
 description = "Scene-plane plaque whose tracked projective motion must remain visually locked."
 representative_asset = "moving-holographic-plaque"
 scene = "../scenes/moving-holographic-plaque/scene.toml"
+contract = "moving-holographic-plaque/contract.toml"
+ci = true
 
 [[capabilities]]
 id = "foreground-crossing-title"
@@ -24,7 +26,6 @@ description = "Opaque foreground object crosses title pixels and must remain vis
 representative_asset = "16_9_dungeon_spider_iron_plaque"
 scene = "../scenes/16_9_dungeon_spider_iron_plaque/scene.toml"
 contract = "16_9_dungeon_spider_iron_plaque/contract.toml"
-ci = true
 
 [[capabilities]]
 id = "non-rectangular-writable-region"
@@ -38,6 +39,15 @@ id = "foreground-parallax-on-moving-plaque"
 description = "Foreground depth ordering must survive plaque motion and parallax."
 representative_asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
 scene = "../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
+contract = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves/contract.toml"
+ci = true
+
+[[capabilities]]
+id = "deforming-writing-surface-with-foreground-crossings"
+description = "A moving/deforming writing surface remains readable while independent foreground objects cross it."
+representative_asset = "16_9_mountain_top_day_hummingbird_cloudy_plaque"
+scene = "../scenes/16_9_mountain_top_day_hummingbird_cloudy_plaque/scene.toml"
+contract = "16_9_mountain_top_day_hummingbird_cloudy_plaque/contract.toml"
 
 [[capabilities]]
 id = "background-motion-independent-of-plaque"
@@ -57,4 +67,10 @@ description = "Portrait aspect-ratio geometry and fitting remain independent fro
 representative_asset = "9_16_dungeon_spider_iron_plaque"
 scene = "../scenes/9_16_dungeon_spider_iron_plaque/scene.toml"
 contract = "9_16_dungeon_spider_iron_plaque/contract.toml"
+[[capabilities]]
+id = "temporary-retracting-plaque-occlusion"
+description = "A retracting portrait plaque remains rigid and disappears behind foreground housing without leaking title pixels."
+representative_asset = "9_16_dungeon_spider_iron_temporary_plaque"
+scene = "../scenes/9_16_dungeon_spider_iron_temporary_plaque/scene.toml"
+contract = "9_16_dungeon_spider_iron_temporary_plaque/contract.toml"
 ci = true
