@@ -17,6 +17,7 @@ id = "projective-moving-plaque"
 description = "Scene-plane plaque whose tracked projective motion must remain visually locked."
 representative_asset = "moving-holographic-plaque"
 scene = "../scenes/moving-holographic-plaque/scene.toml"
+contract = "moving-holographic-plaque/contract.toml"
 
 [[capabilities]]
 id = "foreground-crossing-title"
@@ -37,6 +38,14 @@ id = "foreground-parallax-on-moving-plaque"
 description = "Foreground depth ordering must survive plaque motion and parallax."
 representative_asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
 scene = "../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
+contract = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves/contract.toml"
+
+[[capabilities]]
+id = "deforming-writing-surface-with-foreground-crossings"
+description = "A moving/deforming writing surface remains readable while independent foreground objects cross it."
+representative_asset = "16_9_mountain_top_day_hummingbird_cloudy_plaque"
+scene = "../scenes/16_9_mountain_top_day_hummingbird_cloudy_plaque/scene.toml"
+contract = "16_9_mountain_top_day_hummingbird_cloudy_plaque/contract.toml"
 
 [[capabilities]]
 id = "background-motion-independent-of-plaque"

@@ -66,8 +66,8 @@ guide_keyframes = 0
 
 [scenes.manifest]
 path = "../../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
-sha256 = "fa92c12b8b24b216b22c773cdc382ef5214107b93c3014797c6a85864f51c9d3"
-semantic_sha256 = "fd13be34b3aa534db427243bd9be8ed48d74dc878ebf621a99b03f04d398ab29"
+sha256 = "44b3503d44021548aa7e50c9cc84a7dbe30ec793c153978152a6d5e41a6fcfc1"
+semantic_sha256 = "d37f5aee3dbd93eea0fa8279ca36ec8a503849c0e26dada8bf854eb244b981ff"
 
 [[scenes.layer_artifacts]]
 path = "../../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/chains/artifact.toml"
@@ -75,8 +75,8 @@ sha256 = "4366f6d130b229cd6608f6c28414f5a33aaa1726d1b4b4e8c46b6d8267ec0ec7"
 semantic_sha256 = "46ea79e4c2f6effac29ec4e94b9407280d5c400fb25c4aca59ac318d9ca78e89"
 
 [confidence]
-plaque_detection = 0.92
+plaque_detection = 0.98
 motion = 0.9576514469098081
 extraction = 0.9704231991651053
 occlusion = 0.8
-overall = 0.9094139534727208
+overall = 0.9238919340233149

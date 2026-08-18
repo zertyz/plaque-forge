@@ -1,0 +1,59 @@
+format = "plaque-forge.homologation/1"
+asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
+source = "../../rusty-plaque-with-object-in-front-parallax-and-plaque-moves.mp4"
+scene = "../../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
+analysis = "../../analysis/rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
+surface = "main"
+source_sha256 = "7415a7b03289eac8cb92fa6c7e0b9d4d1f44095c1eb70923c04481c574f7ba1e"
+
+[geometry]
+tracking_bounds = [322.0, 46.0, 634.0, 133.0]
+writable_bounds = [384.0, 61.0, 515.0, 94.0]
+writable_mask_sha256 = "bdb858357cb3df98222ed1d110bfc2fae8f7fd1d8ad994eac9ee8a30e21b939b"
+
+[render]
+text = "SEEING\nFURTHER"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "296e7d2ed962bb1c881e379312beddb39cd9539dbc7b67c2658c80f1e46810cc"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "SEEING\nFURTHER"
+
+[typography]
+lines = 2
+maximum_font_size = 60.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0
+
+[[source_preservation]]
+frame = 76
+mask = "foreground/000076.png"
+mask_sha256 = "3f4644f048681278e7c4e9069692696c0578cba21fd45588b6a25a36b4b63a8a"
+minimum_selected_pixels = 8000
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 84
+mask = "foreground/000084.png"
+mask_sha256 = "d35c85be5379f7d6e00caa2c467e106bb25c7cc2d037144e92bd79424a592664"
+minimum_selected_pixels = 16000
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 92
+mask = "foreground/000092.png"
+mask_sha256 = "ff58d3beb9a1d438e9991278cc388e983f7c3d553c0f978459283af3df2c125a"
+minimum_selected_pixels = 10000
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 100
+mask = "foreground/000100.png"
+mask_sha256 = "2d4f7d448df54dab79b8355c4722a619b2d5fc33be978614e29703549438224f"
+minimum_selected_pixels = 1200
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0

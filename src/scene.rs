@@ -1156,10 +1156,9 @@ fn selected_layer_artifacts_with_generated_root(
         .iter()
         .filter(|layer| layer.surface == surface_id)
         .filter_map(|layer| {
-            layer_artifact_path_with_generated_root(&scene.path, layer, generated_layer_root)
-                .map(|path| {
-                    LayerArtifact::load(&path).map(|document| (layer.clone(), path, document))
-                })
+            layer_artifact_path_with_generated_root(&scene.path, layer, generated_layer_root).map(
+                |path| LayerArtifact::load(&path).map(|document| (layer.clone(), path, document)),
+            )
         })
         .collect()
 }

@@ -1,0 +1,66 @@
+format = "plaque-forge.homologation/1"
+asset = "16_9_mountain_top_day_hummingbird_cloudy_plaque"
+source = "../../16_9_mountain_top_day_hummingbird_cloudy_plaque.mp4"
+scene = "../../scenes/16_9_mountain_top_day_hummingbird_cloudy_plaque/scene.toml"
+analysis = "../../analysis/16_9_mountain_top_day_hummingbird_cloudy_plaque"
+surface = "main"
+source_sha256 = "cd69662e64812aae3845a2875857a8dad17b7c81cf88a9153aece77e367f9f9b"
+
+[geometry]
+tracking_bounds = [229.0, 36.0, 838.0, 190.0]
+writable_bounds = [250.0, 55.0, 796.0, 155.0]
+
+[render]
+text = "Codex gave me the bigger\npotential of seeing\nwhat others cannot see!"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "296e7d2ed962bb1c881e379312beddb39cd9539dbc7b67c2658c80f1e46810cc"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "Codex gave me the bigger\npotential of seeing\nwhat others cannot see!"
+
+[typography]
+lines = 3
+maximum_font_size = 64.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0
+
+[[source_preservation]]
+frame = 120
+mask = "foreground/000120.png"
+mask_sha256 = "52af072603cae73769c28bab617cfd405767ff4261cc9402f68bf978f5a390cf"
+minimum_selected_pixels = 1200
+maximum_mean_absolute_error = 16.0
+maximum_p95_absolute_error = 32.0
+
+[[source_preservation]]
+frame = 140
+mask = "foreground/000140.png"
+mask_sha256 = "737251b614aa67e5a9a90765fa882659891ac8b68981f1899b92d592a3e6dc12"
+minimum_selected_pixels = 12000
+maximum_mean_absolute_error = 16.0
+maximum_p95_absolute_error = 32.0
+
+[[source_preservation]]
+frame = 157
+mask = "foreground/000157.png"
+mask_sha256 = "4404f0c1bbc3e9800dd8abb3fd7f011895fb1656d34d856076346e4e884f370d"
+minimum_selected_pixels = 6000
+maximum_mean_absolute_error = 16.0
+maximum_p95_absolute_error = 32.0
+
+[[source_preservation]]
+frame = 170
+mask = "foreground/000170.png"
+mask_sha256 = "f6edf048c106d9e1cfe29f2786d512f1378609a4f185ff288e2603189b10506a"
+minimum_selected_pixels = 3000
+maximum_mean_absolute_error = 16.0
+maximum_p95_absolute_error = 32.0
+
+[[source_preservation]]
+frame = 196
+mask = "foreground/000196.png"
+mask_sha256 = "f0082e5d1108f8fb1141bc36bc394530418e3bbed4d14ea2756901eeb374e965"
+minimum_selected_pixels = 2000
+maximum_mean_absolute_error = 16.0
+maximum_p95_absolute_error = 32.0
