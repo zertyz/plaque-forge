@@ -1,0 +1,21 @@
+{
+  "format": "plaque-forge.segmentation-strategy-selection/1",
+  "policy_id": "baseline-2026-08",
+  "selected_plan_sha256": "eae5dc3453a197828c9bb6efe1b39509a2256cfeed27ca3cf25da6cf7418317a",
+  "attempts": [
+    {
+      "backend": "sam2",
+      "model": "facebook/sam2.1-hiera-large",
+      "precision": "bf16",
+      "plan_sha256": "eae5dc3453a197828c9bb6efe1b39509a2256cfeed27ca3cf25da6cf7418317a",
+      "accepted": true,
+      "evidence": {
+        "minimum_prompt_alpha_u16": 65535,
+        "maximum_negative_alpha_u16": null,
+        "nonempty_permille": 699,
+        "maximum_coverage_permille": 70
+      },
+      "reasons": []
+    }
+  ]
+}

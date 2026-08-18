@@ -1,0 +1,77 @@
+# Generated analysis cache. Regenerate with analyze.
+format = "plaque-forge.analysis/1"
+status = "complete"
+source_is_text_free = true
+analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+reference_frame = 10
+canonical_width = 435
+canonical_height = 253
+surface_space = "scene-plane"
+trajectory_model = "reviewed-constrained-quad-track-9-keyframes+bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-retrack+foreground-aware-source-flow"
+loop_closed = false
+has_occluder = true
+occlusion_mode = "automatic"
+automatic_ml_foreground = true
+analysis_gate_passed = true
+
+[source]
+path = "../../9_16_dungeon_spider_iron_temporary_plaque.mp4"
+sha256 = "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961"
+width = 720
+height = 1280
+fps = 24.0
+frames = 240
+duration_seconds = 10.0
+
+[source_plaque_rect]
+x = 143.0
+y = 173.0
+width = 435.0
+height = 253.0
+
+[segmentation]
+backend = "auto"
+model = "auto"
+device = "auto"
+profile = "balanced"
+precision = "auto"
+worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
+
+[[layers]]
+id = "instrument-housing"
+role = "foreground"
+coordinates = "source-pixels"
+kind = "alpha-sequence"
+affects_layout = false
+affects_tracking = false
+path = "layers/instrument-housing/%06d.png"
+first_frame = 0
+last_frame = 239
+
+[layers.matte]
+mode = "opaque"
+support_threshold = 0.03
+solid_threshold = 0.2
+
+[scenes]
+surface_id = "main"
+locked_keyframes = 9
+guide_keyframes = 0
+
+[scenes.manifest]
+path = "../../scenes/9_16_dungeon_spider_iron_temporary_plaque/scene.toml"
+sha256 = "5002c9408bd3cc7139f04468cfd712424ebb206e081cdefe2b19acb1d7424611"
+semantic_sha256 = "5705b111090832c1a8986f10159973bf30eb8a6f3b5618e23b37f6c5f4f35605"
+
+[[scenes.layer_artifacts]]
+path = "../../scenes/9_16_dungeon_spider_iron_temporary_plaque/instrument-housing/artifact.toml"
+sha256 = "a961fd073bf5de7a5e43c104ac98187cc959fa6103768ca67aa958aca4e5ead8"
+semantic_sha256 = "40150fb12a690c8e276ca6dcd50daae82a9383771d62a24a75a55af480bb4eee"
+
+[confidence]
+plaque_detection = 0.98
+motion = 0.5614175910715173
+extraction = 0.671334559992731
+occlusion = 0.8305659613471712
+overall = 0.7442285158916307

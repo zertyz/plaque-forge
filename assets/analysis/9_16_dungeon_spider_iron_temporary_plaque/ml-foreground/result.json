@@ -1,0 +1,47 @@
+{
+  "format": "plaque-forge.segmentation-result/2",
+  "backend": "sam2",
+  "model": "facebook/sam2.1-hiera-large",
+  "version": "sam2-1.0+bf16+eager@xpu+categorical-membership-p50",
+  "plan_sha256": "eae5dc3453a197828c9bb6efe1b39509a2256cfeed27ca3cf25da6cf7418317a",
+  "precision": "bf16",
+  "frames": 240,
+  "mean_confidence": 0.975,
+  "minimum_confidence": 0.0,
+  "request_sha256": "58bbf2c224633835de00a929010a64b7aae82f3862bf1f509c6363baff8f6854",
+  "source_sha256": "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961",
+  "prompt_sha256": "b9be5e31962ca397f43e41ca4007a89337de564981df82251a0db07d7888b658",
+  "worker_sha256": "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b",
+  "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
+  "nonempty_frames": 234,
+  "mean_coverage": 0.040780815972222224,
+  "maximum_coverage": 0.098369140625,
+  "soft_edge_pixels": 0,
+  "execution": [
+    {
+      "stage": "Decode frames",
+      "device": "cpu",
+      "precision": "lossless",
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 7124.629
+    },
+    {
+      "stage": "SAM 2",
+      "device": "xpu",
+      "precision": "bf16",
+      "seconds": 375.675332,
+      "cache_hit": false,
+      "process_peak_rss_mib": 7124.629,
+      "accelerator_peak_mib": 1891.118
+    },
+    {
+      "stage": "Temporal stabilization",
+      "device": "cpu",
+      "precision": "fp32",
+      "seconds": 1e-06,
+      "cache_hit": false,
+      "process_peak_rss_mib": 7124.629
+    }
+  ]
+}

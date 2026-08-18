@@ -1,0 +1,30 @@
+{
+  "analysis_gate_passed": true,
+  "automatic_ml_foreground": true,
+  "candidate_confidence": 0.98,
+  "candidate_edge_completeness": 1.0,
+  "candidate_screen_stationarity": 1.0,
+  "candidate_temporal_support": 1.0,
+  "component_gate_passed": true,
+  "content_cavity_area": 0.7757666621234837,
+  "declared_writable_region": "rounded-rect",
+  "format": "plaque-forge.analysis/1",
+  "has_occluder": true,
+  "minimum_analysis_confidence": 0.7,
+  "motion_confidence": 0.5614175910715173,
+  "occluder_mean_coverage": 0.01842855310312761,
+  "occlusion_confidence": 0.8305659613471712,
+  "overall": 0.7442285158916307,
+  "registration_area": 0.005115624006178729,
+  "remedies": [
+    "automatic motion confidence is 0.561; export the motion and lock only incorrect frames before reanalysis"
+  ],
+  "source_contract": "text-free-writing-surface",
+  "structural_area": 0.0001362954886193267,
+  "structural_confidence": 0.671334559992731,
+  "surface_source": "source",
+  "surface_space": "ScenePlane",
+  "tracking_measurement_fraction": 0.9375,
+  "tracking_median_spatial_coverage": 0.7751284768184026,
+  "tracking_observable_frames": 240
+}
