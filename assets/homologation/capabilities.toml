@@ -18,6 +18,7 @@ description = "Scene-plane plaque whose tracked projective motion must remain vi
 representative_asset = "moving-holographic-plaque"
 scene = "../scenes/moving-holographic-plaque/scene.toml"
 contract = "moving-holographic-plaque/contract.toml"
+ci = true
 
 [[capabilities]]
 id = "foreground-crossing-title"
@@ -39,6 +40,7 @@ description = "Foreground depth ordering must survive plaque motion and parallax
 representative_asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
 scene = "../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
 contract = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves/contract.toml"
+ci = true
 
 [[capabilities]]
 id = "deforming-writing-surface-with-foreground-crossings"
@@ -71,3 +73,4 @@ description = "A retracting portrait plaque remains rigid and disappears behind 
 representative_asset = "9_16_dungeon_spider_iron_temporary_plaque"
 scene = "../scenes/9_16_dungeon_spider_iron_temporary_plaque/scene.toml"
 contract = "9_16_dungeon_spider_iron_temporary_plaque/contract.toml"
+ci = true
