@@ -12,8 +12,8 @@
       "evidence": {
         "minimum_prompt_alpha_u16": 65535,
         "maximum_negative_alpha_u16": null,
-        "nonempty_permille": 975,
-        "maximum_coverage_permille": 98
+        "nonempty_permille": 870,
+        "maximum_coverage_permille": 65
       },
       "reasons": []
     }

@@ -1,0 +1,52 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_dungeon_spider_iron_plaque"
+source = "../../9_16_dungeon_spider_iron_plaque.mp4"
+scene = "../../scenes/9_16_dungeon_spider_iron_plaque/scene.toml"
+analysis = "../../analysis/9_16_dungeon_spider_iron_plaque"
+surface = "main"
+source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
+
+[geometry]
+tracking_bounds = [128.0, 159.0, 464.0, 280.0]
+writable_bounds = [160.0, 190.0, 401.0, 215.0]
+
+[render]
+text = "Seeing what\nothers cannot\nsee!"
+style = "../../../styles/bronze-relief-banded.toml"
+style_sha256 = "123e76e84a102f846831d5fff03ef1e7f5139a34f77d7fb9cd4c5bea1c8522da"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "Seeing what\nothers cannot\nsee!"
+
+[typography]
+lines = 3
+maximum_font_size = 96.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0
+
+# Sparse accepted-champion witnesses around the spider/title intersection. They
+# deliberately do not claim that the translucent web crossing is perfect.
+[[source_preservation]]
+frame = 168
+mask = "foreground/000168.png"
+mask_sha256 = "e87d28eabd14c089c66cca1e1c6e41d16f258245b36622b9b1bd20609fc88afa"
+minimum_selected_pixels = 700
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 180
+mask = "foreground/000180.png"
+mask_sha256 = "49ece71559618c68d4bcc9cf4f8bd20c82598d34a5abffa7f2af404488899184"
+minimum_selected_pixels = 500
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 192
+mask = "foreground/000192.png"
+mask_sha256 = "a446386466c0b41bb95662a587f81825d15c820ee435d50ddf364b70b2ef47c0"
+minimum_selected_pixels = 500
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0

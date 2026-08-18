@@ -1,0 +1,46 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_dungeon_spider_iron_temporary_plaque"
+source = "../../9_16_dungeon_spider_iron_temporary_plaque.mp4"
+scene = "../../scenes/9_16_dungeon_spider_iron_temporary_plaque/scene.toml"
+analysis = "../../analysis/9_16_dungeon_spider_iron_temporary_plaque"
+surface = "main"
+source_sha256 = "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961"
+
+[geometry]
+tracking_bounds = [143.0, 173.0, 435.0, 253.0]
+writable_bounds = [161.0, 192.0, 399.0, 215.0]
+trajectory_sha256 = "8c948a99d1fe48e7fd3c8e826d75c416d63b9e745956ce740b38140fae98c30f"
+
+[render]
+text = "Seeing what\nothers cannot\nsee!"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "296e7d2ed962bb1c881e379312beddb39cd9539dbc7b67c2658c80f1e46810cc"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "Seeing what\nothers cannot\nsee!"
+
+[typography]
+lines = 3
+maximum_font_size = 96.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0
+
+# The housing is accepted opaque foreground. These witnesses pin source preservation
+# while the title retracts behind it; the dense reviewed trajectory separately pins
+# the rigid no-scale plaque motion.
+[[source_preservation]]
+frame = 52
+mask = "foreground/000052.png"
+mask_sha256 = "f916c3bf26683d03b17a0d93a3577266e9ba24c91cdb57ba8c832166b418fdc0"
+minimum_selected_pixels = 70000
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 64
+mask = "foreground/000064.png"
+mask_sha256 = "b3ddc2b3398aa44bc9309ab961d7eee9393df4e7fce382d312189f0ad332d52e"
+minimum_selected_pixels = 70000
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
