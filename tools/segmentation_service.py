@@ -14,6 +14,7 @@ import io
 import json
 import os
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -61,14 +62,49 @@ def service_paths(identity):
     )
 
 
+def service_process_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def connected_service_pid(connection):
+    if not hasattr(socket, "SO_PEERCRED"):
+        return None
+    try:
+        credentials = connection.getsockopt(
+            socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+        )
+    except OSError:
+        return None
+    return struct.unpack("3i", credentials)[0]
+
+
 def request_server(socket_path, payload, timeout=24 * 60 * 60):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(timeout)
+        deadline = time.monotonic() + timeout
+        connection.settimeout(min(timeout, 2))
         connection.connect(str(socket_path))
+        peer_pid = connected_service_pid(connection)
         connection.sendall(json.dumps(payload).encode("utf-8") + b"\n")
         data = bytearray()
         while True:
-            chunk = connection.recv(65536)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("persistent segmentation service timed out")
+            connection.settimeout(min(remaining, 2))
+            try:
+                chunk = connection.recv(65536)
+            except socket.timeout:
+                if peer_pid is not None and not service_process_alive(peer_pid):
+                    raise RuntimeError(
+                        f"persistent segmentation service process {peer_pid} exited without a response"
+                    )
+                continue
             if not chunk:
                 break
             data.extend(chunk)

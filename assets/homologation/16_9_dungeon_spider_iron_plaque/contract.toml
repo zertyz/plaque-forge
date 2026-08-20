@@ -93,3 +93,142 @@ mask_sha256 = "f21481d840d824f1a05cb76bc8e64206cb10bc11853cfb58ea5d2eb9260cf434"
 minimum_selected_pixels = 150
 maximum_mean_absolute_error = 12.0
 maximum_p95_absolute_error = 25.0
+
+# Human-reviewed between-prompt witnesses protect temporal continuity. Each mask
+# selects only visible spider material where it crosses the sentinel title.
+
+[[source_preservation]]
+frame = 6
+mask = "foreground/000006.png"
+mask_sha256 = "20d788649e3ed55ee07bed75a0d5fe5089b2eca309725ca69332dd4b4135fa24"
+minimum_selected_pixels = 350
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 18
+mask = "foreground/000018.png"
+mask_sha256 = "9069e5cd0d8d099085921041562aa201aaa1f212a651bef9f7245a967fbdffe7"
+minimum_selected_pixels = 1400
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 30
+mask = "foreground/000030.png"
+mask_sha256 = "d649c0074458fcf16b67851b36ac3d77988498d6ff26c398e93cb86f7bf9fb68"
+minimum_selected_pixels = 1200
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 42
+mask = "foreground/000042.png"
+mask_sha256 = "f7905e028273c991d679c07f2c1e02b06fe94917eb342cfcb60799def353f911"
+minimum_selected_pixels = 1250
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 54
+mask = "foreground/000054.png"
+mask_sha256 = "f311e1aae3f2107ff18c9ee09cc4ca0494cae6d93f54ed14335c4cfe52b1c30e"
+minimum_selected_pixels = 1800
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 66
+mask = "foreground/000066.png"
+mask_sha256 = "e9579614e26bee06babdd9697d782f6af7b267c58929e6d6df05b47504b67cab"
+minimum_selected_pixels = 1850
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 78
+mask = "foreground/000078.png"
+mask_sha256 = "a1b7976ff00e273300699c54dd7b3b0ea4b9789326868774e215c5b6b6e7a55f"
+minimum_selected_pixels = 1900
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 90
+mask = "foreground/000090.png"
+mask_sha256 = "b2fc6f96178bb57af5177f0d2ac504fc0db7073f977efc2ea7799803ad62ba71"
+minimum_selected_pixels = 1950
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 102
+mask = "foreground/000102.png"
+mask_sha256 = "0ad824b853b3954f825425022ad365fac885a747aaf222f6726199f70bb3d835"
+minimum_selected_pixels = 1900
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 114
+mask = "foreground/000114.png"
+mask_sha256 = "923785af0bd8306f28a338867d9df1e6b4f6341166b50ab81a9ee4af02288d84"
+minimum_selected_pixels = 1750
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 126
+mask = "foreground/000126.png"
+mask_sha256 = "ec4076e85338097a2f318fa9abb88d6e0fcb149a604ecea3f5b0fd1e39bea8b1"
+minimum_selected_pixels = 2650
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 138
+mask = "foreground/000138.png"
+mask_sha256 = "70a10b8c3fb9fe6dfef471ab58dfbd5b97a1ef7a83596bbbf58c606c23846643"
+minimum_selected_pixels = 1850
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 150
+mask = "foreground/000150.png"
+mask_sha256 = "4cbc7cf40040766186dda232e8edba210be659614763204583e788b495848fc9"
+minimum_selected_pixels = 2100
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 162
+mask = "foreground/000162.png"
+mask_sha256 = "3c03005a810ead4cd48dfebaa21442d289b9b6faa4bfc3283a65405c567101a8"
+minimum_selected_pixels = 1300
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 174
+mask = "foreground/000174.png"
+mask_sha256 = "14785f72e8babccbed0e7f1e849362f1fbd74e460433ec1b85c6b1c6ebc147f5"
+minimum_selected_pixels = 1000
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 186
+mask = "foreground/000186.png"
+mask_sha256 = "6e1a61e35d6d0c0128f708f4210e7d077dd591a84c6433f1b2118c3bbd959933"
+minimum_selected_pixels = 850
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 198
+mask = "foreground/000198.png"
+mask_sha256 = "f27d63edc651c077b5f2802426f5186e93ae74ea411917f17b8522576b9f0231"
+minimum_selected_pixels = 280
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0

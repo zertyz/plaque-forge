@@ -592,6 +592,12 @@ struct SegmentationEvidence {
     maximum_negative_alpha_u16: Option<u16>,
     nonempty_permille: u16,
     maximum_coverage_permille: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    minimum_interprompt_area_ratio_permille: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interprompt_area_ratio_p05_permille: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    adjacent_iou_p05_permille: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -629,7 +635,7 @@ fn strategy_evidence(
 
 fn strategy_evidence_for_inputs(
     artifact_path: &Path,
-    _role: LayerRole,
+    role: LayerRole,
     active_frames: Option<[usize; 2]>,
     prompts: &[SegmentationPrompt],
     info: &VideoInfo,
@@ -649,12 +655,17 @@ fn strategy_evidence_for_inputs(
     let mut maximum_coverage = 0.0_f64;
     let mut positive_samples = Vec::new();
     let mut negative_samples = Vec::new();
+    let mut frame_areas = vec![0_u64; paths.len()];
+    let persistent_track = persistent_prompt_track(role, prompts, active_start, active_end);
+    let mut adjacent_ious = Vec::new();
+    let mut previous_support: Option<Vec<u8>> = None;
 
     for (frame, path) in paths.iter().enumerate() {
         let mask = image::open(path)
             .with_context(|| format!("failed to inspect segmentation evidence {}", path.display()))?
             .to_luma16();
         let active_pixels = mask.iter().filter(|&&alpha| alpha > 2_056).count() as u64;
+        frame_areas[frame] = active_pixels;
         if (active_start..=active_end).contains(&frame) {
             if active_pixels > 0 {
                 nonempty += 1;
@@ -675,15 +686,137 @@ fn strategy_evidence_for_inputs(
                 negative_samples.push(sample_pixel_u16(&mask, point));
             }
         }
+        if persistent_track.is_some_and(|(start, end)| (start..=end).contains(&frame)) {
+            let support = mask
+                .iter()
+                .map(|&alpha| u8::from(alpha > 2_056))
+                .collect::<Vec<_>>();
+            if let Some(previous) = previous_support.as_deref() {
+                adjacent_ious.push(binary_iou_permille(previous, &support));
+            }
+            previous_support = Some(support);
+        }
     }
 
     let active_frames = active_end.saturating_sub(active_start) + 1;
+    let temporal = persistent_track.map(|(start, end)| {
+        persistent_temporal_evidence(&frame_areas, prompts, start, end, &adjacent_ious)
+    });
     Ok(SegmentationEvidence {
         minimum_prompt_alpha_u16: positive_samples.into_iter().min(),
         maximum_negative_alpha_u16: negative_samples.into_iter().max(),
         nonempty_permille: ((nonempty * 1_000) / active_frames.max(1)).min(1_000) as u16,
         maximum_coverage_permille: (maximum_coverage * 1_000.0).round().clamp(0.0, 1_000.0) as u16,
+        minimum_interprompt_area_ratio_permille: temporal
+            .as_ref()
+            .map(|evidence| evidence.minimum_area_ratio_permille),
+        interprompt_area_ratio_p05_permille: temporal
+            .as_ref()
+            .map(|evidence| evidence.area_ratio_p05_permille),
+        adjacent_iou_p05_permille: temporal
+            .as_ref()
+            .map(|evidence| evidence.adjacent_iou_p05_permille),
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PersistentTemporalEvidence {
+    minimum_area_ratio_permille: u16,
+    area_ratio_p05_permille: u16,
+    adjacent_iou_p05_permille: u16,
+}
+
+fn persistent_prompt_track(
+    role: LayerRole,
+    prompts: &[SegmentationPrompt],
+    active_start: usize,
+    active_end: usize,
+) -> Option<(usize, usize)> {
+    if role != LayerRole::Foreground {
+        return None;
+    }
+    let mut boxed = prompts
+        .iter()
+        .filter(|prompt| prompt.box_bounds.is_some())
+        .collect::<Vec<_>>();
+    boxed.sort_by_key(|prompt| prompt.frame);
+    if boxed.len() < 2
+        || boxed[0].object.is_none()
+        || boxed.iter().any(|prompt| prompt.object != boxed[0].object)
+    {
+        return None;
+    }
+    let start = active_start.max(boxed[0].frame);
+    let end = active_end.min(boxed.last()?.frame);
+    (start < end).then_some((start, end))
+}
+
+fn persistent_temporal_evidence(
+    frame_areas: &[u64],
+    prompts: &[SegmentationPrompt],
+    start: usize,
+    end: usize,
+    adjacent_ious: &[u16],
+) -> PersistentTemporalEvidence {
+    let mut anchors = prompts
+        .iter()
+        .filter(|prompt| prompt.box_bounds.is_some() && (start..=end).contains(&prompt.frame))
+        .map(|prompt| prompt.frame)
+        .collect::<Vec<_>>();
+    anchors.sort_unstable();
+    anchors.dedup();
+    let mut ratios = Vec::with_capacity(end.saturating_sub(start) + 1);
+    for frame in start..=end {
+        let right = anchors.partition_point(|&anchor| anchor < frame);
+        let (left_frame, right_frame) = match (right.checked_sub(1), anchors.get(right)) {
+            (Some(left), Some(&right_frame)) => (anchors[left], right_frame),
+            (_, Some(&right_frame)) => (right_frame, right_frame),
+            (Some(left), None) => (anchors[left], anchors[left]),
+            (None, None) => (frame, frame),
+        };
+        let left_area = frame_areas.get(left_frame).copied().unwrap_or(0) as f64;
+        let right_area = frame_areas.get(right_frame).copied().unwrap_or(0) as f64;
+        let expected = if right_frame == left_frame {
+            left_area
+        } else {
+            let weight = (frame - left_frame) as f64 / (right_frame - left_frame) as f64;
+            left_area * (1.0 - weight) + right_area * weight
+        };
+        let observed = frame_areas.get(frame).copied().unwrap_or(0) as f64;
+        let ratio = if expected <= f64::EPSILON {
+            0
+        } else {
+            (observed / expected * 1_000.0).round().clamp(0.0, 1_000.0) as u16
+        };
+        ratios.push(ratio);
+    }
+    PersistentTemporalEvidence {
+        minimum_area_ratio_permille: ratios.iter().copied().min().unwrap_or(0),
+        area_ratio_p05_permille: percentile_u16(&mut ratios, 0.05),
+        adjacent_iou_p05_permille: percentile_u16(&mut adjacent_ious.to_vec(), 0.05),
+    }
+}
+
+fn binary_iou_permille(left: &[u8], right: &[u8]) -> u16 {
+    let mut intersection = 0_u64;
+    let mut union = 0_u64;
+    for (&left, &right) in left.iter().zip(right) {
+        intersection += u64::from(left != 0 && right != 0);
+        union += u64::from(left != 0 || right != 0);
+    }
+    (intersection * 1_000 + union / 2)
+        .checked_div(union)
+        .unwrap_or(0)
+        .min(1_000) as u16
+}
+
+fn percentile_u16(values: &mut [u16], percentile: f64) -> u16 {
+    if values.is_empty() {
+        return 0;
+    }
+    values.sort_unstable();
+    let rank = ((values.len() - 1) as f64 * percentile.clamp(0.0, 1.0)).floor() as usize;
+    values[rank]
 }
 
 fn sample_pixel_u16(mask: &image::ImageBuffer<image::Luma<u16>, Vec<u16>>, point: [f64; 2]) -> u16 {
@@ -774,6 +907,30 @@ fn evidence_acceptance(
         failures.push(format!(
             "maximum frame coverage {}/1000 > {maximum}/1000",
             evidence.maximum_coverage_permille
+        ));
+    }
+    if let Some(value) = evidence.minimum_interprompt_area_ratio_permille
+        && value < policy.min_interprompt_area_ratio_permille
+    {
+        failures.push(format!(
+            "minimum inter-prompt area ratio {value}/1000 < {}/1000",
+            policy.min_interprompt_area_ratio_permille
+        ));
+    }
+    if let Some(value) = evidence.interprompt_area_ratio_p05_permille
+        && value < policy.min_interprompt_area_p05_permille
+    {
+        failures.push(format!(
+            "p05 inter-prompt area ratio {value}/1000 < {}/1000",
+            policy.min_interprompt_area_p05_permille
+        ));
+    }
+    if let Some(value) = evidence.adjacent_iou_p05_permille
+        && value < policy.min_adjacent_iou_p05_permille
+    {
+        failures.push(format!(
+            "p05 adjacent mask IoU {value}/1000 < {}/1000",
+            policy.min_adjacent_iou_p05_permille
         ));
     }
     (failures.is_empty(), failures)
@@ -2204,8 +2361,10 @@ mod worker_process_contract_tests {
 
 #[cfg(test)]
 mod adaptive_evidence_tests {
-    use super::{AcceptancePolicy, SegmentationEvidence, evidence_acceptance};
-    use crate::scene::LayerRole;
+    use super::{
+        AcceptancePolicy, SegmentationEvidence, evidence_acceptance, persistent_temporal_evidence,
+    };
+    use crate::scene::{LayerRole, SegmentationPrompt, SpatialCoordinates};
 
     const POLICY: AcceptancePolicy = AcceptancePolicy {
         min_prompt_alpha_u16: 32_768,
@@ -2213,6 +2372,9 @@ mod adaptive_evidence_tests {
         min_nonempty_permille: 0,
         max_foreground_coverage_permille: 980,
         max_surface_coverage_permille: 980,
+        min_interprompt_area_ratio_permille: 250,
+        min_interprompt_area_p05_permille: 350,
+        min_adjacent_iou_p05_permille: 500,
     };
 
     #[test]
@@ -2222,6 +2384,9 @@ mod adaptive_evidence_tests {
             maximum_negative_alpha_u16: Some(2_000),
             nonempty_permille: 700,
             maximum_coverage_permille: 220,
+            minimum_interprompt_area_ratio_permille: None,
+            interprompt_area_ratio_p05_permille: None,
+            adjacent_iou_p05_permille: None,
         };
         assert!(evidence_acceptance(&evidence, POLICY, LayerRole::Foreground).0);
     }
@@ -2233,9 +2398,64 @@ mod adaptive_evidence_tests {
             maximum_negative_alpha_u16: None,
             nonempty_permille: 700,
             maximum_coverage_permille: 220,
+            minimum_interprompt_area_ratio_permille: None,
+            interprompt_area_ratio_p05_permille: None,
+            adjacent_iou_p05_permille: None,
         };
         let (accepted, reasons) = evidence_acceptance(&evidence, POLICY, LayerRole::Foreground);
         assert!(!accepted);
         assert!(reasons.iter().any(|reason| reason.contains("prompt alpha")));
+    }
+
+    #[test]
+    fn independent_evidence_rejects_anchor_pulses_between_prompts() {
+        let evidence = SegmentationEvidence {
+            minimum_prompt_alpha_u16: Some(u16::MAX),
+            maximum_negative_alpha_u16: Some(0),
+            nonempty_permille: 1_000,
+            maximum_coverage_permille: 20,
+            minimum_interprompt_area_ratio_permille: Some(0),
+            interprompt_area_ratio_p05_permille: Some(0),
+            adjacent_iou_p05_permille: Some(0),
+        };
+
+        let (accepted, reasons) = evidence_acceptance(&evidence, POLICY, LayerRole::Foreground);
+
+        assert!(!accepted);
+        assert!(reasons.iter().any(|reason| reason.contains("inter-prompt")));
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("adjacent mask IoU"))
+        );
+    }
+
+    #[test]
+    fn temporal_evidence_measures_every_inter_prompt_frame() {
+        let prompt = |frame| SegmentationPrompt {
+            frame,
+            coordinates: SpatialCoordinates::SourcePixels,
+            object: Some("spider".into()),
+            concept: None,
+            box_bounds: Some([0.0, 0.0, 20.0, 20.0]),
+            positive_points: Vec::new(),
+            negative_points: Vec::new(),
+            polygon: Vec::new(),
+            quad: None,
+        };
+        let prompts = [prompt(0), prompt(12), prompt(24)];
+        let continuous = persistent_temporal_evidence(&[5_000; 25], &prompts, 0, 24, &[700; 24]);
+        assert_eq!(continuous.minimum_area_ratio_permille, 1_000);
+        assert_eq!(continuous.area_ratio_p05_permille, 1_000);
+        assert_eq!(continuous.adjacent_iou_p05_permille, 700);
+
+        let mut pulsing = vec![0; 25];
+        pulsing[0] = 5_000;
+        pulsing[12] = 5_000;
+        pulsing[24] = 5_000;
+        let collapsed = persistent_temporal_evidence(&pulsing, &prompts, 0, 24, &[0; 24]);
+        assert_eq!(collapsed.minimum_area_ratio_permille, 0);
+        assert_eq!(collapsed.area_ratio_p05_permille, 0);
+        assert_eq!(collapsed.adjacent_iou_p05_permille, 0);
     }
 }

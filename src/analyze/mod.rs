@@ -331,7 +331,9 @@ pub fn run(
         progress.start(7, 7, "Analyze foreground occlusion", Some(info.frames));
         let automatic_occlusion =
             !args.disable_occlusion && scenes.occlusion_mode == DepthMode::Automatic;
-        let mut occlusion = if !automatic_occlusion {
+        let authored_foreground = layers::has_authored_foreground(&scenes.layers);
+        let authored_opaque_detail = layers::has_authored_opaque_source_foreground(&scenes.layers);
+        let mut occlusion = if !automatic_occlusion && !authored_opaque_detail {
             occlusion::OcclusionResult {
                 has_occluder: false,
                 confidence: 0.80,
@@ -350,11 +352,12 @@ pub fn run(
                 args.occlusion_sensitivity,
                 track.loop_closed,
                 scenes.trajectory.as_ref(),
+                &scenes.layers,
+                automatic_occlusion,
                 &mut progress,
             )
             .context("foreground occlusion extraction failed")?
         };
-        let authored_foreground = layers::has_authored_foreground(&scenes.layers);
         let mut automatic_ml_foreground = false;
         if automatic_occlusion && occlusion.has_occluder {
             if let Some(worker) = args.segmentation_worker.as_deref() {
@@ -504,6 +507,8 @@ pub fn run(
                 args.occlusion_sensitivity,
                 track.loop_closed,
                 scenes.trajectory.as_ref(),
+                &scenes.layers,
+                true,
                 &mut progress,
             )
             .context("failed to rebuild foreground masks after masked tracking")?;
@@ -525,12 +530,6 @@ pub fn run(
             .context("failed to summarize the final installed foreground masks")?;
             if !occlusion.has_occluder {
                 automatic_ml_foreground = false;
-            }
-        }
-        if !automatic_occlusion && authored_foreground {
-            occlusion.has_occluder = false;
-            if automatic_exclusions.is_dir() {
-                crate::staged_output::remove_child(&partial, &automatic_exclusions)?;
             }
         }
         if has_scene_exclusions {

@@ -114,6 +114,9 @@ pub struct AcceptancePolicy {
     pub min_nonempty_permille: u16,
     pub max_foreground_coverage_permille: u16,
     pub max_surface_coverage_permille: u16,
+    pub min_interprompt_area_ratio_permille: u16,
+    pub min_interprompt_area_p05_permille: u16,
+    pub min_adjacent_iou_p05_permille: u16,
 }
 
 /// Rust-owned strategy. Candidate order is significant: execute the cheapest first and
@@ -150,6 +153,9 @@ struct PolicyThresholds {
     min_nonempty_permille: u16,
     max_foreground_coverage_permille: u16,
     max_surface_coverage_permille: u16,
+    min_interprompt_area_ratio_permille: u16,
+    min_interprompt_area_p05_permille: u16,
+    min_adjacent_iou_p05_permille: u16,
 }
 
 impl From<PolicyThresholds> for AcceptancePolicy {
@@ -160,6 +166,9 @@ impl From<PolicyThresholds> for AcceptancePolicy {
             min_nonempty_permille: value.min_nonempty_permille,
             max_foreground_coverage_permille: value.max_foreground_coverage_permille,
             max_surface_coverage_permille: value.max_surface_coverage_permille,
+            min_interprompt_area_ratio_permille: value.min_interprompt_area_ratio_permille,
+            min_interprompt_area_p05_permille: value.min_interprompt_area_p05_permille,
+            min_adjacent_iou_p05_permille: value.min_adjacent_iou_p05_permille,
         }
     }
 }

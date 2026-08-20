@@ -5,6 +5,39 @@ from segmentation_runtime import MODEL_REVISIONS, load_sam2_video_predictor, mod
 
 
 class SegmentationRuntimeContractTests(unittest.TestCase):
+    def test_sam2_reinitializes_hydra_after_another_backend_clears_it(self):
+        events = []
+
+        def initialize(*, config_module, version_base):
+            events.append(("initialize", config_module, version_base))
+
+        def build(config, checkpoint, **kwargs):
+            events.append(("build", config, checkpoint, kwargs))
+            return "predictor"
+
+        predictor = load_sam2_video_predictor(
+            "facebook/sam2.1-hiera-large",
+            "cpu",
+            downloader=lambda **_kwargs: "/cache/sam2.1_hiera_large.pt",
+            builder=build,
+            hydra_ready=lambda: False,
+            hydra_initializer=initialize,
+        )
+
+        self.assertEqual(predictor, "predictor")
+        self.assertEqual(
+            events,
+            [
+                ("initialize", "sam2", "1.2"),
+                (
+                    "build",
+                    "configs/sam2.1/sam2.1_hiera_l.yaml",
+                    "/cache/sam2.1_hiera_large.pt",
+                    {"device": "cpu"},
+                ),
+            ],
+        )
+
     def test_known_sam2_model_uses_pinned_offline_checkpoint(self):
         calls = {}
 

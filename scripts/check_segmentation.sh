@@ -21,13 +21,15 @@ PYTHONPYCACHEPREFIX="$root" python3 -m py_compile \
   tools/test_compare_segmentation_outputs.py \
   tools/test_sam31_worker.py \
   tools/test_segmentation_service.py \
-  tools/test_segmentation_worker_cache.py
+  tools/test_segmentation_worker_cache.py \
+  tools/test_segmentation_worker_quality.py
 PYTHONPATH=tools PYTHONPYCACHEPREFIX="$root" python3 -m unittest \
   tools/test_segmentation_runtime.py \
   tools/test_compare_segmentation_outputs.py \
   tools/test_sam31_worker.py \
   tools/test_segmentation_service.py \
-  tools/test_segmentation_worker_cache.py
+  tools/test_segmentation_worker_cache.py \
+  tools/test_segmentation_worker_quality.py
 bash -n \
   scripts/setup_segmentation.sh \
   scripts/setup_sam31.sh \

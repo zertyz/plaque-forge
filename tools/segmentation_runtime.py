@@ -34,6 +34,21 @@ def model_revision(model_name):
     return {"revision": revision} if revision else {}
 
 
+def _ensure_sam2_hydra_initialized(hydra_ready=None, hydra_initializer=None):
+    """Restore SAM2's Hydra search path after another backend clears it."""
+    if hydra_ready is None:
+        from hydra.core.global_hydra import GlobalHydra
+
+        hydra_ready = GlobalHydra.instance().is_initialized
+    if hydra_ready():
+        return
+    if hydra_initializer is None:
+        from hydra import initialize_config_module
+
+        hydra_initializer = initialize_config_module
+    hydra_initializer(config_module="sam2", version_base="1.2")
+
+
 def load_sam2_video_predictor(
     model_name,
     device,
@@ -41,6 +56,8 @@ def load_sam2_video_predictor(
     downloader=None,
     builder=None,
     pretrained_loader=None,
+    hydra_ready=None,
+    hydra_initializer=None,
 ):
     """Load a pinned SAM2 predictor without consulting an unpinned Hub ref.
 
@@ -62,10 +79,14 @@ def load_sam2_video_predictor(
             from huggingface_hub import hf_hub_download
 
             downloader = hf_hub_download
-        if builder is None:
+        production_builder = builder is None
+        if production_builder:
             from sam2.build_sam import build_sam2_video_predictor
 
             builder = build_sam2_video_predictor
+
+        if production_builder or hydra_ready is not None or hydra_initializer is not None:
+            _ensure_sam2_hydra_initialized(hydra_ready, hydra_initializer)
 
         checkpoint_path = downloader(
             repo_id=model_name,
@@ -79,8 +100,11 @@ def load_sam2_video_predictor(
             device=device,
         )
 
-    if pretrained_loader is None:
+    production_loader = pretrained_loader is None
+    if production_loader:
         from sam2.sam2_video_predictor import SAM2VideoPredictor
 
         pretrained_loader = SAM2VideoPredictor.from_pretrained
+    if production_loader or hydra_ready is not None or hydra_initializer is not None:
+        _ensure_sam2_hydra_initialized(hydra_ready, hydra_initializer)
     return pretrained_loader(model_name, device=device, **model_revision(model_name))

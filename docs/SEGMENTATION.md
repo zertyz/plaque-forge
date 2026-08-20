@@ -17,6 +17,9 @@ A caller may override model/backend/precision explicitly. Device selection (`cpu
 The planner uses scene semantics that are actually known, rather than the current sample-video theme:
 
 - writing surfaces and opaque foregrounds need categorical membership, not optical alpha; ViTMatte is skipped;
+- `sam2-cutie` has one deterministic meaning: SAM2 supplies semantic seed masks and Cutie supplies the authoritative full temporal track; the worker does not choose between their incompatible intermediate sequences;
+- on an explicitly authored prompt frame, SAM2 may restore fine seed detail only within four pixels of Cutie's object support; this correction never substitutes anchor-only SAM2 masks between prompts;
+- opaque foreground confidence remains lossless 16-bit evidence until Rust applies the declared matte support/solid thresholds; the worker does not collapse it with an image-wide percentile;
 - optical foregrounds use ViTMatte after the semantic tracker;
 - `subject = "human"` may select MatAnyone2 in canonical mode when a frame-zero area seed exists;
 - unspecified subjects remain generic and never accidentally select the human specialist;
@@ -26,7 +29,7 @@ This keeps future people, vehicles, animals, foliage, smoke, fabric, machinery, 
 
 ## Quality-neutral performance work
 
-The worker keeps decoded lossless source frames in a content-addressed cache keyed by source identity, and keeps reusable SAM2/Cutie stage masks in a separate content-addressed cache keyed by source, prompt, plan, runtime, requested device, and numeric precision. Cache reuse never changes the requested model or arithmetic contract.
+The worker keeps decoded lossless source frames in a content-addressed cache keyed by source identity, and keeps reusable SAM2/Cutie stage masks in a separate content-addressed cache keyed by source, prompt, plan, runtime, requested device, and numeric precision. An exact guided-stage cache hit is resolved before SAM2 inference, so reusing a valid temporal result cannot needlessly recompute its seed model. Cache reuse never changes the requested model or arithmetic contract.
 
 The preview profile deliberately trades some model accuracy for speed by using SAM 2.1 Small; that trade is explicit and must not be confused with device acceleration.
 
@@ -67,15 +70,17 @@ The setup performs a real predictor-construction smoke test. If the current publ
 
 ## Adaptive policy and independent evidence
 
-`assets/segmentation/policy.toml` is the versioned acceptance policy for automatic candidate escalation. Rust checks prompt survival, negative-prompt rejection, active-frame occupancy, and catastrophic frame coverage in the stored 16-bit mask domain. Python never decides whether a cheaper candidate is sufficient.
+`assets/segmentation/policy.toml` is the versioned acceptance policy for automatic candidate escalation. Rust checks prompt survival, negative-prompt rejection, active-frame occupancy, and catastrophic frame coverage in the stored 16-bit mask domain. For a repeatedly boxed foreground object, it also measures every frame between prompts: minimum and fifth-percentile area relative to the interpolated prompt-frame area, plus fifth-percentile adjacent-frame IoU. This rejects anchor-only masks that look correct at prompts but blink away between them. Python never decides whether a cheaper candidate is sufficient.
 
 Each prompted layer records `strategy-selection.json` beside its artifact with the candidates attempted, plan hashes, independent evidence, rejection reasons, and selected plan. Explicit `--backend` requests disable adaptive substitution and execute exactly one plan. Canonical currently remains on SAM2+Cutie until measured bake-offs and homologated renders justify a cheaper candidate.
 
+For an authored opaque source-pixel foreground, the semantic sequence establishes object identity while lossless source-versus-canonical evidence may recover fine material that semantic downsampling omitted. Recovery is bounded to the semantic neighborhood, requires a sharp transition in both the source and residual, and is evaluated independently on each frame. Diffuse cast shadows therefore remain illumination instead of becoming opaque holes in the title, and neighboring-frame residuals cannot grow a restoration halo. Automatic depth discovery remains a separate mode.
+
 ## Persistent worker service
 
-Normal `tools/segmentation-worker` calls route through a single-request-at-a-time Unix-domain service. Python imports, accelerator initialization, SAM2/Cutie/ViTMatte/MatAnyone2 model objects, and compiled image encoders may remain resident between requests. The service socket name is derived from the worker/runtime source identity **and the installed runtime manifest**, so either a code change or a rebuilt Python environment automatically starts a fresh service. Set `PLAQUE_FORGE_PERSISTENT_WORKER=0` to force the old one-process-per-request behavior; set `PLAQUE_FORGE_MODEL_CACHE=0` to keep the service but disable resident model objects. The service exits after an idle timeout (20 minutes by default).
+Normal `tools/segmentation-worker` calls route through a single-request-at-a-time Unix-domain service. Python imports, accelerator initialization, SAM2/Cutie/ViTMatte/MatAnyone2 model objects, and compiled image encoders may remain resident between requests. A backend that clears Hydra's global configuration cannot poison the next request: SAM2 verifies and reinitializes its configuration state before predictor construction. The service also rejects a stale socket whose recorded owner process is no longer alive. The socket name is derived from the worker/runtime source identity **and the installed runtime manifest**, so either a code change or a rebuilt Python environment automatically starts a fresh service. Set `PLAQUE_FORGE_PERSISTENT_WORKER=0` to force the old one-process-per-request behavior; set `PLAQUE_FORGE_MODEL_CACHE=0` to keep the service but disable resident model objects. The service exits after an idle timeout (20 minutes by default).
 
-`result.json` is now retained beside generated masks because it is small, provenance-bound, and supplies stage timing/cache information to bake-offs.
+`result.json` and `strategy-selection.json` are retained beside generated masks in the final analysis package because they are small, provenance-bound, and supply the worker timing/cache record plus Rust's independent acceptance decision.
 
 ## ML capability coverage
 

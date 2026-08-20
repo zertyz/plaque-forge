@@ -6,9 +6,10 @@ default_surface = "main"
 [[surfaces]]
 id = "main"
 space = "scene-plane"
-depth = "automatic"
+depth = "declared-only"
 reference_frame = 10
 bounds = [190.0, 100.0, 935.0, 151.0]
+trajectory = "trajectory.toml"
 
 [surfaces.writable_region]
 shape = "rounded-rect"
