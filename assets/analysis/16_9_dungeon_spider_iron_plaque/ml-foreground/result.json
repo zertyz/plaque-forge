@@ -2,49 +2,45 @@
   "format": "plaque-forge.segmentation-result/2",
   "backend": "sam2-cutie",
   "model": "facebook/sam2.1-hiera-large",
-  "version": "sam2-1.0+bf16+eager@xpu+cutie-1.0.0@cpu/bf16+selected-cutie+categorical-membership-p50",
-  "plan_sha256": "d67f03ffbc1051bc75ab1c8cb9838c53caf592c9aeb671194367edf4adacba6d",
-  "precision": "bf16",
+  "version": "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16",
+  "plan_sha256": "458275d6215a7090e55d15d312ad7ed57b5901bd594989f7202af322511b3c0b",
+  "precision": "fp32",
   "frames": 234,
-  "mean_confidence": 1.0,
-  "minimum_confidence": 1.0,
-  "request_sha256": "5f392c11fbea70b68bbffee34d2415958f01cc91d94ea40c6af9801f0437ed3a",
+  "mean_confidence": 0.31348213247763806,
+  "minimum_confidence": 0.0,
+  "request_sha256": "dfad5067e15e451a6ce7bc2c410f2a76365768ecbacca806ccb78ec9698830e3",
   "source_sha256": "fef84a24bf58c04414b06e8a1e690dc0a902f05c8d0d148b21f4c3797665d126",
-  "prompt_sha256": "4e75e99c8d3e0d0b5fb7e1aaa39cd726eec0716c7625a5694061ed925881a30f",
-  "worker_sha256": "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9",
+  "prompt_sha256": "7edd85b007b2733c1354f9cfdbb3aedbe88ab3988efb8083537065b330c1b3e8",
+  "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
   "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
-  "nonempty_frames": 234,
-  "mean_coverage": 0.004866990889126305,
-  "maximum_coverage": 0.018208550347222224,
-  "soft_edge_pixels": 0,
+  "nonempty_frames": 67,
+  "mean_coverage": 0.022399580068850903,
+  "maximum_coverage": 0.1791156684027778,
+  "soft_edge_pixels": 9779869,
   "execution": [
     {
       "stage": "Decode frames",
       "device": "cpu",
       "precision": "lossless",
       "seconds": 0.0,
-      "cache_hit": true
-    },
-    {
-      "stage": "SAM 2",
-      "device": "xpu",
-      "precision": "bf16",
-      "seconds": 376.230502,
-      "cache_hit": false
+      "cache_hit": true,
+      "process_peak_rss_mib": 9430.977
     },
     {
       "stage": "Cutie",
       "device": "cpu",
-      "precision": "bf16",
-      "seconds": 276.287792,
-      "cache_hit": false
+      "precision": "fp32",
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 9430.977
     },
     {
       "stage": "Temporal stabilization",
       "device": "cpu",
       "precision": "fp32",
       "seconds": 1e-06,
-      "cache_hit": false
+      "cache_hit": false,
+      "process_peak_rss_mib": 9430.977
     }
   ]
 }

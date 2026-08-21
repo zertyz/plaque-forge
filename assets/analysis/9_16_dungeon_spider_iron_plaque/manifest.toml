@@ -7,7 +7,7 @@ reference_frame = 10
 canonical_width = 464
 canonical_height = 280
 surface_space = "scene-plane"
-trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-retrack-rejected+foreground-aware-source-flow"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow+masked-retrack-unusable-foreground-aware-source-flow"
 loop_closed = false
 has_occluder = true
 occlusion_mode = "automatic"
@@ -33,9 +33,9 @@ height = 280.0
 backend = "auto"
 model = "auto"
 device = "auto"
-profile = "balanced"
-precision = "auto"
-worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+profile = "canonical"
+precision = "fp32"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [[layers]]
@@ -55,16 +55,16 @@ support_threshold = 0.03
 solid_threshold = 0.2
 
 [layers.generator]
-backend = "sam2"
+backend = "sam2-cutie"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+bf16+eager@xpu+categorical-membership-p50"
+version = "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16"
 requested_device = "auto"
 source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
 prompt_sha256 = "b941f49ebcbaa7af394ddbee1cdab7c7e313eb924c897df9fbe7d4acefa5b5a8"
-worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
-request_sha256 = "f8467b7f92cfb21e1a80fc8a5b4a866868aab621195f1b1b49f79b62a858e89c"
-plan_sha256 = "1f0452f454de51ba079ebc0e385758f78a0e20b36ed1561fbdfb146df2d3d450"
+request_sha256 = "d44d3a03ec83f916e06f43266438c4b9f42e401ca3bd40a6e7ceb2c592397af0"
+plan_sha256 = "391285cd17c78a1a99a0b5755aec26d806b8b4600d87aef4dc75ffe52763e870"
 
 [[layers]]
 id = "iron-writing-surface"
@@ -83,16 +83,16 @@ support_threshold = 0.03
 solid_threshold = 0.2
 
 [layers.generator]
-backend = "sam2"
+backend = "sam2-cutie"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+bf16+eager@xpu+categorical-membership-p50"
+version = "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+categorical-membership-p50"
 requested_device = "auto"
 source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
 prompt_sha256 = "4b178a2a4010ba009ad79c2db54b721effd6c3aed2a3c4d439c8726596cbb758"
-worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
-request_sha256 = "0676f9479e1f95574c6c9c9ef0b9fb90f3d624a6d17b09529c1656e3a362d655"
-plan_sha256 = "1f0452f454de51ba079ebc0e385758f78a0e20b36ed1561fbdfb146df2d3d450"
+request_sha256 = "27ca531e7535e9768a8af5defbe7ee2e3c8c5ad22438bf828ce58377780c98ff"
+plan_sha256 = "391285cd17c78a1a99a0b5755aec26d806b8b4600d87aef4dc75ffe52763e870"
 
 [scenes]
 surface_id = "main"
@@ -106,17 +106,17 @@ semantic_sha256 = "14a653bd84e4c6f6213f5b682e6620169823ce44dba73681c39095890df0d
 
 [[scenes.layer_artifacts]]
 path = "layers/spider/artifact.toml"
-sha256 = "a8e436f505e9013f847c7ef93b1622be97a21a9c1562062eb86db25be55fec2b"
-semantic_sha256 = "2c17dbd84aabd2619461bb807344160ea42abe11f5c2aa4ee7a584f651fd5197"
+sha256 = "ef9fbf1d8d9fd8fcef70702a767ed2b9c077006ec3cdfcfb37dee7db34ae32c1"
+semantic_sha256 = "a49fa9cdb97d028777577561ee100125309b0aa122e7fb631e276cd0d73788c8"
 
 [[scenes.layer_artifacts]]
 path = "layers/iron-writing-surface/artifact.toml"
-sha256 = "eefc6b9003c3ecf1dd9758d9216378380fb1ac9b6f3489c8eeb83b02219d5b75"
-semantic_sha256 = "68205e5fc10d8db0e2a490befad44565ec98f7e8e78e7e265e6a6808f7f5a096"
+sha256 = "ecb8e4641f18f07d929d0a5e30a01fbd7ff159108c5eb5c133db37d3d829378f"
+semantic_sha256 = "87270719cd8c1bdf2c8c9067f8943af188833e5784de1ce4365886ba415c8021"
 
 [confidence]
 plaque_detection = 0.98
-motion = 0.6529439744782654
-extraction = 0.98
-occlusion = 0.8905386798159615
-overall = 0.8644606205789914
+motion = 0.6587176680648518
+extraction = 0.9637755926724139
+occlusion = 0.8895375047630195
+overall = 0.8625144780189108

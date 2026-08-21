@@ -9,7 +9,7 @@ canonical_height = 190
 surface_space = "scene-plane"
 trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow"
 loop_closed = false
-has_occluder = false
+has_occluder = true
 occlusion_mode = "declared-only"
 automatic_ml_foreground = false
 analysis_gate_passed = true
@@ -33,9 +33,9 @@ height = 190.0
 backend = "auto"
 model = "auto"
 device = "auto"
-profile = "balanced"
-precision = "auto"
-worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+profile = "canonical"
+precision = "fp32"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [[layers]]
@@ -55,16 +55,16 @@ support_threshold = 0.03
 solid_threshold = 0.2
 
 [layers.generator]
-backend = "sam2"
+backend = "sam2-cutie"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+bf16+eager@xpu+categorical-membership-p50"
+version = "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+categorical-membership-p50"
 requested_device = "auto"
 source_sha256 = "cd69662e64812aae3845a2875857a8dad17b7c81cf88a9153aece77e367f9f9b"
 prompt_sha256 = "98dea44567e1a35500aad5337ac77d2dd0a7e10f6ec49f1fe483b77073655e0b"
-worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
-request_sha256 = "bc638322b454ae474a2d9fc55f68c58efb1d6416e93e866db8192d2925c3b290"
-plan_sha256 = "1f0452f454de51ba079ebc0e385758f78a0e20b36ed1561fbdfb146df2d3d450"
+request_sha256 = "b4071009fae7f78e4cdbdc1f62db9ca22cbcaf35032cb2e9f27c87b50e2bc64c"
+plan_sha256 = "391285cd17c78a1a99a0b5755aec26d806b8b4600d87aef4dc75ffe52763e870"
 
 [[layers]]
 id = "late-foreground"
@@ -94,8 +94,8 @@ semantic_sha256 = "4ed879691547027d38d884d977b652b8b7557faab4f6788c456fc9ec28d3b
 
 [[scenes.layer_artifacts]]
 path = "layers/cloud-writing-surface/artifact.toml"
-sha256 = "b511eb77690740009cdedbe0945dcabfae11aa27bbffc7f1dacfd442db91b3f0"
-semantic_sha256 = "6d68faf272e8dcd39042999dfddd37335e1cd07d0b42468e0d6fbe8243fcc748"
+sha256 = "a52add7db38e911a33ec99356818d0c7896bcb57e30306c1f499e5acc555f05d"
+semantic_sha256 = "a02e553d8fbc99ece46ba3c978c3b146a66bd41863d0dbdc1c6c475637e583e3"
 
 [[scenes.layer_artifacts]]
 path = "../../scenes/16_9_mountain_top_day_hummingbird_cloudy_plaque/late-foreground/artifact.toml"
@@ -106,5 +106,5 @@ semantic_sha256 = "4b8b3872f13249074ce724ba2cd9240d2bd1b9ec92528d0f58bb0b865cb48
 plaque_detection = 0.98
 motion = 0.7669617057196988
 extraction = 0.7761575178997613
-occlusion = 0.8
-overall = 0.8265324386175655
+occlusion = 0.8711069651110468
+overall = 0.8443165021855257

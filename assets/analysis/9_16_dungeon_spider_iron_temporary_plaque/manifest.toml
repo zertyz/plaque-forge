@@ -33,9 +33,9 @@ height = 253.0
 backend = "auto"
 model = "auto"
 device = "auto"
-profile = "balanced"
-precision = "auto"
-worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+profile = "canonical"
+precision = "fp32"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [[layers]]
@@ -78,5 +78,5 @@ semantic_sha256 = "40150fb12a690c8e276ca6dcd50daae82a9383771d62a24a75a55af480bb4
 plaque_detection = 0.98
 motion = 0.99
 extraction = 0.6337538049157241
-occlusion = 0.8552516197809116
-overall = 0.8515672266338729
+occlusion = 0.8731209111603128
+overall = 0.8559808720229686

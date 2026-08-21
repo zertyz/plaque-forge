@@ -12,7 +12,8 @@ The analysis subsystem that estimates where the plaque is on every video frame. 
 A verifier measurement made from freshly detected source-video features, separately
 from the analyzer and rendered title. Robust pairwise material motion is compared to
 the saved four-corner trajectory at several time baselines and reported as pixel-error
-percentiles. It catches a plausible-looking but screen-fixed or lagging trajectory.
+percentiles. Lag-1 tails expose localized slips, while longer-baseline p95 evidence
+exposes sustained drift and distinguishes physical acceleration from tracker jitter.
 
 **Reference frame**  
 A source-video frame used as the geometric anchor for the plaque definition.

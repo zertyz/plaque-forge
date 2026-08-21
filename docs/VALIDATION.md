@@ -64,8 +64,17 @@ animated light can make them suggest false motion.
 
 Verification JSON and `review.html` also report p95/p99 residuals separately at
 1-, 6-, and 12-frame lags. The one-frame baseline catches a transient jump; the
-longer baselines make slow drift and a screen-fixed title observable. The aggregate
-score is never a substitute for these distributions or their worst-frame evidence.
+longer baselines make slow drift and a screen-fixed trajectory observable. Acceptance
+uses the lag-1 tail for localized slips and each baseline's p95 for sustained drift.
+Long-baseline p99 values remain diagnostics: a few tracks can stop describing the same
+material point across a thin foreground crossing or a large perspective change even
+when the sustained distribution is subpixel. The aggregate distribution is never a
+substitute for the per-baseline evidence or its worst-frame diagnostic.
+
+Raw trajectory curvature is reported separately from temporal stability. Curvature is
+only evidence of tracker jitter when independent source-material flow does not
+corroborate the same acceleration; physically observed acceleration must not be failed
+merely because the plaque does not move at constant velocity.
 
 The verifier separately subtracts the source from every rendered frame, rectifies that
 actual title difference with the expected plaque homography, and registers it against

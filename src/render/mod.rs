@@ -12,7 +12,7 @@ use crate::{
     analyze::extraction::transformed_rect,
     application::{RenderRequest, TitleSource},
     image_io::load_luma,
-    layers::{ForegroundReader, merge_mask},
+    layers::{ForegroundReader, apply_matte_policy, merge_mask},
     model::TypographyMetrics,
     portable_path::PortablePath,
     progress::ProgressReporter,
@@ -339,9 +339,8 @@ fn render_to(
     let mut decoder = Decoder::spawn(&args.ffmpeg, &source, &info)?;
     let mut encoder = Encoder::spawn(&args.ffmpeg, &source, &args.output, &info, &encoder_args)?;
     let masks_dir = pack.root.join(OCCLUDER_DIR);
-    let use_masks = pack.manifest.occlusion_mode == crate::scene::DepthMode::Automatic
-        && pack.manifest.has_occluder
-        && masks_dir.is_dir();
+    let use_masks = should_use_analysis_occluders(&pack) && masks_dir.is_dir();
+    let authored_occluder_matte = authored_occluder_matte(&pack);
     let foregrounds = ForegroundReader::open(&pack)?;
     let scene_foreground_layers = pack
         .manifest
@@ -467,10 +466,11 @@ fn render_to(
         if use_masks {
             let path = masks_dir.join(format!("{frame_index:06}.png"));
             if path.exists() {
-                merge_mask(
-                    &mut restore,
-                    &load_full_luma(&path, info.width, info.height)?,
-                );
+                let mut detail = load_full_luma(&path, info.width, info.height)?;
+                if let Some(matte) = authored_occluder_matte {
+                    apply_matte_policy(&mut detail, matte);
+                }
+                merge_mask(&mut restore, &detail);
             }
         }
         if !restore.is_empty() {
@@ -651,6 +651,41 @@ fn render_to(
     Ok(frame_index)
 }
 
+fn should_use_analysis_occluders(pack: &Analysis) -> bool {
+    let authored_opaque_source_foreground = pack.manifest.layers.iter().any(|layer| {
+        layer.role == crate::scene::LayerRole::Foreground
+            && layer.coordinates == crate::scene::LayerCoordinates::SourcePixels
+            && layer.matte.mode == crate::scene::LayerMatteMode::Opaque
+    });
+    analysis_occluders_are_renderable(
+        pack.manifest.occlusion_mode,
+        pack.manifest.has_occluder,
+        authored_opaque_source_foreground,
+    )
+}
+
+fn authored_occluder_matte(pack: &Analysis) -> Option<crate::scene::LayerMatte> {
+    (pack.manifest.occlusion_mode == crate::scene::DepthMode::DeclaredOnly)
+        .then(|| {
+            pack.manifest.layers.iter().find_map(|layer| {
+                (layer.role == crate::scene::LayerRole::Foreground
+                    && layer.coordinates == crate::scene::LayerCoordinates::SourcePixels
+                    && layer.matte.mode == crate::scene::LayerMatteMode::Opaque)
+                    .then_some(layer.matte)
+            })
+        })
+        .flatten()
+}
+
+fn analysis_occluders_are_renderable(
+    depth: crate::scene::DepthMode,
+    has_occluder: bool,
+    authored_opaque_source_foreground: bool,
+) -> bool {
+    has_occluder
+        && (depth == crate::scene::DepthMode::Automatic || authored_opaque_source_foreground)
+}
+
 pub(crate) fn load_decision_trace(
     manifest_path: &Path,
     manifest: &RenderManifest,
@@ -816,7 +851,8 @@ pub(crate) fn test_font() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{evenly_spaced, validate_portable_encoder_args};
+    use super::{analysis_occluders_are_renderable, evenly_spaced, validate_portable_encoder_args};
+    use crate::scene::DepthMode;
 
     #[test]
     fn diagnostic_indices_are_bounded_and_include_endpoints() {
@@ -833,6 +869,30 @@ mod tests {
             validate_portable_encoder_args(&["lut3d=file=/opt/color/look.cube".into()]).is_err()
         );
         assert!(validate_portable_encoder_args(&[r"C:\looks\grade.cube".into()]).is_err());
+    }
+
+    #[test]
+    fn declared_only_analysis_can_refine_an_authored_opaque_source_foreground() {
+        assert!(analysis_occluders_are_renderable(
+            DepthMode::DeclaredOnly,
+            true,
+            true
+        ));
+        assert!(!analysis_occluders_are_renderable(
+            DepthMode::DeclaredOnly,
+            true,
+            false
+        ));
+        assert!(analysis_occluders_are_renderable(
+            DepthMode::Automatic,
+            true,
+            false
+        ));
+        assert!(!analysis_occluders_are_renderable(
+            DepthMode::Automatic,
+            false,
+            true
+        ));
     }
 
     // ---- Per-style golden-mask regression tests ----

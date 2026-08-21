@@ -10,8 +10,10 @@ use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     analysis::{
-        ANALYSIS_FORMAT, Analysis, AnalysisManifest, AnalysisStatus, INJECTED_SURFACE_FILE,
-        InjectedSurfaceAsset, OCCLUDER_DIR, SegmentationConfig, SourceInfo, TRAJECTORY_FILE,
+        ANALYSIS_FORMAT, AUTHORED_OCCLUDER_WORK_DIR, AUTOMATIC_MATERIAL_WORK_DIR,
+        AUTOMATIC_OCCLUDER_WORK_DIR, Analysis, AnalysisManifest, AnalysisStatus,
+        INJECTED_SURFACE_FILE, InjectedSurfaceAsset, OCCLUDER_DIR, SegmentationConfig, SourceInfo,
+        TRAJECTORY_FILE,
     },
     application::AnalyzeRequest,
     layers::{self, LayerInput},
@@ -331,7 +333,9 @@ pub fn run(
         progress.start(7, 7, "Analyze foreground occlusion", Some(info.frames));
         let automatic_occlusion =
             !args.disable_occlusion && scenes.occlusion_mode == DepthMode::Automatic;
-        let mut occlusion = if !automatic_occlusion {
+        let authored_foreground = layers::has_authored_foreground(&scenes.layers);
+        let authored_opaque_detail = layers::has_authored_opaque_source_foreground(&scenes.layers);
+        let mut occlusion = if !automatic_occlusion && !authored_opaque_detail {
             occlusion::OcclusionResult {
                 has_occluder: false,
                 confidence: 0.80,
@@ -350,11 +354,12 @@ pub fn run(
                 args.occlusion_sensitivity,
                 track.loop_closed,
                 scenes.trajectory.as_ref(),
+                &scenes.layers,
+                automatic_occlusion,
                 &mut progress,
             )
             .context("foreground occlusion extraction failed")?
         };
-        let authored_foreground = layers::has_authored_foreground(&scenes.layers);
         let mut automatic_ml_foreground = false;
         if automatic_occlusion && occlusion.has_occluder {
             if let Some(worker) = args.segmentation_worker.as_deref() {
@@ -369,7 +374,7 @@ pub fn run(
                         precision: &args.segmentation_precision,
                         info: &info,
                         plaque: candidate.rect,
-                        seed_masks: &partial.join(OCCLUDER_DIR),
+                        seed_masks: &partial.join(AUTOMATIC_OCCLUDER_WORK_DIR),
                         analysis_root: &partial,
                         force: args.force_ml,
                         reuse_root: output.is_dir().then_some(output.as_path()),
@@ -504,6 +509,8 @@ pub fn run(
                 args.occlusion_sensitivity,
                 track.loop_closed,
                 scenes.trajectory.as_ref(),
+                &scenes.layers,
+                true,
                 &mut progress,
             )
             .context("failed to rebuild foreground masks after masked tracking")?;
@@ -527,12 +534,6 @@ pub fn run(
                 automatic_ml_foreground = false;
             }
         }
-        if !automatic_occlusion && authored_foreground {
-            occlusion.has_occluder = false;
-            if automatic_exclusions.is_dir() {
-                crate::staged_output::remove_child(&partial, &automatic_exclusions)?;
-            }
-        }
         if has_scene_exclusions {
             crate::staged_output::remove_child(&partial, &combined_exclusions)?;
         }
@@ -549,6 +550,20 @@ pub fn run(
             },
             occlusion.confidence
         ));
+
+        // The split photometric channels prevent authored foreground from becoming
+        // an automatic ML prompt and preserve its frame-exact detail during fusion.
+        // Only the final public occluder sequence belongs in the reusable analysis.
+        for working in [
+            AUTOMATIC_OCCLUDER_WORK_DIR,
+            AUTOMATIC_MATERIAL_WORK_DIR,
+            AUTHORED_OCCLUDER_WORK_DIR,
+        ] {
+            let path = partial.join(working);
+            if path.exists() {
+                crate::staged_output::remove_child(&partial, &path)?;
+            }
+        }
 
         let packed_layers = layers::package(
             &scenes.layers,

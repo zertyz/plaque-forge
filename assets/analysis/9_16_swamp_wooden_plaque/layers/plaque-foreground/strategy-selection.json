@@ -1,0 +1,21 @@
+{
+  "format": "plaque-forge.segmentation-strategy-selection/1",
+  "policy_id": "temporal-continuity-2026-08",
+  "selected_plan_sha256": "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93",
+  "attempts": [
+    {
+      "backend": "sam2-cutie-vitmatte",
+      "model": "facebook/sam2.1-hiera-large",
+      "precision": "fp32",
+      "plan_sha256": "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93",
+      "accepted": true,
+      "evidence": {
+        "minimum_prompt_alpha_u16": 65535,
+        "maximum_negative_alpha_u16": 0,
+        "nonempty_permille": 1000,
+        "maximum_coverage_permille": 85
+      },
+      "reasons": []
+    }
+  ]
+}

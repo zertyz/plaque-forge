@@ -3703,7 +3703,7 @@
     "measurement_valid": true,
     "tracked_points": 135,
     "spatial_coverage": 1.0,
-    "uncertainty_px": 0.2372503173191233,
+    "uncertainty_px": 0.2,
     "measurement_source": "bidirectional-fused",
     "inlier_ratio": 1.0,
     "reprojection_error": 0.0,

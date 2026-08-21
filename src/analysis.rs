@@ -27,6 +27,15 @@ pub const REGISTRATION_MASK_FILE: &str = "registration-mask.png";
 pub const REGISTRATION_TEMPLATE_FILE: &str = "registration-template.png";
 pub const INJECTED_SURFACE_FILE: &str = "injected-surface.png";
 pub const OCCLUDER_DIR: &str = "occluder";
+/// Analyzer-private photometric material not already explained by authored depth.
+/// This channel exists only while automatic semantic refinement is running.
+pub(crate) const AUTOMATIC_OCCLUDER_WORK_DIR: &str = ".occluder-automatic-work";
+/// Analyzer-private frame-local changed material. Automatic semantic identity gates
+/// this richer channel after discovery, retaining thin porous foreground detail.
+pub(crate) const AUTOMATIC_MATERIAL_WORK_DIR: &str = ".occluder-material-work";
+/// Analyzer-private frame-exact detail recovered around authored opaque foreground.
+/// It is unioned back after automatic semantic refinement, then discarded.
+pub(crate) const AUTHORED_OCCLUDER_WORK_DIR: &str = ".occluder-authored-work";
 pub const LAYERS_DIR: &str = "layers";
 pub const ANALYSIS_FORMAT: &str = "plaque-forge.analysis/1";
 

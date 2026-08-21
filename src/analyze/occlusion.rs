@@ -9,7 +9,12 @@ use anyhow::{Context, Result};
 use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
+    analysis::{
+        AUTHORED_OCCLUDER_WORK_DIR, AUTOMATIC_MATERIAL_WORK_DIR, AUTOMATIC_OCCLUDER_WORK_DIR,
+        OCCLUDER_DIR,
+    },
     color::Rgba,
+    layers::{self, LayerInput},
     model::{MotionSample, RectF},
     progress::ProgressReporter,
     scene::SurfaceTrajectory,
@@ -191,10 +196,24 @@ pub fn extract(
     sensitivity: f64,
     loop_closed: bool,
     scene_track: Option<&SurfaceTrajectory>,
+    authored_layers: &[LayerInput],
+    automatic_candidates: bool,
     progress: &mut ProgressReporter,
 ) -> Result<OcclusionResult> {
-    let masks_dir = output_root.join("occluder");
+    let masks_dir = output_root.join(OCCLUDER_DIR);
+    let automatic_masks_dir = output_root.join(AUTOMATIC_OCCLUDER_WORK_DIR);
+    let automatic_material_dir = output_root.join(AUTOMATIC_MATERIAL_WORK_DIR);
+    let authored_masks_dir = output_root.join(AUTHORED_OCCLUDER_WORK_DIR);
     fs::create_dir_all(&masks_dir)?;
+    if automatic_candidates {
+        fs::create_dir_all(&automatic_masks_dir)?;
+        fs::create_dir_all(&automatic_material_dir)?;
+    }
+    let has_authored_channel = layers::has_authored_opaque_source_foreground(authored_layers);
+    let authored_matte = layers::shared_authored_opaque_source_matte(authored_layers);
+    if has_authored_channel {
+        fs::create_dir_all(&authored_masks_dir)?;
+    }
     let width = extraction.median.width() as usize;
     let height = extraction.median.height() as usize;
     // The robust median is the canonical plaque appearance for the supported
@@ -203,7 +222,8 @@ pub fn extract(
     let mut decoder = Decoder::spawn(ffmpeg, input, info)?;
     let mut structural_scores = Vec::with_capacity(info.frames);
     let mut residuals = Vec::with_capacity(info.frames);
-    let mut canonical_masks = Vec::with_capacity(info.frames);
+    let mut automatic_masks = Vec::with_capacity(info.frames);
+    let mut authored_masks = Vec::with_capacity(info.frames);
     let structural_guard = dilate(&extraction.structural_mask, width, height, 4);
 
     for (frame_index, sample) in motion.iter().take(info.frames).enumerate() {
@@ -212,6 +232,22 @@ pub fn extract(
         };
         let transform = sample.transform;
         let rectified = rectify(&frame, rect, transform)?;
+        let authored_foreground = layers::source_opaque_foreground_mask(
+            authored_layers,
+            frame_index,
+            info.width,
+            info.height,
+        )?
+        .map(|mask| {
+            let full = Surface::from_alpha_mask(
+                info.width,
+                info.height,
+                &mask,
+                Rgba::new(255, 255, 255, 255),
+            )?;
+            Ok::<_, anyhow::Error>(rectify(&full, rect, transform)?.alpha_mask())
+        })
+        .transpose()?;
         let structural_score = structural_match_score(
             rectified.pixels(),
             model,
@@ -236,12 +272,25 @@ pub fn extract(
             ))
         });
         let mut residual = vec![0u8; width * height];
-        for (pixel, residual_value) in residual.iter_mut().enumerate() {
+        let mut authored_photometric = vec![0u8; width * height];
+        let mut deltas = vec![0_u16; width * height];
+        let mut source_luma = vec![0_u16; width * height];
+        for pixel in 0..deltas.len() {
             let base = pixel * 4;
-            let d = (0..3)
-                .map(|c| rectified.pixels()[base + c].abs_diff(model[base + c]) as u16)
+            deltas[pixel] = (0..3)
+                .map(|channel| {
+                    rectified.pixels()[base + channel].abs_diff(model[base + channel]) as u16
+                })
                 .sum::<u16>()
                 / 3;
+            source_luma[pixel] = (u16::from(rectified.pixels()[base]) * 54
+                + u16::from(rectified.pixels()[base + 1]) * 183
+                + u16::from(rectified.pixels()[base + 2]) * 19
+                + 128)
+                / 256;
+        }
+        for (pixel, residual_value) in residual.iter_mut().enumerate() {
+            let d = deltas[pixel];
             let base_threshold = if extraction.content_mask[pixel] > 32 {
                 // Animated cavity detail becomes a residual too, but it remains
                 // wholly inside the cavity and is rejected at component selection.
@@ -249,9 +298,20 @@ pub fn extract(
             } else {
                 16.0 + extraction.mad[pixel] as f64 * 2.5
             };
-            let threshold = (base_threshold * sensitivity.clamp(0.35, 3.0)).round() as u16;
-            if d > threshold.min(90) {
+            let threshold =
+                ((base_threshold * sensitivity.clamp(0.35, 3.0)).round() as u16).min(90);
+            if d > threshold {
                 *residual_value = 255;
+            }
+            if authored_foreground.is_some()
+                && authored_material_changed(
+                    d,
+                    threshold,
+                    local_range(&source_luma, pixel, width, height),
+                    local_range(&deltas, pixel, width, height),
+                )
+            {
+                authored_photometric[pixel] = 255;
             }
         }
         for (value, &guard) in residual.iter_mut().zip(&structural_guard) {
@@ -259,12 +319,38 @@ pub fn extract(
                 *value = 0;
             }
         }
-        let selected =
-            select_foreground_components(&residual, &extraction.content_mask, width, height);
-        let candidate_coverage = selected.iter().filter(|&&value| value > 0).count() as f64
+        let mut selected = if automatic_candidates {
+            select_foreground_components(&residual, &extraction.content_mask, width, height)
+        } else {
+            vec![0_u8; residual.len()]
+        };
+        let mut authored = vec![0_u8; residual.len()];
+        if let Some(semantic) = authored_foreground.as_deref() {
+            let authored_exclusion_radius = (width.min(height) / 24).clamp(3, 12);
+            remove_known_foreground(
+                &mut selected,
+                semantic,
+                width,
+                height,
+                authored_exclusion_radius,
+            );
+            recover_authored_photometric_detail(
+                &mut authored,
+                &authored_photometric,
+                semantic,
+                width,
+                height,
+            );
+        }
+        let candidate_coverage = selected
+            .iter()
+            .zip(&authored)
+            .filter(|(automatic, authored)| **automatic > 0 || **authored > 0)
+            .count() as f64
             / selected.len().max(1) as f64;
         residuals.push(residual);
-        canonical_masks.push(selected);
+        automatic_masks.push(selected);
+        authored_masks.push(authored);
         progress.update(
             frame_index + 1,
             format!("candidate coverage {:.3}%", candidate_coverage * 100.0),
@@ -272,7 +358,18 @@ pub fn extract(
     }
     decoder.finish()?;
 
-    let canonical_masks = recover_temporal_details(&canonical_masks, &residuals, width, height);
+    // An authored opaque layer already supplies an identity observation on every
+    // frame. Keep that detail in a separate channel so temporal recovery can only
+    // expand genuinely automatic foreground. Otherwise a moving cast shadow near
+    // an authored spider becomes an opaque halo and the authored actor can also
+    // dominate prompts intended for an unrelated crossing web.
+    let (automatic_masks, canonical_masks) = merge_temporal_foreground_channels(
+        &automatic_masks,
+        &authored_masks,
+        &residuals,
+        width,
+        height,
+    );
     let mut coverages = Vec::with_capacity(canonical_masks.len());
     let mut content_coverages = Vec::with_capacity(canonical_masks.len());
     let mut temporal_agreement = Vec::new();
@@ -318,6 +415,40 @@ pub fn extract(
             &full.alpha_mask(),
             &masks_dir.join(format!("{frame_index:06}.png")),
         )?;
+        if automatic_candidates {
+            save_canonical_source_mask(
+                &automatic_masks[frame_index],
+                width,
+                height,
+                info,
+                rect,
+                motion[frame_index].transform,
+                None,
+                &automatic_masks_dir.join(format!("{frame_index:06}.png")),
+            )?;
+            save_canonical_source_mask(
+                &residuals[frame_index],
+                width,
+                height,
+                info,
+                rect,
+                motion[frame_index].transform,
+                None,
+                &automatic_material_dir.join(format!("{frame_index:06}.png")),
+            )?;
+        }
+        if has_authored_channel {
+            save_canonical_source_mask(
+                &authored_masks[frame_index],
+                width,
+                height,
+                info,
+                rect,
+                motion[frame_index].transform,
+                authored_matte,
+                &authored_masks_dir.join(format!("{frame_index:06}.png")),
+            )?;
+        }
     }
 
     let max_coverage = coverages.iter().copied().fold(0.0, f64::max);
@@ -352,6 +483,15 @@ pub fn extract(
         // Candidate masks remain visible in diagnostics, but are not allowed to
         // contaminate rendering when temporal evidence is weak.
         crate::staged_output::remove_child(output_root, &masks_dir)?;
+        for working in [
+            &automatic_masks_dir,
+            &automatic_material_dir,
+            &authored_masks_dir,
+        ] {
+            if working.exists() {
+                crate::staged_output::remove_child(output_root, working)?;
+            }
+        }
         for sample in motion.iter_mut() {
             sample.occluder_coverage = 0.0;
         }
@@ -387,7 +527,11 @@ pub fn extract(
             "automatic_mean_plaque_visibility": automatic_mean_visibility,
             "mean_plaque_visibility": mean_visibility,
             "minimum_plaque_visibility": minimum_visibility,
-            "mask_basis": "lossless-photometric-material",
+            "mask_basis": if automatic_candidates {
+                "lossless-photometric-material"
+            } else {
+                "lossless-photometric-material-near-authored-opaque-semantics"
+            },
             "mask_coordinates": "source-pixels",
             "mask_frames_summarized": canonical_masks.len(),
             "summary_matches_installed_masks": has_occluder,
@@ -626,6 +770,78 @@ fn neighbors(x: usize, y: usize, w: usize, h: usize) -> impl Iterator<Item = (us
     v.into_iter()
 }
 
+fn merge_temporal_foreground_channels(
+    automatic: &[Vec<u8>],
+    authored: &[Vec<u8>],
+    residuals: &[Vec<u8>],
+    width: usize,
+    height: usize,
+) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let recovered_automatic = recover_temporal_details(automatic, residuals, width, height);
+    let combined = recovered_automatic
+        .iter()
+        .zip(authored)
+        .map(|(automatic, authored)| {
+            automatic
+                .iter()
+                .zip(authored)
+                .map(|(&automatic, &authored)| automatic.max(authored))
+                .collect()
+        })
+        .collect();
+    (recovered_automatic, combined)
+}
+
+fn remove_known_foreground(
+    automatic: &mut [u8],
+    authored: &[u8],
+    width: usize,
+    height: usize,
+    radius: usize,
+) {
+    if automatic.len() != authored.len()
+        || automatic.len() != width.saturating_mul(height)
+        || automatic.is_empty()
+    {
+        return;
+    }
+    let authored_support = dilate(authored, width, height, radius);
+    for (automatic, authored) in automatic.iter_mut().zip(authored_support) {
+        if authored > 0 {
+            *automatic = 0;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_canonical_source_mask(
+    mask: &[u8],
+    width: usize,
+    height: usize,
+    info: &VideoInfo,
+    rect: RectF,
+    transform: crate::model::Mat3,
+    matte: Option<crate::scene::LayerMatte>,
+    path: &Path,
+) -> Result<()> {
+    let canonical = Surface::from_alpha_mask(
+        width as u32,
+        height as u32,
+        mask,
+        Rgba::new(255, 255, 255, 255),
+    )?;
+    let mut full = Surface::new(info.width, info.height);
+    full.warp_blend(&canonical, transformed_rect(rect, transform), 1.0)?;
+    let mut alpha = full.alpha_mask();
+    if let Some(matte) = matte {
+        // Projection interpolation must not silently turn declared opaque material
+        // into translucent detail. Reapply the shared authored policy only to this
+        // channel; automatic web material keeps its measured porous alpha.
+        layers::apply_matte_policy(&mut alpha, matte);
+    }
+    save_luma(info.width, info.height, &alpha, path)
+}
+
 fn recover_temporal_details(
     selected: &[Vec<u8>],
     residuals: &[Vec<u8>],
@@ -663,6 +879,64 @@ fn recover_temporal_details(
             blur_mask(&recovered, width, height, 1)
         })
         .collect()
+}
+
+fn recover_authored_photometric_detail(
+    selected: &mut [u8],
+    photometric: &[u8],
+    semantic: &[u8],
+    width: usize,
+    height: usize,
+) {
+    if selected.len() != photometric.len()
+        || selected.len() != semantic.len()
+        || selected.len() != width.saturating_mul(height)
+    {
+        return;
+    }
+    // Opaque semantic masks establish object identity; direct source residuals
+    // establish the exact material silhouette.  A bounded neighborhood recovers
+    // thin limbs and antialiased edges that semantic downsampling can omit without
+    // ever creating alpha where the lossless source measured no changed material.
+    let radius = (width.min(height) / 10).clamp(4, 18);
+    let support = dilate(semantic, width, height, radius);
+    for ((target, &material), &near_object) in selected.iter_mut().zip(photometric).zip(&support) {
+        if material > 0 && near_object > 0 {
+            *target = (*target).max(material);
+        }
+    }
+}
+
+fn authored_material_changed(
+    delta: u16,
+    generic_threshold: u16,
+    source_local_range: u16,
+    residual_local_range: u16,
+) -> bool {
+    // Semantic identity makes a lower material threshold safe here. Keep a hard
+    // six-level floor so codec shimmer or rounding cannot become foreground. Thin
+    // material also has a crisp source/residual transition; diffuse cast shadows do
+    // not, and restoring those as opaque would erase whole title fragments.
+    let detail_threshold = ((u32::from(generic_threshold) * 3 + 2) / 5).max(6) as u16;
+    delta > detail_threshold && source_local_range >= 8 && residual_local_range >= 8
+}
+
+fn local_range(values: &[u16], pixel: usize, width: usize, height: usize) -> u16 {
+    if width == 0 || height == 0 || values.len() != width.saturating_mul(height) {
+        return 0;
+    }
+    let x = pixel % width;
+    let y = pixel / width;
+    let mut minimum = u16::MAX;
+    let mut maximum = u16::MIN;
+    for sample_y in y.saturating_sub(1)..=(y + 1).min(height - 1) {
+        for sample_x in x.saturating_sub(1)..=(x + 1).min(width - 1) {
+            let value = values[sample_y * width + sample_x];
+            minimum = minimum.min(value);
+            maximum = maximum.max(value);
+        }
+    }
+    maximum - minimum
 }
 
 fn morph_open(src: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
@@ -777,7 +1051,9 @@ fn save_luma(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_occluder, mask_iou, recover_temporal_details, select_foreground_components,
+        authored_material_changed, classify_occluder, local_range, mask_iou,
+        merge_temporal_foreground_channels, recover_authored_photometric_detail,
+        recover_temporal_details, remove_known_foreground, select_foreground_components,
         smooth_visibility, structural_match_score, tracking_presence,
     };
 
@@ -879,6 +1155,98 @@ mod tests {
         let recovered = recover_temporal_details(&selected, &residuals, width, height);
 
         assert!(recovered[1][10 * width + 22] > 0);
+    }
+
+    #[test]
+    fn automatic_temporal_recovery_cannot_spread_authored_detail() {
+        let (width, height) = (24, 12);
+        let automatic = vec![vec![0_u8; width * height]; 3];
+        let mut authored = automatic.clone();
+        let mut residuals = automatic.clone();
+        authored[1][6 * width + 12] = 255;
+        for residual in &mut residuals {
+            residual[6 * width + 13] = 255;
+        }
+
+        let (recovered_automatic, combined) =
+            merge_temporal_foreground_channels(&automatic, &authored, &residuals, width, height);
+
+        assert!(
+            recovered_automatic
+                .iter()
+                .flatten()
+                .all(|&alpha| alpha == 0)
+        );
+        assert_eq!(combined[0][6 * width + 13], 0);
+        assert_eq!(combined[1][6 * width + 12], 255);
+        assert_eq!(combined[2][6 * width + 13], 0);
+    }
+
+    #[test]
+    fn authored_foreground_is_removed_from_automatic_discovery_only() {
+        let (width, height) = (12, 5);
+        let mut automatic = vec![0_u8; width * height];
+        automatic[2 * width + 1] = 255;
+        automatic[2 * width + 8] = 255;
+        let mut authored = vec![0_u8; width * height];
+        authored[2 * width + 8] = 255;
+
+        remove_known_foreground(&mut automatic, &authored, width, height, 1);
+
+        assert_eq!(automatic[2 * width + 1], 255, "remote web material remains");
+        assert_eq!(automatic[2 * width + 7], 0);
+        assert_eq!(
+            automatic[2 * width + 8],
+            0,
+            "known spider is not rediscovered"
+        );
+        assert_eq!(automatic[2 * width + 9], 0);
+    }
+
+    #[test]
+    fn authored_semantics_recover_only_nearby_measured_material() {
+        let (width, height) = (48, 20);
+        let mut selected = vec![0_u8; width * height];
+        let mut semantic = selected.clone();
+        let mut photometric = selected.clone();
+        for y in 7..13 {
+            for x in 8..15 {
+                semantic[y * width + x] = 255;
+                photometric[y * width + x] = 255;
+            }
+        }
+        for x in 15..19 {
+            photometric[10 * width + x] = 255;
+        }
+        for x in 38..44 {
+            photometric[10 * width + x] = 255;
+        }
+
+        recover_authored_photometric_detail(&mut selected, &photometric, &semantic, width, height);
+
+        assert_eq!(selected[10 * width + 18], 255);
+        assert_eq!(selected[10 * width + 19], 0, "must not invent a halo");
+        assert_eq!(selected[10 * width + 40], 0, "must reject unrelated motion");
+    }
+
+    #[test]
+    fn authored_opaque_detail_uses_a_sensitive_but_nonzero_material_threshold() {
+        assert!(authored_material_changed(16, 25, 8, 8));
+        assert!(!authored_material_changed(5, 25, 20, 20));
+        assert!(!authored_material_changed(15, 25, 20, 20));
+    }
+
+    #[test]
+    fn authored_opaque_detail_rejects_a_diffuse_cast_shadow() {
+        assert!(!authored_material_changed(24, 25, 4, 7));
+        assert!(!authored_material_changed(24, 25, 8, 4));
+    }
+
+    #[test]
+    fn local_range_measures_a_three_by_three_material_edge() {
+        let values = [10, 10, 10, 10, 18, 18, 10, 18, 18];
+        assert_eq!(local_range(&values, 4, 3, 3), 8);
+        assert_eq!(local_range(&values, 0, 3, 3), 8);
     }
 
     #[test]

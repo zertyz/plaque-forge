@@ -1,19 +1,19 @@
 {
   "format": "plaque-forge.segmentation-strategy-selection/1",
-  "policy_id": "baseline-2026-08",
-  "selected_plan_sha256": "eae5dc3453a197828c9bb6efe1b39509a2256cfeed27ca3cf25da6cf7418317a",
+  "policy_id": "temporal-continuity-2026-08",
+  "selected_plan_sha256": "458275d6215a7090e55d15d312ad7ed57b5901bd594989f7202af322511b3c0b",
   "attempts": [
     {
-      "backend": "sam2",
+      "backend": "sam2-cutie",
       "model": "facebook/sam2.1-hiera-large",
-      "precision": "bf16",
-      "plan_sha256": "eae5dc3453a197828c9bb6efe1b39509a2256cfeed27ca3cf25da6cf7418317a",
+      "precision": "fp32",
+      "plan_sha256": "458275d6215a7090e55d15d312ad7ed57b5901bd594989f7202af322511b3c0b",
       "accepted": true,
       "evidence": {
         "minimum_prompt_alpha_u16": 65535,
         "maximum_negative_alpha_u16": null,
-        "nonempty_permille": 870,
-        "maximum_coverage_permille": 65
+        "nonempty_permille": 1000,
+        "maximum_coverage_permille": 211
       },
       "reasons": []
     }

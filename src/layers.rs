@@ -32,6 +32,53 @@ pub fn has_authored_foreground(inputs: &[LayerInput]) -> bool {
         .any(|input| input.scene.role == LayerRole::Foreground)
 }
 
+pub fn has_authored_opaque_source_foreground(inputs: &[LayerInput]) -> bool {
+    inputs.iter().any(|input| {
+        input.scene.role == LayerRole::Foreground
+            && input.scene.matte.mode == LayerMatteMode::Opaque
+            && input.artifact.coordinates == LayerCoordinates::SourcePixels
+    })
+}
+
+/// Return the calibration policy that may safely be applied after authored opaque
+/// masks have been projected into source coordinates. Different policies cannot be
+/// collapsed into one without changing at least one layer's declared semantics.
+pub fn shared_authored_opaque_source_matte(inputs: &[LayerInput]) -> Option<LayerMatte> {
+    let mut mattes = inputs
+        .iter()
+        .filter(|input| {
+            input.scene.role == LayerRole::Foreground
+                && input.scene.matte.mode == LayerMatteMode::Opaque
+                && input.artifact.coordinates == LayerCoordinates::SourcePixels
+        })
+        .map(|input| input.scene.matte);
+    let first = mattes.next()?;
+    mattes.all(|matte| matte == first).then_some(first)
+}
+
+pub(crate) fn source_opaque_foreground_mask(
+    inputs: &[LayerInput],
+    frame: usize,
+    width: u32,
+    height: u32,
+) -> Result<Option<Vec<u8>>> {
+    let mut combined = vec![0_u8; width as usize * height as usize];
+    let mut found = false;
+    for input in inputs.iter().filter(|input| {
+        input.scene.role == LayerRole::Foreground
+            && input.scene.matte.mode == LayerMatteMode::Opaque
+            && input.artifact.coordinates == LayerCoordinates::SourcePixels
+    }) {
+        if let Some(path) = artifact_frame_path(input, frame) {
+            let mut mask = load_mask(&path, width, height)?;
+            apply_matte_policy(&mut mask, input.scene.matte);
+            alpha_over(&mut combined, &mask);
+            found = true;
+        }
+    }
+    Ok(found.then_some(combined))
+}
+
 pub fn build_tracking_exclusions(
     inputs: &[LayerInput],
     automatic_root: &Path,
@@ -91,6 +138,14 @@ pub fn build_tracking_exclusions(
         } else {
             vec![0; width as usize * height as usize]
         };
+        // Tracking treats every non-zero mask pixel as excluded. Automatic masks
+        // carry calibrated confidence for rendering, so using their faint support
+        // edge here would remove evidence the semantic model did not confidently
+        // classify as foreground. Keep the historic categorical p50 contract for
+        // pose estimation while preserving soft confidence for compositing.
+        for alpha in &mut combined {
+            *alpha = u8::from(*alpha >= 128) * 255;
+        }
         for input in &foregrounds {
             if let Some(path) = artifact_frame_path(input, frame) {
                 let mut mask = load_mask(&path, width, height)?;
@@ -265,6 +320,7 @@ pub fn package(
                     toml::to_string_pretty(&published)?
                 ),
             )?;
+            copy_generated_sidecars(input, &output_root.join(&directory))?;
         }
 
         let layer = LayerAsset {
@@ -302,6 +358,25 @@ pub fn package(
         )?;
     }
     Ok(packed)
+}
+
+fn copy_generated_sidecars(input: &LayerInput, destination: &Path) -> Result<()> {
+    let owner = input
+        .artifact_path
+        .parent()
+        .context("generated layer artifact has no parent directory")?;
+    for name in ["result.json", "strategy-selection.json"] {
+        let source = owner.join(name);
+        if source.is_file() {
+            fs::copy(&source, destination.join(name)).with_context(|| {
+                format!(
+                    "failed to retain generated layer provenance {}",
+                    source.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
 }
 
 pub struct ForegroundReader<'a> {
@@ -611,7 +686,7 @@ fn load_mask(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {
     }
 }
 
-fn apply_matte_policy(mask: &mut [u8], matte: LayerMatte) {
+pub(crate) fn apply_matte_policy(mask: &mut [u8], matte: LayerMatte) {
     if matte.mode == LayerMatteMode::Optical {
         return;
     }
@@ -677,12 +752,13 @@ mod tests {
     use super::{
         LayerInput, alpha_over, apply_matte_policy, build_tracking_exclusions,
         exclude_outside_surface_support, has_authored_foreground, intersect, package,
+        shared_authored_opaque_source_matte,
     };
     use crate::{
         model::{Mat3, MotionSample, RectF},
         scene::{
             LAYER_ARTIFACT_FORMAT, LayerArtifact, LayerArtifactKind, LayerCoordinates, LayerMatte,
-            LayerMatteMode, LayerRole, SceneLayer,
+            LayerMatteMode, LayerRole, SceneLayer, SegmentationPrompt, SpatialCoordinates,
         },
     };
     use image::{GrayImage, ImageBuffer, Luma};
@@ -725,6 +801,39 @@ mod tests {
     }
 
     #[test]
+    fn projected_authored_detail_uses_only_a_shared_opaque_matte_policy() {
+        let policy = LayerMatte {
+            mode: LayerMatteMode::Opaque,
+            support_threshold: 0.03,
+            solid_threshold: 0.20,
+        };
+        let mut inputs = vec![
+            layer_input(
+                LayerRole::Foreground,
+                LayerCoordinates::SourcePixels,
+                LayerArtifactKind::AlphaImage,
+                None,
+                None,
+            ),
+            layer_input(
+                LayerRole::Foreground,
+                LayerCoordinates::SourcePixels,
+                LayerArtifactKind::AlphaSequence,
+                Some(0),
+                Some(1),
+            ),
+        ];
+        for input in &mut inputs {
+            input.scene.matte = policy;
+        }
+
+        assert_eq!(shared_authored_opaque_source_matte(&inputs), Some(policy));
+
+        inputs[1].scene.matte.solid_threshold = 0.35;
+        assert_eq!(shared_authored_opaque_source_matte(&inputs), None);
+    }
+
+    #[test]
     fn render_only_foreground_does_not_change_tracking_support() {
         let mut input = layer_input(
             LayerRole::Foreground,
@@ -747,6 +856,31 @@ mod tests {
             )
             .unwrap()
         );
+    }
+
+    #[test]
+    fn automatic_tracking_exclusions_require_confident_semantic_support() {
+        let root = temporary_directory("automatic-tracking-confidence");
+        let automatic_root = root.join("automatic");
+        let output_root = root.join("tracking");
+        fs::create_dir_all(&automatic_root).unwrap();
+        ImageBuffer::<Luma<u8>, _>::from_raw(4, 2, vec![0, 32, 127, 128, 192, 255, 64, 0])
+            .unwrap()
+            .save(automatic_root.join("000000.png"))
+            .unwrap();
+
+        assert!(
+            build_tracking_exclusions(&[], &automatic_root, &output_root, 4, 2, 1, None,).unwrap()
+        );
+
+        assert_eq!(
+            image::open(output_root.join("000000.png"))
+                .unwrap()
+                .to_luma8()
+                .into_raw(),
+            vec![0, 0, 0, 255, 255, 255, 0, 0]
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -942,6 +1076,105 @@ mod tests {
         assert_eq!(&content[..4], &[255, 191, 0, 255]);
         assert_eq!(packed.len(), 1);
         assert!(pack_root.join("layers/moss/mask.png").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_layer_package_retains_worker_and_selection_provenance() {
+        let root = temporary_directory("layer-provenance");
+        let input_root = root.join("input");
+        let pack_root = root.join("pack");
+        fs::create_dir_all(&input_root).unwrap();
+        fs::create_dir_all(&pack_root).unwrap();
+        ImageBuffer::<Luma<u8>, _>::from_raw(4, 2, vec![0; 8])
+            .unwrap()
+            .save(input_root.join("mask.png"))
+            .unwrap();
+        fs::write(input_root.join("result.json"), "{\"backend\":\"cutie\"}\n").unwrap();
+        fs::write(
+            input_root.join("strategy-selection.json"),
+            "{\"selected\":\"canonical\"}\n",
+        )
+        .unwrap();
+        let input = LayerInput {
+            scene: SceneLayer {
+                id: "spider".into(),
+                role: LayerRole::Foreground,
+                surface: "main".into(),
+                in_front_of: Some("main".into()),
+                artifact: None,
+                active_frames: None,
+                affects_layout: false,
+                affects_tracking: false,
+                matte: LayerMatte::default(),
+                subject: crate::scene::LayerSubject::Unspecified,
+                prompts: vec![SegmentationPrompt {
+                    frame: 0,
+                    coordinates: SpatialCoordinates::SourcePixels,
+                    object: Some("spider".into()),
+                    concept: None,
+                    box_bounds: Some([0.0, 0.0, 2.0, 2.0]),
+                    positive_points: Vec::new(),
+                    negative_points: Vec::new(),
+                    polygon: Vec::new(),
+                    quad: None,
+                }],
+            },
+            artifact_path: input_root.join("artifact.toml"),
+            artifact: LayerArtifact {
+                format: LAYER_ARTIFACT_FORMAT.into(),
+                kind: LayerArtifactKind::AlphaImage,
+                coordinates: LayerCoordinates::SourcePixels,
+                path: Some(PathBuf::from("mask.png")),
+                pattern: None,
+                first_frame: None,
+                last_frame: None,
+                affects_layout: false,
+                generator: None,
+            },
+        };
+        let motion = [MotionSample {
+            frame: 0,
+            transform: Mat3::IDENTITY,
+            measurement_valid: true,
+            tracked_points: 20,
+            spatial_coverage: 1.0,
+            uncertainty_px: 0.25,
+            measurement_source: "test".into(),
+            inlier_ratio: 1.0,
+            reprojection_error: 0.0,
+            ecc: Some(1.0),
+            plaque_visibility: 1.0,
+            occluder_coverage: 0.0,
+        }];
+        let mut content = vec![255_u8; 8];
+
+        package(
+            &[input],
+            &pack_root,
+            4,
+            2,
+            4,
+            2,
+            RectF {
+                x: 0.0,
+                y: 0.0,
+                width: 4.0,
+                height: 2.0,
+            },
+            &motion,
+            &mut content,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(pack_root.join("layers/spider/result.json")).unwrap(),
+            "{\"backend\":\"cutie\"}\n"
+        );
+        assert_eq!(
+            fs::read_to_string(pack_root.join("layers/spider/strategy-selection.json")).unwrap(),
+            "{\"selected\":\"canonical\"}\n"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

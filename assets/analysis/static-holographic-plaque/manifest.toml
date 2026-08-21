@@ -33,9 +33,9 @@ height = 132.0
 backend = "auto"
 model = "auto"
 device = "auto"
-profile = "balanced"
-precision = "auto"
-worker_sha256 = "5df39c246071dceb5b143c07e470ff8f68c994ee1454b9245e74f2ac8df568b9"
+profile = "canonical"
+precision = "fp32"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [scenes]

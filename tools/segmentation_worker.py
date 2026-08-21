@@ -18,11 +18,17 @@ from pathlib import Path
 
 try:
     import cv2
-    import numpy as np
-    from PIL import Image, ImageDraw
 except ImportError:
     cv2 = None
+
+try:
+    import numpy as np
+except ImportError:
     np = None
+
+try:
+    from PIL import Image, ImageDraw
+except ImportError:
     Image = None
     ImageDraw = None
 
@@ -462,6 +468,13 @@ def cleanup_small_mask_defects(probability, max_area=16):
     return result
 
 
+def normalize_sam2_images(images, mean, std):
+    """Apply SAM2 channel normalization exactly once."""
+    images -= mean
+    images /= std
+    return images
+
+
 def sam2_masks(request, frames, device):
     import torch
     from sam2 import sam2_video_predictor as predictor_module
@@ -517,8 +530,7 @@ def sam2_masks(request, frames, device):
             images = images.to(compute_device)
             mean = mean.to(compute_device)
             std = std.to(compute_device)
-        images -= mean
-        images /= std
+        normalize_sam2_images(images, mean, std)
         return images, video_height, video_width
 
     predictor_module.load_video_frames = load_lossless_frames
@@ -692,6 +704,52 @@ def load_cutie(device):
     return model
 
 
+def apply_authored_sam2_prompt_corrections(request, guides, tracked, radius=4):
+    """Restore local SAM2 detail without replacing Cutie's temporal track.
+
+    SAM2 is authoritative only where the author explicitly corrected the object.
+    Limiting its confidence to a small neighborhood of Cutie's current support keeps
+    unrelated SAM2 objects and inter-prompt propagation failures out of the result.
+    """
+    prompt_frames = {prompt["frame"] for prompt in request["layer"]["prompts"]}
+    corrected = []
+    for frame, probability in enumerate(tracked):
+        probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
+        if frame in prompt_frames:
+            nearby = dilate_binary_disk(probability >= 0.03, radius)
+            guide = np.asarray(guides[frame], dtype=np.float32).clip(0, 1)
+            probability = np.maximum(probability, np.where(nearby, guide, 0.0))
+        corrected.append(probability.astype(np.float32))
+    return corrected
+
+
+def dilate_binary_disk(mask, radius):
+    mask = np.asarray(mask, dtype=bool)
+    if radius <= 0:
+        return mask.copy()
+    if cv2 is not None:
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1)
+        )
+        return cv2.dilate(mask.astype(np.uint8), kernel, iterations=1).astype(bool)
+
+    # Lightweight contract-test environments intentionally omit OpenCV. Keep an
+    # exact disk fallback so importing and testing the worker does not weaken the
+    # correction boundary; production runtimes take the optimized branch above.
+    height, width = mask.shape
+    dilated = np.zeros_like(mask)
+    for offset_y in range(-radius, radius + 1):
+        for offset_x in range(-radius, radius + 1):
+            if offset_x * offset_x + offset_y * offset_y > radius * radius:
+                continue
+            source_y = slice(max(0, -offset_y), min(height, height - offset_y))
+            source_x = slice(max(0, -offset_x), min(width, width - offset_x))
+            target_y = slice(max(0, offset_y), min(height, height + offset_y))
+            target_x = slice(max(0, offset_x), min(width, width + offset_x))
+            dilated[target_y, target_x] |= mask[source_y, source_x]
+    return dilated
+
+
 def cutie_masks(request, frames, device, guides=None):
     import torch
     from cutie.inference.inference_core import InferenceCore
@@ -736,9 +794,16 @@ def cutie_masks(request, frames, device, guides=None):
     masks = propagate(range(seed, active_end + 1))
     masks.update(propagate(range(seed, active_start - 1, -1)))
     empty = np.zeros((source_height, source_width), dtype=np.float32)
-    return [masks.get(frame, empty).astype(np.float32) for frame in range(len(frames))], (
-        f"cutie-{package_version('cutie')}"
-    )
+    probabilities = [
+        masks.get(frame, empty).astype(np.float32) for frame in range(len(frames))
+    ]
+    correction_version = ""
+    if guides is not None:
+        probabilities = apply_authored_sam2_prompt_corrections(
+            request, guides, probabilities
+        )
+        correction_version = "+local-sam2-prompt-corrections-r4"
+    return probabilities, f"cutie-{package_version('cutie')}{correction_version}"
 
 
 def optical_trimap_known_foreground(request, frame_index, probability):
@@ -1004,7 +1069,7 @@ def prune_stage_cache(root, maximum_entries=20):
 
 def cutie_cache_key(request, guided):
     identity = {
-        "format": "plaque-forge.cutie-cache/1",
+        "format": "plaque-forge.cutie-cache/2",
         "source_sha256": request["source"]["sha256"],
         "prompt_sha256": request["prompt_sha256"],
         "plan_sha256": request["plan_sha256"],
@@ -1016,35 +1081,51 @@ def cutie_cache_key(request, guided):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
+def load_cutie_stage_cache(request, frames, requested_device, guided, *, allow_xpu=True):
+    key = cutie_cache_key(request, guided)
+    target = private_runtime_root() / "cache" / "model-stages" / "cutie" / key
+    metadata_path = target / "cache.json"
+    mask_root = target / "masks"
+    if not metadata_path.is_file():
+        return None
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    paths = sorted(mask_root.glob("*.png"))
+    candidate_devices = device_candidates(requested_device, allow_xpu=allow_xpu)
+    if (
+        metadata.get("key") != key
+        or metadata.get("device") not in candidate_devices
+        or metadata.get("precision") != requested_precision(request)
+        or len(paths) != len(frames)
+    ):
+        return None
+    probabilities = [probability_from_png(path) for path in paths]
+    os.utime(target, None)
+    record_stage(
+        "Cutie",
+        metadata["device"],
+        metadata["precision"],
+        0.0,
+        cache_hit=True,
+    )
+    print("Cutie: persistent cache hit", file=sys.stderr)
+    return probabilities, metadata["version"], metadata["device"]
+
+
 def cached_cutie(request, frames, requested_device, guides=None, *, allow_xpu=True):
     key = cutie_cache_key(request, guides is not None)
     cache_root = private_runtime_root() / "cache" / "model-stages" / "cutie"
     target = cache_root / key
-    metadata_path = target / "cache.json"
-    mask_root = target / "masks"
     lock = cache_lock(cache_root / ".locks" / f"{key}.lock")
     try:
-        candidate_devices = device_candidates(requested_device, allow_xpu=allow_xpu)
-        if metadata_path.is_file():
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            paths = sorted(mask_root.glob("*.png"))
-            if (
-                metadata.get("key") == key
-                and metadata.get("device") in candidate_devices
-                and metadata.get("precision") == requested_precision(request)
-                and len(paths) == len(frames)
-            ):
-                probabilities = [probability_from_png(path) for path in paths]
-                os.utime(target, None)
-                record_stage(
-                    "Cutie",
-                    metadata["device"],
-                    metadata["precision"],
-                    0.0,
-                    cache_hit=True,
-                )
-                print("Cutie: persistent cache hit", file=sys.stderr)
-                return probabilities, metadata["version"], metadata["device"]
+        cached = load_cutie_stage_cache(
+            request,
+            frames,
+            requested_device,
+            guides is not None,
+            allow_xpu=allow_xpu,
+        )
+        if cached is not None:
+            return cached
 
         (probabilities, version), device = run_component(
             "Cutie",
@@ -1061,7 +1142,7 @@ def cached_cutie(request, frames, requested_device, guides=None, *, allow_xpu=Tr
         (staging / "cache.json").write_text(
             json.dumps(
                 {
-                    "format": "plaque-forge.cutie-cache/1",
+                    "format": "plaque-forge.cutie-cache/2",
                     "key": key,
                     "version": version,
                     "device": device,
@@ -1204,20 +1285,34 @@ def model_masks(request, frames, requested_device, output):
         )
         version += f"@{device}/{precision}"
     elif semantic_backend == "sam2-cutie":
-        sam2, sam2_version, sam2_device = cached_sam2(request, frames, requested_device)
-        require_lossless_frames(frames, expected_frames, "Cutie startup")
-        # Full-resolution Cutie temporal memory has historically destabilized
-        # Level Zero on this workload. Device fallback may change; precision may not.
-        cutie, cutie_version, cutie_device = cached_cutie(
-            request, frames, requested_device, guides=sam2, allow_xpu=False
+        cached = load_cutie_stage_cache(
+            request, frames, requested_device, guided=True, allow_xpu=False
         )
-        sam2 = constrain_to_authored_motion_envelope(request, sam2)
+        if cached is None:
+            sam2, sam2_version, sam2_device = cached_sam2(
+                request, frames, requested_device
+            )
+            require_lossless_frames(frames, expected_frames, "Cutie startup")
+            # Full-resolution Cutie temporal memory has historically destabilized
+            # Level Zero on this workload. Device fallback may change; precision may not.
+            cutie, cutie_version, cutie_device = cached_cutie(
+                request, frames, requested_device, guides=sam2, allow_xpu=False
+            )
+            version = (
+                f"{sam2_version}@{sam2_device}+{cutie_version}@{cutie_device}/{precision}"
+                "+sam2-guided-cutie"
+            )
+        else:
+            cutie, cutie_version, cutie_device = cached
+            version = (
+                f"sam2-guided-stage-cache+{cutie_version}@{cutie_device}/{precision}"
+                "+sam2-guided-cutie"
+            )
         cutie = constrain_to_authored_motion_envelope(request, cutie)
-        probabilities, selection = select_sequence_candidate(request, frames, sam2, cutie)
-        version = (
-            f"{sam2_version}@{sam2_device}+{cutie_version}@{cutie_device}/{precision}"
-            f"+selected-{selection}"
-        )
+        # SAM2 supplies semantic corrections and Cutie owns continuous temporal
+        # propagation. Rust independently accepts or rejects this sealed strategy;
+        # Python must not silently switch back to an anchor-biased SAM2 sequence.
+        probabilities = cutie
     elif semantic_backend == "sam3.1":
         probabilities, version, device = sam31_masks(request, output)
         version += f"@{device}/bf16"
@@ -1229,12 +1324,21 @@ def model_masks(request, frames, requested_device, output):
     matte_mode = request["layer"].get("matte_mode", "optical")
 
     if matte_refiner == "none":
-        if role == "writing-surface" or matte_mode == "opaque":
+        if role == "writing-surface":
             probabilities = [
                 (np.asarray(probability, dtype=np.float32) >= 0.5).astype(np.float32)
                 for probability in probabilities
             ]
             matte_version = "categorical-membership-p50"
+        elif matte_mode == "opaque":
+            # Opaque foreground output is semantic confidence rather than physical
+            # alpha. Preserve it losslessly; the Rust compositor owns the scene's
+            # support-to-solid calibration policy.
+            probabilities = [
+                np.asarray(probability, dtype=np.float32).clip(0, 1)
+                for probability in probabilities
+            ]
+            matte_version = "semantic-confidence-u16"
         else:
             matte_version = "semantic-probability"
         print(
@@ -1360,69 +1464,6 @@ def preserve_authored_prompt_evidence(request, probabilities):
             y = int(round(np.clip(y, 0, height - 1)))
             cv2.circle(probability, (x, y), 2, 0.0, thickness=-1, lineType=cv2.LINE_AA)
     return output
-
-
-def sequence_candidate_score(request, frames, probabilities):
-    """Score a complete candidate independently; never average incompatible masks."""
-    active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
-    prompt_score = 0.0
-    prompt_count = 0
-    for prompt in request["layer"]["prompts"]:
-        probability = probabilities[prompt["frame"]]
-        height, width = probability.shape
-        for label, points in ((1.0, prompt.get("positive_points", [])), (0.0, prompt.get("negative_points", []))):
-            for x, y in points:
-                x = int(round(np.clip(x, 0, width - 1)))
-                y = int(round(np.clip(y, 0, height - 1)))
-                prompt_score += 1.0 - abs(float(probability[y, x]) - label)
-                prompt_count += 1
-        seed = exact_seed_mask(request, prompt["frame"], (width, height))
-        if seed is not None:
-            region = np.asarray(seed) > 24
-            if region.any():
-                prompt_score += float(np.mean(probability[region]))
-                prompt_count += 1
-
-    prompt_score = prompt_score / max(prompt_count, 1)
-    temporal_scores = []
-    gray = [cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in frames]
-    stride = max(1, (active_end - active_start + 1) // 24)
-    for frame in range(active_start, active_end, stride):
-        target = min(active_end, frame + stride)
-        if target == frame:
-            continue
-        forward = dense_flow(gray[frame], gray[target])
-        backward = dense_flow(gray[target], gray[frame])
-        warped, confidence = warp_alpha(
-            probabilities[frame], gray[frame], gray[target], forward, backward
-        )
-        reliable = confidence > 0.35
-        if reliable.any():
-            temporal_scores.append(
-                1.0 - float(np.mean(np.abs(warped[reliable] - probabilities[target][reliable])))
-            )
-    temporal_score = float(np.mean(temporal_scores)) if temporal_scores else 0.0
-    areas = np.asarray(
-        [np.mean(probabilities[frame] > 0.08) for frame in range(active_start, active_end + 1)]
-    )
-    area_stability = float(np.exp(-np.std(np.diff(areas)) / max(np.mean(areas), 1e-4)))
-    return 0.55 * prompt_score + 0.35 * temporal_score + 0.10 * area_stability
-
-
-def select_sequence_candidate(request, frames, sam2, cutie):
-    candidates = {"sam2": sam2, "cutie": cutie}
-    scores = {
-        name: sequence_candidate_score(request, frames, values)
-        for name, values in candidates.items()
-    }
-    selected = max(scores, key=scores.get)
-    print(
-        "Candidate selection: "
-        + ", ".join(f"{name}={score:.4f}" for name, score in scores.items())
-        + f", selected={selected}",
-        file=sys.stderr,
-    )
-    return candidates[selected], selected
 
 
 def verify_torch_device(device):

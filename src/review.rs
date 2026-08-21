@@ -470,6 +470,11 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
             let amber = (green - 0.08).max(0.0);
             metric(&mut body, label, number(verification, key), green, amber);
         }
+        metric_neutral(
+            &mut body,
+            "Raw trajectory curvature stability",
+            number(verification, "trajectory_curvature_stability"),
+        );
         body.push_str("</div>");
         let supported = verification
             .get("source_flow_uses_writing_surface_support")

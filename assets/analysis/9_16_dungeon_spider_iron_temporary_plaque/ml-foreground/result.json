@@ -1,22 +1,22 @@
 {
   "format": "plaque-forge.segmentation-result/2",
-  "backend": "sam2",
+  "backend": "sam2-cutie",
   "model": "facebook/sam2.1-hiera-large",
-  "version": "sam2-1.0+bf16+eager@xpu+categorical-membership-p50",
-  "plan_sha256": "eae5dc3453a197828c9bb6efe1b39509a2256cfeed27ca3cf25da6cf7418317a",
-  "precision": "bf16",
+  "version": "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16",
+  "plan_sha256": "458275d6215a7090e55d15d312ad7ed57b5901bd594989f7202af322511b3c0b",
+  "precision": "fp32",
   "frames": 240,
-  "mean_confidence": 0.8708333333333333,
-  "minimum_confidence": 0.0,
-  "request_sha256": "317d21dbc8983b670620666efb5e74e0d567d57030418c481d9ba8560c45a434",
+  "mean_confidence": 0.9473906027774016,
+  "minimum_confidence": 0.8678338527679443,
+  "request_sha256": "5d528b356aac1e2cd59b5a6e8b66fd04af310731580570db50ac46f506770b68",
   "source_sha256": "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961",
-  "prompt_sha256": "427308a78824aaae0abb4a5772f28ddf51528106ee42e3e57bebaf0da7834987",
-  "worker_sha256": "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b",
+  "prompt_sha256": "a9568c2986d5303d97d401c9e9bd801c58909403e9d4a156e66e72eed8bdc178",
+  "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
   "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
-  "nonempty_frames": 209,
-  "mean_coverage": 0.030163076895254628,
-  "maximum_coverage": 0.06503580729166666,
-  "soft_edge_pixels": 0,
+  "nonempty_frames": 240,
+  "mean_coverage": 0.08917057291666666,
+  "maximum_coverage": 0.20736219618055557,
+  "soft_edge_pixels": 41488224,
   "execution": [
     {
       "stage": "Decode frames",
@@ -24,16 +24,24 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 57.0
+      "process_peak_rss_mib": 9430.977
     },
     {
       "stage": "SAM 2",
       "device": "xpu",
-      "precision": "bf16",
-      "seconds": 376.753077,
+      "precision": "fp32",
+      "seconds": 740.000859,
       "cache_hit": false,
-      "process_peak_rss_mib": 7058.09,
-      "accelerator_peak_mib": 1891.368
+      "process_peak_rss_mib": 9430.977,
+      "accelerator_peak_mib": 4012.506
+    },
+    {
+      "stage": "Cutie",
+      "device": "cpu",
+      "precision": "fp32",
+      "seconds": 280.397437,
+      "cache_hit": false,
+      "process_peak_rss_mib": 9430.977
     },
     {
       "stage": "Temporal stabilization",
@@ -41,7 +49,7 @@
       "precision": "fp32",
       "seconds": 1e-06,
       "cache_hit": false,
-      "process_peak_rss_mib": 7058.09
+      "process_peak_rss_mib": 9430.977
     }
   ]
 }

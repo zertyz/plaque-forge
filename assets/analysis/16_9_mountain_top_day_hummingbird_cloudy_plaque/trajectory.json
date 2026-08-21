@@ -3869,7 +3869,7 @@
     "reprojection_error": 0.9060195825150497,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.01589838215427197
   },
   {
     "frame": 121,
@@ -3901,7 +3901,7 @@
     "reprojection_error": 0.8318595707305656,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.013995518797983459
   },
   {
     "frame": 122,
@@ -3933,7 +3933,7 @@
     "reprojection_error": 0.8845877916486984,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.0139460937757422
   },
   {
     "frame": 123,
@@ -3965,7 +3965,7 @@
     "reprojection_error": 0.9455776018324931,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.01387195624238031
   },
   {
     "frame": 124,
@@ -3997,7 +3997,7 @@
     "reprojection_error": 0.9730213932404984,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.010708754818939669
   },
   {
     "frame": 125,
@@ -4029,7 +4029,7 @@
     "reprojection_error": 1.0939622881024555,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.008352828758772942
   },
   {
     "frame": 126,
@@ -4061,7 +4061,7 @@
     "reprojection_error": 1.0999034382485982,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.008385778773600448
   },
   {
     "frame": 127,
@@ -4093,7 +4093,7 @@
     "reprojection_error": 1.1829419514579873,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.008805891462651158
   },
   {
     "frame": 128,
@@ -4125,7 +4125,7 @@
     "reprojection_error": 1.192387747835685,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.008822366470064912
   },
   {
     "frame": 129,
@@ -4157,7 +4157,7 @@
     "reprojection_error": 1.1977661081524928,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.009366041714718772
   },
   {
     "frame": 130,
@@ -4189,7 +4189,7 @@
     "reprojection_error": 1.1900163100449146,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.009695541862993838
   },
   {
     "frame": 131,
@@ -4221,7 +4221,7 @@
     "reprojection_error": 1.2706390573236426,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.012282118026953111
   },
   {
     "frame": 132,
@@ -4253,7 +4253,7 @@
     "reprojection_error": 1.1875778436922637,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.022315397541928895
   },
   {
     "frame": 133,
@@ -4285,7 +4285,7 @@
     "reprojection_error": 1.1753377894910262,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.02910310059639527
   },
   {
     "frame": 134,
@@ -4317,7 +4317,7 @@
     "reprojection_error": 1.14231366208747,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03486111568750206
   },
   {
     "frame": 135,
@@ -4349,7 +4349,7 @@
     "reprojection_error": 1.1828251567578456,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.034078552835348774
   },
   {
     "frame": 136,
@@ -4381,7 +4381,7 @@
     "reprojection_error": 1.0882653734475811,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.0455781080101486
   },
   {
     "frame": 137,
@@ -4413,7 +4413,7 @@
     "reprojection_error": 1.0854038424291232,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04081683086757389
   },
   {
     "frame": 138,
@@ -4445,7 +4445,7 @@
     "reprojection_error": 1.1160779235502698,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04253846914231112
   },
   {
     "frame": 139,
@@ -4477,7 +4477,7 @@
     "reprojection_error": 1.085296606082677,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.041961843882829745
   },
   {
     "frame": 140,
@@ -4509,7 +4509,7 @@
     "reprojection_error": 1.0159006655254228,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.08019209858644437
   },
   {
     "frame": 141,
@@ -4541,7 +4541,7 @@
     "reprojection_error": 1.0872493200178774,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.07800916010412205
   },
   {
     "frame": 142,
@@ -4573,7 +4573,7 @@
     "reprojection_error": 1.136649353525166,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06590002965501335
   },
   {
     "frame": 143,
@@ -4605,7 +4605,7 @@
     "reprojection_error": 1.0672692263751742,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.07083429437543247
   },
   {
     "frame": 144,
@@ -4637,7 +4637,7 @@
     "reprojection_error": 1.1131172294015164,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.0736515206431843
   },
   {
     "frame": 145,
@@ -4669,7 +4669,7 @@
     "reprojection_error": 1.1495835205224603,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.05622920030314014
   },
   {
     "frame": 146,
@@ -4701,7 +4701,7 @@
     "reprojection_error": 1.0220861756491122,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.05361791162806023
   },
   {
     "frame": 147,
@@ -4733,7 +4733,7 @@
     "reprojection_error": 1.0799045798573006,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.0397212428745593
   },
   {
     "frame": 148,
@@ -4765,7 +4765,7 @@
     "reprojection_error": 1.1208077490397164,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.028378200270190123
   },
   {
     "frame": 149,
@@ -4797,7 +4797,7 @@
     "reprojection_error": 1.128206109284077,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.031047151471218164
   },
   {
     "frame": 150,
@@ -4829,7 +4829,7 @@
     "reprojection_error": 1.1074311905380785,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.027117862203037992
   },
   {
     "frame": 151,
@@ -4861,7 +4861,7 @@
     "reprojection_error": 1.063810755343185,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06961514382681472
   },
   {
     "frame": 152,
@@ -4893,7 +4893,7 @@
     "reprojection_error": 1.0691759381907537,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06884081847836832
   },
   {
     "frame": 153,
@@ -4925,7 +4925,7 @@
     "reprojection_error": 1.0036341100042494,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.05772018847408481
   },
   {
     "frame": 154,
@@ -4957,7 +4957,7 @@
     "reprojection_error": 0.9939834714213807,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06141882763847244
   },
   {
     "frame": 155,
@@ -4989,7 +4989,7 @@
     "reprojection_error": 0.9474118590797499,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04956505980427691
   },
   {
     "frame": 156,
@@ -5021,7 +5021,7 @@
     "reprojection_error": 1.0879235519901977,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04216778147550167
   },
   {
     "frame": 157,
@@ -5053,7 +5053,7 @@
     "reprojection_error": 1.0561355862897805,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.07304194536887541
   },
   {
     "frame": 158,
@@ -5085,7 +5085,7 @@
     "reprojection_error": 1.1200732450588062,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06875020593759268
   },
   {
     "frame": 159,
@@ -5117,7 +5117,7 @@
     "reprojection_error": 1.1887388095490747,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06631190484035718
   },
   {
     "frame": 160,
@@ -5149,7 +5149,7 @@
     "reprojection_error": 1.1774859755029896,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04837885927048667
   },
   {
     "frame": 161,
@@ -5181,7 +5181,7 @@
     "reprojection_error": 1.2544491495399503,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.05731655079244786
   },
   {
     "frame": 162,
@@ -5213,7 +5213,7 @@
     "reprojection_error": 1.220718904044518,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06371709117269103
   },
   {
     "frame": 163,
@@ -5245,7 +5245,7 @@
     "reprojection_error": 1.2741261580501102,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06307456588355465
   },
   {
     "frame": 164,
@@ -5277,7 +5277,7 @@
     "reprojection_error": 1.3348262641088433,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04002603051171373
   },
   {
     "frame": 165,
@@ -5309,7 +5309,7 @@
     "reprojection_error": 1.3003547950572645,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03560249102112096
   },
   {
     "frame": 166,
@@ -5341,7 +5341,7 @@
     "reprojection_error": 1.3325116341225895,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.039820092919041816
   },
   {
     "frame": 167,
@@ -5373,7 +5373,7 @@
     "reprojection_error": 1.3399039821331318,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03517414082836337
   },
   {
     "frame": 168,
@@ -5405,7 +5405,7 @@
     "reprojection_error": 1.3440608174853785,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.032348677056904675
   },
   {
     "frame": 169,
@@ -5437,7 +5437,7 @@
     "reprojection_error": 1.3614540222049367,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03804902962206333
   },
   {
     "frame": 170,
@@ -5469,7 +5469,7 @@
     "reprojection_error": 1.3758242898798843,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.037027579162410625
   },
   {
     "frame": 171,
@@ -5501,7 +5501,7 @@
     "reprojection_error": 1.2770801180574702,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.031393126626906985
   },
   {
     "frame": 172,
@@ -5533,7 +5533,7 @@
     "reprojection_error": 1.4700863827828918,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03185442683449208
   },
   {
     "frame": 173,
@@ -5565,7 +5565,7 @@
     "reprojection_error": 1.4016805635156426,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.038757454940854724
   },
   {
     "frame": 174,
@@ -5597,7 +5597,7 @@
     "reprojection_error": 1.3301892971587619,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03158258921216515
   },
   {
     "frame": 175,
@@ -5629,7 +5629,7 @@
     "reprojection_error": 1.1039380918207982,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03088240139708063
   },
   {
     "frame": 176,
@@ -5661,7 +5661,7 @@
     "reprojection_error": 1.182818637338227,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03956473030412864
   },
   {
     "frame": 177,
@@ -5693,7 +5693,7 @@
     "reprojection_error": 1.2722124494023537,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.034622228080002634
   },
   {
     "frame": 178,
@@ -5725,7 +5725,7 @@
     "reprojection_error": 1.2633867755856256,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03035520115984052
   },
   {
     "frame": 179,
@@ -5757,7 +5757,7 @@
     "reprojection_error": 1.2258436642819575,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03018221358199611
   },
   {
     "frame": 180,
@@ -5789,7 +5789,7 @@
     "reprojection_error": 1.3427733198445466,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03014102606346173
   },
   {
     "frame": 181,
@@ -5821,7 +5821,7 @@
     "reprojection_error": 1.0986443383851938,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.029210188144584665
   },
   {
     "frame": 182,
@@ -5853,7 +5853,7 @@
     "reprojection_error": 1.0490230385938866,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.029465550759497843
   },
   {
     "frame": 183,
@@ -5885,7 +5885,7 @@
     "reprojection_error": 0.9880744355007444,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.029547925796566607
   },
   {
     "frame": 184,
@@ -5917,7 +5917,7 @@
     "reprojection_error": 1.0342728825113736,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.029111338100102146
   },
   {
     "frame": 185,
@@ -5949,7 +5949,7 @@
     "reprojection_error": 0.9258733170045363,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.02795808758113941
   },
   {
     "frame": 186,
@@ -5981,7 +5981,7 @@
     "reprojection_error": 0.8865291634481038,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.022908497808824015
   },
   {
     "frame": 187,
@@ -6013,7 +6013,7 @@
     "reprojection_error": 0.9081646680424509,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.026187024284160927
   },
   {
     "frame": 188,
@@ -6045,7 +6045,7 @@
     "reprojection_error": 1.0391106373559387,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03960591782266302
   },
   {
     "frame": 189,
@@ -6077,7 +6077,7 @@
     "reprojection_error": 1.0660897475066338,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.026096411743385284
   },
   {
     "frame": 190,
@@ -6109,7 +6109,7 @@
     "reprojection_error": 1.0608457054363738,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.06445846650630993
   },
   {
     "frame": 191,
@@ -6141,7 +6141,7 @@
     "reprojection_error": 1.0780212488519245,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.09256482915417312
   },
   {
     "frame": 192,
@@ -6173,7 +6173,7 @@
     "reprojection_error": 1.1542880360525336,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.08048041121618504
   },
   {
     "frame": 193,
@@ -6205,7 +6205,7 @@
     "reprojection_error": 1.1258060460623547,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.053700286665129
   },
   {
     "frame": 194,
@@ -6237,7 +6237,7 @@
     "reprojection_error": 1.2041704027730966,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04434248245411711
   },
   {
     "frame": 195,
@@ -6269,7 +6269,7 @@
     "reprojection_error": 1.2366824725583658,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04851889683350358
   },
   {
     "frame": 196,
@@ -6301,7 +6301,7 @@
     "reprojection_error": 1.238710931966157,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.035264753369139014
   },
   {
     "frame": 197,
@@ -6333,7 +6333,7 @@
     "reprojection_error": 1.1684374874906296,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.035100003295001486
   },
   {
     "frame": 198,
@@ -6365,7 +6365,7 @@
     "reprojection_error": 1.1497275565451182,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.033361890012850504
   },
   {
     "frame": 199,
@@ -6397,7 +6397,7 @@
     "reprojection_error": 1.1414878326550126,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03673926653266994
   },
   {
     "frame": 200,
@@ -6429,7 +6429,7 @@
     "reprojection_error": 1.2210058660529903,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04159939371972717
   },
   {
     "frame": 201,
@@ -6461,7 +6461,7 @@
     "reprojection_error": 1.1796242606466534,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.041072193482487064
   },
   {
     "frame": 202,
@@ -6493,7 +6493,7 @@
     "reprojection_error": 1.2693907795817654,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.038502092325941546
   },
   {
     "frame": 203,
@@ -6525,7 +6525,7 @@
     "reprojection_error": 1.7400857437669277,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.036352103858446734
   },
   {
     "frame": 204,
@@ -6557,7 +6557,7 @@
     "reprojection_error": 0.8214783700481642,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.040133118059903126
   },
   {
     "frame": 205,
@@ -6589,7 +6589,7 @@
     "reprojection_error": 0.7074201980349479,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03441629048733072
   },
   {
     "frame": 206,
@@ -6621,7 +6621,7 @@
     "reprojection_error": 0.5366198512465736,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.031162476523114435
   },
   {
     "frame": 207,
@@ -6653,7 +6653,7 @@
     "reprojection_error": 0.5336287931657054,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.036039078717585424
   },
   {
     "frame": 208,
@@ -6685,7 +6685,7 @@
     "reprojection_error": 0.5435062740720391,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03494349072457083
   },
   {
     "frame": 209,
@@ -6717,7 +6717,7 @@
     "reprojection_error": 0.5416266904206899,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03517414082836337
   },
   {
     "frame": 210,
@@ -6749,7 +6749,7 @@
     "reprojection_error": 0.5809744609680972,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.039375267718870476
   },
   {
     "frame": 211,
@@ -6781,7 +6781,7 @@
     "reprojection_error": 0.535019756352864,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03869155491119971
   },
   {
     "frame": 212,
@@ -6813,7 +6813,7 @@
     "reprojection_error": 0.593180570592995,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.039358792711456723
   },
   {
     "frame": 213,
@@ -6845,7 +6845,7 @@
     "reprojection_error": 0.5883736641213815,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03829615473326963
   },
   {
     "frame": 214,
@@ -6877,7 +6877,7 @@
     "reprojection_error": 0.5785716759786161,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.038254967214735244
   },
   {
     "frame": 215,
@@ -6909,7 +6909,7 @@
     "reprojection_error": 0.561320574919189,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03944940525223237
   },
   {
     "frame": 216,
@@ -6941,7 +6941,7 @@
     "reprojection_error": 0.5768530423844171,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04018254308214439
   },
   {
     "frame": 217,
@@ -6973,7 +6973,7 @@
     "reprojection_error": 0.6950291095033829,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03736531681439257
   },
   {
     "frame": 218,
@@ -7005,7 +7005,7 @@
     "reprojection_error": 0.5562972800712602,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.038757454940854724
   },
   {
     "frame": 219,
@@ -7037,7 +7037,7 @@
     "reprojection_error": 0.5909559630724467,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.0401084055487825
   },
   {
     "frame": 220,
@@ -7069,7 +7069,7 @@
     "reprojection_error": 0.6011606455700809,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.041245181060331475
   },
   {
     "frame": 221,
@@ -7101,7 +7101,7 @@
     "reprojection_error": 0.6246235643588264,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03731589179215131
   },
   {
     "frame": 222,
@@ -7133,7 +7133,7 @@
     "reprojection_error": 0.6933796269144423,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03797489208870144
   },
   {
     "frame": 223,
@@ -7165,7 +7165,7 @@
     "reprojection_error": 0.5885393763819617,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.038831592474216615
   },
   {
     "frame": 224,
@@ -7197,7 +7197,7 @@
     "reprojection_error": 0.6057781129864174,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.040429668193350685
   },
   {
     "frame": 225,
@@ -7229,7 +7229,7 @@
     "reprojection_error": 0.5926201991169429,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.0395070677781805
   },
   {
     "frame": 226,
@@ -7261,7 +7261,7 @@
     "reprojection_error": 0.7080413936139052,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.039416455237404856
   },
   {
     "frame": 227,
@@ -7293,7 +7293,7 @@
     "reprojection_error": 0.7292432173935537,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.036055553724999176
   },
   {
     "frame": 228,
@@ -7325,7 +7325,7 @@
     "reprojection_error": 0.7337470925624593,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.0380243171109427
   },
   {
     "frame": 229,
@@ -7357,7 +7357,7 @@
     "reprojection_error": 0.7206992955221015,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03767834195525388
   },
   {
     "frame": 230,
@@ -7389,7 +7389,7 @@
     "reprojection_error": 0.7003247277393696,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04031434314145441
   },
   {
     "frame": 231,
@@ -7421,7 +7421,7 @@
     "reprojection_error": 0.6256255677759964,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04115456851955583
   },
   {
     "frame": 232,
@@ -7453,7 +7453,7 @@
     "reprojection_error": 0.8035518495795233,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.044062407328083295
   },
   {
     "frame": 233,
@@ -7485,7 +7485,7 @@
     "reprojection_error": 0.7442406560373167,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04145935615671027
   },
   {
     "frame": 234,
@@ -7517,7 +7517,7 @@
     "reprojection_error": 0.7548263475157376,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.040174305578437514
   },
   {
     "frame": 235,
@@ -7549,7 +7549,7 @@
     "reprojection_error": 0.7182678934238829,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.037513591881116345
   },
   {
     "frame": 236,
@@ -7581,7 +7581,7 @@
     "reprojection_error": 0.7501788903726627,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.04081683086757389
   },
   {
     "frame": 237,
@@ -7613,7 +7613,7 @@
     "reprojection_error": 0.7406928755358666,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03853504234076905
   },
   {
     "frame": 238,
@@ -7645,7 +7645,7 @@
     "reprojection_error": 0.8122058612697766,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.036994629147583113
   },
   {
     "frame": 239,
@@ -7677,6 +7677,6 @@
     "reprojection_error": 0.8216194618325248,
     "ecc": null,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0
+    "occluder_coverage": 0.03715114171801377
   }
 ]
