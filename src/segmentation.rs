@@ -16,7 +16,7 @@ use image::{ImageBuffer, Luma};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    analysis::OCCLUDER_DIR,
+    analysis::{AUTHORED_OCCLUDER_WORK_DIR, AUTOMATIC_MATERIAL_WORK_DIR, OCCLUDER_DIR},
     cli::SegmentArgs,
     model::RectF,
     scene::{
@@ -1614,19 +1614,28 @@ pub fn install_automatic_foreground_masks(
     }
 
     let destination = analysis_root.join(OCCLUDER_DIR);
+    let automatic_photometric_root = analysis_root.join(AUTOMATIC_MATERIAL_WORK_DIR);
+    let authored_photometric_root = analysis_root.join(AUTHORED_OCCLUDER_WORK_DIR);
     // Semantic membership is not optical opacity, while a photometric residual is
     // not necessarily a solid object (a cast shadow is the common counterexample).
     // Automatic ML therefore gates a complete lossless photometric material
     // sequence. Neither source is installed on its own.
-    if !destination.is_dir() {
+    if !destination.is_dir() || !automatic_photometric_root.is_dir() {
         return Ok(false);
     }
     for frame in 0..expected_frames {
-        let photometric = destination.join(format!("{frame:06}.png"));
+        let photometric = automatic_photometric_root.join(format!("{frame:06}.png"));
         if !photometric.is_file() {
             bail!(
                 "automatic ML foreground requires a complete photometric mask sequence; missing {}",
                 photometric.display()
+            );
+        }
+        let authored = authored_photometric_root.join(format!("{frame:06}.png"));
+        if authored_photometric_root.is_dir() && !authored.is_file() {
+            bail!(
+                "automatic ML foreground requires a complete authored-detail mask sequence; missing {}",
+                authored.display()
             );
         }
     }
@@ -1640,8 +1649,14 @@ pub fn install_automatic_foreground_masks(
     fs::create_dir(&incoming)?;
     for (frame, source) in sources.iter().enumerate() {
         let target = incoming.join(format!("{frame:06}.png"));
-        let photometric = destination.join(format!("{frame:06}.png"));
-        let installed = fuse_automatic_foreground_mask(source, &photometric, &target);
+        let photometric = automatic_photometric_root.join(format!("{frame:06}.png"));
+        let authored = authored_photometric_root.join(format!("{frame:06}.png"));
+        let installed = fuse_automatic_foreground_mask(
+            source,
+            &photometric,
+            authored.is_file().then_some(authored.as_path()),
+            &target,
+        );
         if let Err(error) = installed {
             let _ = crate::staged_output::remove_child(analysis_root, &incoming);
             return Err(error).with_context(|| {
@@ -1680,6 +1695,7 @@ pub fn install_automatic_foreground_masks(
 fn fuse_automatic_foreground_mask(
     semantic_path: &Path,
     photometric_path: &Path,
+    authored_path: Option<&Path>,
     target: &Path,
 ) -> Result<()> {
     let semantic = image::open(semantic_path)
@@ -1704,17 +1720,52 @@ fn fuse_automatic_foreground_mask(
             photometric.height()
         );
     }
-    let fused = fuse_automatic_foreground_alpha(
+    let automatic = fuse_automatic_foreground_alpha(
         semantic.as_raw(),
         photometric.as_raw(),
         semantic.width() as usize,
         semantic.height() as usize,
     );
+    let fused = if let Some(authored_path) = authored_path {
+        let authored = image::open(authored_path)
+            .with_context(|| {
+                format!(
+                    "failed to load authored foreground detail {}",
+                    authored_path.display()
+                )
+            })?
+            .to_luma16();
+        if authored.dimensions() != semantic.dimensions() {
+            bail!(
+                "authored foreground detail {} is {}x{}, but semantic mask {} is {}x{}",
+                authored_path.display(),
+                authored.width(),
+                authored.height(),
+                semantic_path.display(),
+                semantic.width(),
+                semantic.height()
+            );
+        }
+        merge_automatic_and_authored_alpha(&automatic, authored.as_raw())
+    } else {
+        automatic
+    };
     let image = ImageBuffer::<Luma<u16>, _>::from_raw(semantic.width(), semantic.height(), fused)
         .context("automatic foreground fusion produced invalid mask dimensions")?;
     image
         .save(target)
         .with_context(|| format!("failed to save fused foreground mask {}", target.display()))
+}
+
+fn merge_automatic_and_authored_alpha(automatic: &[u16], authored: &[u16]) -> Vec<u16> {
+    if automatic.len() != authored.len() {
+        return Vec::new();
+    }
+    automatic
+        .iter()
+        .zip(authored)
+        .map(|(&automatic, &authored)| automatic.max(authored))
+        .collect()
 }
 
 fn fuse_automatic_foreground_alpha(
@@ -2269,7 +2320,7 @@ mod automatic_prompt_tests {
 
 #[cfg(test)]
 mod foreground_fusion_tests {
-    use super::fuse_automatic_foreground_alpha;
+    use super::{fuse_automatic_foreground_alpha, merge_automatic_and_authored_alpha};
 
     #[test]
     fn semantic_region_cannot_fill_a_photometric_hole() {
@@ -2305,6 +2356,28 @@ mod foreground_fusion_tests {
         photometric[4] = 48_000;
         let fused = fuse_automatic_foreground_alpha(&semantic, &photometric, 3, 3);
         assert_eq!(fused[4], 0);
+    }
+
+    #[test]
+    fn final_union_preserves_authored_detail_without_filling_web_holes() {
+        let mut semantic_web = vec![0_u16; 9 * 3];
+        let mut photometric_web = semantic_web.clone();
+        semantic_web[13] = u16::MAX;
+        for index in [12, 14] {
+            photometric_web[index] = u16::MAX;
+        }
+        let automatic = fuse_automatic_foreground_alpha(&semantic_web, &photometric_web, 9, 3);
+        let mut authored = vec![0_u16; 9 * 3];
+        authored[17] = 48_000;
+
+        let combined = merge_automatic_and_authored_alpha(&automatic, &authored);
+
+        assert_eq!(combined[12], 42_598, "web thread keeps calibrated alpha");
+        assert_eq!(combined[13], 0, "transparent inter-thread space stays open");
+        assert_eq!(
+            combined[17], 48_000,
+            "authored spider detail survives fusion"
+        );
     }
 }
 

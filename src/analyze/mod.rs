@@ -10,8 +10,10 @@ use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     analysis::{
-        ANALYSIS_FORMAT, Analysis, AnalysisManifest, AnalysisStatus, INJECTED_SURFACE_FILE,
-        InjectedSurfaceAsset, OCCLUDER_DIR, SegmentationConfig, SourceInfo, TRAJECTORY_FILE,
+        ANALYSIS_FORMAT, AUTHORED_OCCLUDER_WORK_DIR, AUTOMATIC_MATERIAL_WORK_DIR,
+        AUTOMATIC_OCCLUDER_WORK_DIR, Analysis, AnalysisManifest, AnalysisStatus,
+        INJECTED_SURFACE_FILE, InjectedSurfaceAsset, OCCLUDER_DIR, SegmentationConfig, SourceInfo,
+        TRAJECTORY_FILE,
     },
     application::AnalyzeRequest,
     layers::{self, LayerInput},
@@ -372,7 +374,7 @@ pub fn run(
                         precision: &args.segmentation_precision,
                         info: &info,
                         plaque: candidate.rect,
-                        seed_masks: &partial.join(OCCLUDER_DIR),
+                        seed_masks: &partial.join(AUTOMATIC_OCCLUDER_WORK_DIR),
                         analysis_root: &partial,
                         force: args.force_ml,
                         reuse_root: output.is_dir().then_some(output.as_path()),
@@ -548,6 +550,20 @@ pub fn run(
             },
             occlusion.confidence
         ));
+
+        // The split photometric channels prevent authored foreground from becoming
+        // an automatic ML prompt and preserve its frame-exact detail during fusion.
+        // Only the final public occluder sequence belongs in the reusable analysis.
+        for working in [
+            AUTOMATIC_OCCLUDER_WORK_DIR,
+            AUTOMATIC_MATERIAL_WORK_DIR,
+            AUTHORED_OCCLUDER_WORK_DIR,
+        ] {
+            let path = partial.join(working);
+            if path.exists() {
+                crate::staged_output::remove_child(&partial, &path)?;
+            }
+        }
 
         let packed_layers = layers::package(
             &scenes.layers,

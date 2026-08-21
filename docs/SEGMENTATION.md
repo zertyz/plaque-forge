@@ -76,6 +76,14 @@ Each prompted layer records `strategy-selection.json` beside its artifact with t
 
 For an authored opaque source-pixel foreground, the semantic sequence establishes object identity while lossless source-versus-canonical evidence may recover fine material that semantic downsampling omitted. Recovery is bounded to the semantic neighborhood, requires a sharp transition in both the source and residual, and is evaluated independently on each frame. Diffuse cast shadows therefore remain illumination instead of becoming opaque holes in the title, and neighboring-frame residuals cannot grow a restoration halo. Automatic depth discovery remains a separate mode.
 
+When authored and automatic foregrounds coexist, the analyzer keeps three private channels until final fusion:
+
+- component-filtered automatic discovery, with known authored foreground removed before it can become an ML prompt;
+- frame-local, lossless photometric material used to gate the automatic semantic track;
+- frame-exact authored detail, recalibrated with its declared opaque matte policy after projective resampling.
+
+Only automatic discovery receives temporal detail recovery. The automatic semantic track may identify a porous object such as a web, but it cannot fill pixels where the lossless material channel observes a gap. Authored detail is max-unioned only after that fusion, so a known actor remains continuously in front without teaching the automatic model to rediscover it. The private channel directories are removed before publishing the reusable analysis; only the final `occluder` sequence and ML provenance remain.
+
 ## Persistent worker service
 
 Normal `tools/segmentation-worker` calls route through a single-request-at-a-time Unix-domain service. Python imports, accelerator initialization, SAM2/Cutie/ViTMatte/MatAnyone2 model objects, and compiled image encoders may remain resident between requests. A backend that clears Hydra's global configuration cannot poison the next request: SAM2 verifies and reinitializes its configuration state before predictor construction. The service also rejects a stale socket whose recorded owner process is no longer alive. The socket name is derived from the worker/runtime source identity **and the installed runtime manifest**, so either a code change or a rebuilt Python environment automatically starts a fresh service. Set `PLAQUE_FORGE_PERSISTENT_WORKER=0` to force the old one-process-per-request behavior; set `PLAQUE_FORGE_MODEL_CACHE=0` to keep the service but disable resident model objects. The service exits after an idle timeout (20 minutes by default).

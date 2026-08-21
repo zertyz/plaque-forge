@@ -1,9 +1,9 @@
 //! Executable acceptance contracts for human-homologated rendered behavior.
 //!
 //! A homologation contract intentionally sits above implementation details. It records
-//! stable scene geometry, typography constraints, and sparse source-preservation witnesses
-//! for visually important foreground crossings. Rendering and segmentation algorithms may
-//! change freely as long as the observable contract continues to hold.
+//! stable scene geometry, typography constraints, and sparse visual witnesses for important
+//! foreground crossings. Rendering and segmentation algorithms may change freely as long as
+//! the observable contract continues to hold.
 
 pub mod matrix;
 
@@ -31,7 +31,7 @@ pub fn audit_capabilities(matrix_path: &Path) -> Result<matrix::CapabilityCovera
 }
 
 pub const HOMOLOGATION_FORMAT: &str = "plaque-forge.homologation/1";
-pub const HOMOLOGATION_REPORT_SCHEMA_VERSION: u32 = 2;
+pub const HOMOLOGATION_REPORT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,6 +48,11 @@ pub struct HomologationContract {
     pub typography: TypographyContract,
     #[serde(default)]
     pub source_preservation: Vec<SourcePreservationContract>,
+    /// Reviewed pixels where the rendered title must remain visibly different from
+    /// the source. This complements source-preservation witnesses for porous
+    /// foregrounds: threads preserve source pixels while reviewed gaps reveal title.
+    #[serde(default)]
+    pub title_visibility: Vec<TitleVisibilityContract>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -97,6 +102,17 @@ pub struct SourcePreservationContract {
     pub maximum_p95_absolute_error: f64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TitleVisibilityContract {
+    pub frame: usize,
+    pub mask: PathBuf,
+    pub mask_sha256: String,
+    pub minimum_selected_pixels: usize,
+    pub minimum_mean_absolute_error: f64,
+    pub minimum_p50_absolute_error: f64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SourcePreservationResult {
     pub frame: usize,
@@ -113,6 +129,22 @@ pub struct SourcePreservationResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct TitleVisibilityResult {
+    pub frame: usize,
+    pub mask: String,
+    pub mask_sha256: String,
+    pub selected_pixels: usize,
+    pub mean_absolute_error: f64,
+    pub p50_absolute_error: f64,
+    pub p95_absolute_error: f64,
+    pub minimum_mean_absolute_error: f64,
+    pub minimum_p50_absolute_error: f64,
+    pub passed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct HomologationReport {
     pub schema_version: u32,
     pub contract_sha256: String,
@@ -122,6 +154,7 @@ pub struct HomologationReport {
     pub rendered_sha256: String,
     pub passed: bool,
     pub source_preservation: Vec<SourcePreservationResult>,
+    pub title_visibility: Vec<TitleVisibilityResult>,
     pub failures: Vec<String>,
 }
 
@@ -205,34 +238,80 @@ impl HomologationContract {
                 "source-preservation frame {} is declared more than once",
                 witness.frame
             );
-            let mask = resolve_relative(path, &witness.mask);
+            validate_witness_mask(
+                path,
+                &witness.mask,
+                &witness.mask_sha256,
+                witness.minimum_selected_pixels,
+            )?;
+        }
+        let mut frames = BTreeSet::new();
+        for witness in &self.title_visibility {
+            validate_sha256(&witness.mask_sha256, "title_visibility.mask_sha256")?;
             ensure!(
-                mask.is_file(),
-                "homologation mask is missing: {}",
-                mask.display()
+                witness.minimum_selected_pixels > 0,
+                "title-visibility frame {} must select at least one pixel",
+                witness.frame
             );
-            let mask_sha256 = crate::digest::file_sha256(&mask)?;
             ensure!(
-                mask_sha256 == witness.mask_sha256,
-                "homologation mask identity changed: {}",
-                mask.display()
+                witness.minimum_mean_absolute_error.is_finite()
+                    && witness.minimum_mean_absolute_error >= 0.0,
+                "title-visibility frame {} has invalid mean-error threshold",
+                witness.frame
             );
-            let selected_pixels = image::open(&mask)
-                .with_context(|| format!("failed to load homologation mask {}", mask.display()))?
-                .to_luma8()
-                .as_raw()
-                .iter()
-                .filter(|&&alpha| alpha != 0)
-                .count();
             ensure!(
-                selected_pixels >= witness.minimum_selected_pixels,
-                "homologation mask {} selects {selected_pixels} pixels; contract requires at least {}",
-                mask.display(),
-                witness.minimum_selected_pixels
+                witness.minimum_p50_absolute_error.is_finite()
+                    && witness.minimum_p50_absolute_error >= 0.0,
+                "title-visibility frame {} has invalid p50-error threshold",
+                witness.frame
             );
+            ensure!(
+                frames.insert(witness.frame),
+                "title-visibility frame {} is declared more than once",
+                witness.frame
+            );
+            validate_witness_mask(
+                path,
+                &witness.mask,
+                &witness.mask_sha256,
+                witness.minimum_selected_pixels,
+            )?;
         }
         Ok(())
     }
+}
+
+fn validate_witness_mask(
+    contract_path: &Path,
+    relative_path: &Path,
+    expected_sha256: &str,
+    minimum_selected_pixels: usize,
+) -> Result<()> {
+    let mask = resolve_relative(contract_path, relative_path);
+    ensure!(
+        mask.is_file(),
+        "homologation mask is missing: {}",
+        mask.display()
+    );
+    let mask_sha256 = crate::digest::file_sha256(&mask)?;
+    ensure!(
+        mask_sha256 == expected_sha256,
+        "homologation mask identity changed: {}",
+        mask.display()
+    );
+    let selected_pixels = image::open(&mask)
+        .with_context(|| format!("failed to load homologation mask {}", mask.display()))?
+        .to_luma8()
+        .as_raw()
+        .iter()
+        .filter(|&&alpha| alpha != 0)
+        .count();
+    ensure!(
+        selected_pixels >= minimum_selected_pixels,
+        "homologation mask {} selects {selected_pixels} pixels; contract requires at least {minimum_selected_pixels}",
+        mask.display()
+    );
+    Ok(())
 }
 
 pub(crate) fn run(
@@ -399,8 +478,8 @@ pub(crate) fn run(
         &mut failures,
     );
 
-    let source_preservation =
-        check_source_preservation(&args, &contract, &source, &mut failures, commands)?;
+    let (source_preservation, title_visibility) =
+        check_visual_witnesses(&args, &contract, &source, &mut failures, commands)?;
 
     let passed = failures.is_empty();
     let report = HomologationReport {
@@ -412,6 +491,7 @@ pub(crate) fn run(
         rendered_sha256,
         passed,
         source_preservation,
+        title_visibility,
         failures,
     };
     let json = serde_json::to_string_pretty(&report)?;
@@ -512,15 +592,15 @@ fn check_scene_geometry(
     Ok(())
 }
 
-fn check_source_preservation(
+fn check_visual_witnesses(
     args: &HomologateRequest,
     contract: &HomologationContract,
     source: &Path,
     failures: &mut Vec<String>,
     commands: &dyn crate::infrastructure::CommandExecutor,
-) -> Result<Vec<SourcePreservationResult>> {
-    if contract.source_preservation.is_empty() {
-        return Ok(Vec::new());
+) -> Result<(Vec<SourcePreservationResult>, Vec<TitleVisibilityResult>)> {
+    if contract.source_preservation.is_empty() && contract.title_visibility.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
     }
     let source_info = video::probe_with(commands, &args.ffprobe, source)?;
     let rendered_info = video::probe_with(commands, &args.ffprobe, &args.rendered)?;
@@ -534,7 +614,7 @@ fn check_source_preservation(
         "homologated render timing differs from the source"
     );
 
-    let mut witnesses = BTreeMap::<usize, &SourcePreservationContract>::new();
+    let mut preservation_witnesses = BTreeMap::<usize, &SourcePreservationContract>::new();
     for witness in &contract.source_preservation {
         ensure!(
             witness.frame < source_info.frames,
@@ -542,12 +622,23 @@ fn check_source_preservation(
             witness.frame,
             source_info.frames
         );
-        witnesses.insert(witness.frame, witness);
+        preservation_witnesses.insert(witness.frame, witness);
+    }
+    let mut visibility_witnesses = BTreeMap::<usize, &TitleVisibilityContract>::new();
+    for witness in &contract.title_visibility {
+        ensure!(
+            witness.frame < source_info.frames,
+            "homologation frame {} lies outside {} source frames",
+            witness.frame,
+            source_info.frames
+        );
+        visibility_witnesses.insert(witness.frame, witness);
     }
 
     let mut source_decoder = Decoder::spawn(&args.ffmpeg, source, &source_info)?;
     let mut rendered_decoder = Decoder::spawn(&args.ffmpeg, &args.rendered, &rendered_info)?;
-    let mut results = Vec::with_capacity(witnesses.len());
+    let mut preservation_results = Vec::with_capacity(preservation_witnesses.len());
+    let mut visibility_results = Vec::with_capacity(visibility_witnesses.len());
     for frame_index in 0..source_info.frames {
         let source_frame = source_decoder
             .next_frame()?
@@ -555,90 +646,32 @@ fn check_source_preservation(
         let rendered_frame = rendered_decoder
             .next_frame()?
             .with_context(|| format!("render ended before frame {frame_index}"))?;
-        let Some(witness) = witnesses.get(&frame_index) else {
-            continue;
-        };
-        let mask_path = resolve_relative(&args.contract, &witness.mask);
-        let mask = image::open(&mask_path)
-            .with_context(|| format!("failed to load homologation mask {}", mask_path.display()))?
-            .to_luma8();
-        ensure!(
-            mask.width() == source_info.width && mask.height() == source_info.height,
-            "homologation mask {} dimensions {}x{} differ from source {}x{}",
-            mask_path.display(),
-            mask.width(),
-            mask.height(),
-            source_info.width,
-            source_info.height
-        );
-        let mut errors = Vec::<u8>::new();
-        for (pixel_index, &mask_alpha) in mask.as_raw().iter().enumerate() {
-            if mask_alpha == 0 {
-                continue;
-            }
-            let offset = pixel_index * 4;
-            for channel in 0..3 {
-                errors.push(
-                    source_frame.pixels()[offset + channel]
-                        .abs_diff(rendered_frame.pixels()[offset + channel]),
-                );
-            }
-        }
-        ensure!(
-            !errors.is_empty(),
-            "homologation mask {} selects no pixels",
-            mask_path.display()
-        );
-        let selected_pixels = errors.len() / 3;
-        ensure!(
-            selected_pixels >= witness.minimum_selected_pixels,
-            "homologation mask {} selects {selected_pixels} pixels; contract requires at least {}",
-            mask_path.display(),
-            witness.minimum_selected_pixels
-        );
-        let mean = errors.iter().map(|&value| value as f64).sum::<f64>() / errors.len() as f64;
-        let p95 = percentile_u8(&mut errors, 0.95);
-        let passed = mean <= witness.maximum_mean_absolute_error + f64::EPSILON
-            && p95 <= witness.maximum_p95_absolute_error + f64::EPSILON;
-        let diagnostics = if !passed {
-            failures.push(format!(
-                "frame {} source-preservation regression: mean error {:.2} (max {:.2}), p95 {:.2} (max {:.2})",
+        if let Some(witness) = preservation_witnesses.get(&frame_index) {
+            preservation_results.push(evaluate_source_preservation(
+                args,
+                contract,
                 frame_index,
-                mean,
-                witness.maximum_mean_absolute_error,
-                p95,
-                witness.maximum_p95_absolute_error
-            ));
-            args.diagnostics
-                .as_ref()
-                .map(|root| {
-                    write_witness_diagnostics(
-                        root,
-                        &contract.asset,
-                        frame_index,
-                        &source_frame,
-                        &rendered_frame,
-                        &mask,
-                        &mask_path,
-                    )
-                })
-                .transpose()?
-                .map(|path| path.to_string_lossy().into_owned())
-        } else {
-            None
-        };
-        results.push(SourcePreservationResult {
-            frame: frame_index,
-            mask: witness.mask.to_string_lossy().into_owned(),
-            mask_sha256: witness.mask_sha256.clone(),
-            selected_pixels,
-            mean_absolute_error: mean,
-            p95_absolute_error: p95,
-            maximum_mean_absolute_error: witness.maximum_mean_absolute_error,
-            maximum_p95_absolute_error: witness.maximum_p95_absolute_error,
-            passed,
-            diagnostics,
-        });
+                witness,
+                &source_frame,
+                &rendered_frame,
+                source_info.width,
+                source_info.height,
+                failures,
+            )?);
+        }
+        if let Some(witness) = visibility_witnesses.get(&frame_index) {
+            visibility_results.push(evaluate_title_visibility(
+                args,
+                contract,
+                frame_index,
+                witness,
+                &source_frame,
+                &rendered_frame,
+                source_info.width,
+                source_info.height,
+                failures,
+            )?);
+        }
     }
     source_decoder.finish()?;
     ensure!(
@@ -647,34 +680,257 @@ fn check_source_preservation(
     );
     rendered_decoder.finish()?;
     ensure!(
-        results.len() == witnesses.len(),
+        preservation_results.len() == preservation_witnesses.len(),
         "only {} of {} source-preservation witnesses were evaluated",
-        results.len(),
-        witnesses.len()
+        preservation_results.len(),
+        preservation_witnesses.len()
     );
-    Ok(results)
+    ensure!(
+        visibility_results.len() == visibility_witnesses.len(),
+        "only {} of {} title-visibility witnesses were evaluated",
+        visibility_results.len(),
+        visibility_witnesses.len()
+    );
+    Ok((preservation_results, visibility_results))
 }
 
-fn write_witness_diagnostics(
-    root: &Path,
-    asset: &str,
+#[allow(clippy::too_many_arguments)]
+fn evaluate_source_preservation(
+    args: &HomologateRequest,
+    contract: &HomologationContract,
+    frame_index: usize,
+    witness: &SourcePreservationContract,
+    source_frame: &crate::surface::Surface,
+    rendered_frame: &crate::surface::Surface,
+    width: u32,
+    height: u32,
+    failures: &mut Vec<String>,
+) -> Result<SourcePreservationResult> {
+    let (mask_path, mask) = load_witness_mask(args, &witness.mask, width, height)?;
+    let metrics = masked_error_metrics(
+        source_frame.pixels(),
+        rendered_frame.pixels(),
+        mask.as_raw(),
+    )?;
+    ensure!(
+        metrics.selected_pixels >= witness.minimum_selected_pixels,
+        "homologation mask {} selects {} pixels; contract requires at least {}",
+        mask_path.display(),
+        metrics.selected_pixels,
+        witness.minimum_selected_pixels
+    );
+    let passed = metrics.mean_absolute_error <= witness.maximum_mean_absolute_error + f64::EPSILON
+        && metrics.p95_absolute_error <= witness.maximum_p95_absolute_error + f64::EPSILON;
+    let diagnostics = if !passed {
+        failures.push(format!(
+            "frame {} source-preservation regression: mean error {:.2} (max {:.2}), p95 {:.2} (max {:.2})",
+            frame_index,
+            metrics.mean_absolute_error,
+            witness.maximum_mean_absolute_error,
+            metrics.p95_absolute_error,
+            witness.maximum_p95_absolute_error
+        ));
+        witness_diagnostics(
+            args,
+            WitnessDiagnostic {
+                asset: &contract.asset,
+                kind: "source-preservation",
+                frame: frame_index,
+                source: source_frame,
+                rendered: rendered_frame,
+                mask: &mask,
+                mask_path: &mask_path,
+            },
+        )?
+    } else {
+        None
+    };
+    Ok(SourcePreservationResult {
+        frame: frame_index,
+        mask: witness.mask.to_string_lossy().into_owned(),
+        mask_sha256: witness.mask_sha256.clone(),
+        selected_pixels: metrics.selected_pixels,
+        mean_absolute_error: metrics.mean_absolute_error,
+        p95_absolute_error: metrics.p95_absolute_error,
+        maximum_mean_absolute_error: witness.maximum_mean_absolute_error,
+        maximum_p95_absolute_error: witness.maximum_p95_absolute_error,
+        passed,
+        diagnostics,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_title_visibility(
+    args: &HomologateRequest,
+    contract: &HomologationContract,
+    frame_index: usize,
+    witness: &TitleVisibilityContract,
+    source_frame: &crate::surface::Surface,
+    rendered_frame: &crate::surface::Surface,
+    width: u32,
+    height: u32,
+    failures: &mut Vec<String>,
+) -> Result<TitleVisibilityResult> {
+    let (mask_path, mask) = load_witness_mask(args, &witness.mask, width, height)?;
+    let metrics = masked_error_metrics(
+        source_frame.pixels(),
+        rendered_frame.pixels(),
+        mask.as_raw(),
+    )?;
+    ensure!(
+        metrics.selected_pixels >= witness.minimum_selected_pixels,
+        "homologation mask {} selects {} pixels; contract requires at least {}",
+        mask_path.display(),
+        metrics.selected_pixels,
+        witness.minimum_selected_pixels
+    );
+    let passed = title_visibility_passed(
+        &metrics,
+        witness.minimum_mean_absolute_error,
+        witness.minimum_p50_absolute_error,
+    );
+    let diagnostics = if !passed {
+        failures.push(format!(
+            "frame {} title-visibility regression: mean error {:.2} (min {:.2}), p50 {:.2} (min {:.2})",
+            frame_index,
+            metrics.mean_absolute_error,
+            witness.minimum_mean_absolute_error,
+            metrics.p50_absolute_error,
+            witness.minimum_p50_absolute_error
+        ));
+        witness_diagnostics(
+            args,
+            WitnessDiagnostic {
+                asset: &contract.asset,
+                kind: "title-visibility",
+                frame: frame_index,
+                source: source_frame,
+                rendered: rendered_frame,
+                mask: &mask,
+                mask_path: &mask_path,
+            },
+        )?
+    } else {
+        None
+    };
+    Ok(TitleVisibilityResult {
+        frame: frame_index,
+        mask: witness.mask.to_string_lossy().into_owned(),
+        mask_sha256: witness.mask_sha256.clone(),
+        selected_pixels: metrics.selected_pixels,
+        mean_absolute_error: metrics.mean_absolute_error,
+        p50_absolute_error: metrics.p50_absolute_error,
+        p95_absolute_error: metrics.p95_absolute_error,
+        minimum_mean_absolute_error: witness.minimum_mean_absolute_error,
+        minimum_p50_absolute_error: witness.minimum_p50_absolute_error,
+        passed,
+        diagnostics,
+    })
+}
+
+fn load_witness_mask(
+    args: &HomologateRequest,
+    relative_path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<(PathBuf, image::GrayImage)> {
+    let path = resolve_relative(&args.contract, relative_path);
+    let mask = image::open(&path)
+        .with_context(|| format!("failed to load homologation mask {}", path.display()))?
+        .to_luma8();
+    ensure!(
+        mask.width() == width && mask.height() == height,
+        "homologation mask {} dimensions {}x{} differ from source {}x{}",
+        path.display(),
+        mask.width(),
+        mask.height(),
+        width,
+        height
+    );
+    Ok((path, mask))
+}
+
+struct WitnessDiagnostic<'a> {
+    asset: &'a str,
+    kind: &'a str,
     frame: usize,
-    source: &crate::surface::Surface,
-    rendered: &crate::surface::Surface,
-    mask: &image::GrayImage,
-    mask_path: &Path,
-) -> Result<PathBuf> {
-    let directory = root.join(asset).join(format!("frame-{frame:06}"));
+    source: &'a crate::surface::Surface,
+    rendered: &'a crate::surface::Surface,
+    mask: &'a image::GrayImage,
+    mask_path: &'a Path,
+}
+
+fn witness_diagnostics(
+    args: &HomologateRequest,
+    diagnostic: WitnessDiagnostic<'_>,
+) -> Result<Option<String>> {
+    args.diagnostics
+        .as_ref()
+        .map(|root| write_witness_diagnostics(root, &diagnostic))
+        .transpose()
+        .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MaskedErrorMetrics {
+    selected_pixels: usize,
+    mean_absolute_error: f64,
+    p50_absolute_error: f64,
+    p95_absolute_error: f64,
+}
+
+fn masked_error_metrics(source: &[u8], rendered: &[u8], mask: &[u8]) -> Result<MaskedErrorMetrics> {
+    ensure!(
+        source.len() == rendered.len() && source.len() == mask.len().saturating_mul(4),
+        "homologation frame and mask dimensions differ"
+    );
+    let mut errors = Vec::<u8>::new();
+    for (pixel_index, &mask_alpha) in mask.iter().enumerate() {
+        if mask_alpha == 0 {
+            continue;
+        }
+        let offset = pixel_index * 4;
+        for channel in 0..3 {
+            errors.push(source[offset + channel].abs_diff(rendered[offset + channel]));
+        }
+    }
+    ensure!(!errors.is_empty(), "homologation mask selects no pixels");
+    let selected_pixels = errors.len() / 3;
+    let mean_absolute_error =
+        errors.iter().map(|&value| value as f64).sum::<f64>() / errors.len() as f64;
+    let p50_absolute_error = percentile_u8(&mut errors, 0.50);
+    let p95_absolute_error = percentile_u8(&mut errors, 0.95);
+    Ok(MaskedErrorMetrics {
+        selected_pixels,
+        mean_absolute_error,
+        p50_absolute_error,
+        p95_absolute_error,
+    })
+}
+
+fn title_visibility_passed(
+    metrics: &MaskedErrorMetrics,
+    minimum_mean_absolute_error: f64,
+    minimum_p50_absolute_error: f64,
+) -> bool {
+    metrics.mean_absolute_error + f64::EPSILON >= minimum_mean_absolute_error
+        && metrics.p50_absolute_error + f64::EPSILON >= minimum_p50_absolute_error
+}
+
+fn write_witness_diagnostics(root: &Path, diagnostic: &WitnessDiagnostic<'_>) -> Result<PathBuf> {
+    let directory = root
+        .join(diagnostic.asset)
+        .join(format!("{}-frame-{:06}", diagnostic.kind, diagnostic.frame));
     fs::create_dir_all(&directory).with_context(|| {
         format!(
             "failed to create regression diagnostics {}",
             directory.display()
         )
     })?;
-    let width = source.width();
-    let height = source.height();
-    let source_bytes = source.pixels();
-    let rendered_bytes = rendered.pixels();
+    let width = diagnostic.source.width();
+    let height = diagnostic.source.height();
+    let source_bytes = diagnostic.source.pixels();
+    let rendered_bytes = diagnostic.rendered.pixels();
     let source_image = image::RgbaImage::from_raw(width, height, source_bytes.to_vec())
         .context("invalid source diagnostic frame")?;
     let rendered_image = image::RgbaImage::from_raw(width, height, rendered_bytes.to_vec())
@@ -698,7 +954,7 @@ fn write_witness_diagnostics(
                 .saturating_mul(3),
             255,
         ]);
-        if mask.as_raw()[index] != 0 {
+        if diagnostic.mask.as_raw()[index] != 0 {
             let target = witness.get_pixel_mut(index as u32 % width, index as u32 / width);
             target.0[0] = (target.0[0] / 2).saturating_add(127);
             target.0[1] /= 2;
@@ -707,8 +963,12 @@ fn write_witness_diagnostics(
     }
     diff.save(directory.join("diff-3x.png"))?;
     witness.save(directory.join("witness-overlay.png"))?;
-    fs::copy(mask_path, directory.join("witness-mask.png"))
-        .with_context(|| format!("failed to copy witness mask {}", mask_path.display()))?;
+    fs::copy(diagnostic.mask_path, directory.join("witness-mask.png")).with_context(|| {
+        format!(
+            "failed to copy witness mask {}",
+            diagnostic.mask_path.display()
+        )
+    })?;
     Ok(directory)
 }
 
@@ -792,6 +1052,34 @@ mod tests {
     }
 
     #[test]
+    fn masked_error_metrics_measure_only_selected_rgb_pixels() {
+        let source = [10, 20, 30, 255, 40, 50, 60, 255];
+        let rendered = [20, 40, 60, 255, 240, 250, 255, 255];
+        let mask = [255, 0];
+
+        let metrics = masked_error_metrics(&source, &rendered, &mask).unwrap();
+
+        assert_eq!(metrics.selected_pixels, 1);
+        assert_eq!(metrics.mean_absolute_error, 20.0);
+        assert_eq!(metrics.p50_absolute_error, 20.0);
+        assert_eq!(metrics.p95_absolute_error, 30.0);
+    }
+
+    #[test]
+    fn title_visibility_requires_both_difference_minima() {
+        let metrics = MaskedErrorMetrics {
+            selected_pixels: 20,
+            mean_absolute_error: 24.0,
+            p50_absolute_error: 18.0,
+            p95_absolute_error: 70.0,
+        };
+
+        assert!(title_visibility_passed(&metrics, 20.0, 15.0));
+        assert!(!title_visibility_passed(&metrics, 25.0, 15.0));
+        assert!(!title_visibility_passed(&metrics, 20.0, 19.0));
+    }
+
+    #[test]
     fn rectangle_containment_is_inclusive() {
         assert!(rect_contains(
             [10.0, 20.0, 100.0, 50.0],
@@ -824,9 +1112,19 @@ mod tests {
         let mask_path = root.join("mask.png");
         mask.save(&mask_path).unwrap();
 
-        let directory =
-            write_witness_diagnostics(&root, "asset", 7, &source, &rendered, &mask, &mask_path)
-                .unwrap();
+        let directory = write_witness_diagnostics(
+            &root,
+            &WitnessDiagnostic {
+                asset: "asset",
+                kind: "source-preservation",
+                frame: 7,
+                source: &source,
+                rendered: &rendered,
+                mask: &mask,
+                mask_path: &mask_path,
+            },
+        )
+        .unwrap();
         for name in [
             "source.png",
             "rendered.png",

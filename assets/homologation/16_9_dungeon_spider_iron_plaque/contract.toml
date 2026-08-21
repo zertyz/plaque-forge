@@ -232,3 +232,58 @@ mask_sha256 = "f27d63edc651c077b5f2802426f5186e93ae74ea411917f17b8522576b9f0231"
 minimum_selected_pixels = 280
 maximum_mean_absolute_error = 12.0
 maximum_p95_absolute_error = 25.0
+
+# Human-reviewed thread/title intersections protect the crossing web as a porous
+# foreground. These pixels must preserve the source material rather than accept paint.
+
+[[source_preservation]]
+frame = 104
+mask = "web-foreground/000104.png"
+mask_sha256 = "a2a0d2e89dcf17128e7bbd34c9f6560c961f932d3c824075cde9f97a645353bf"
+minimum_selected_pixels = 2300
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 112
+mask = "web-foreground/000112.png"
+mask_sha256 = "a478d0d44c3a289d0bf17efec549e43bf83ec30369ecab978ac52f0661562262"
+minimum_selected_pixels = 7000
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 120
+mask = "web-foreground/000120.png"
+mask_sha256 = "d6f0c583695d5827ea4081f466190e55b1256b1822bcdf83c72e1d626282196a"
+minimum_selected_pixels = 4200
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+# Complementary reviewed title pixels sit in genuine gaps between nearby web
+# threads. They must remain visibly changed from the source: an opaque web-shaped
+# sheet would satisfy the thread witnesses above but fail these witnesses.
+
+[[title_visibility]]
+frame = 104
+mask = "web-holes/000104.png"
+mask_sha256 = "d86221149ce71a4b3ed2a26c72059db0aede664c7bf22062a5d78308f50992a5"
+minimum_selected_pixels = 1200
+minimum_mean_absolute_error = 30.0
+minimum_p50_absolute_error = 15.0
+
+[[title_visibility]]
+frame = 112
+mask = "web-holes/000112.png"
+mask_sha256 = "44f4cd7d3acbb77ed4d7c8a0a843615aab6cb450c6d1a6d12426d68e46d94929"
+minimum_selected_pixels = 4200
+minimum_mean_absolute_error = 30.0
+minimum_p50_absolute_error = 15.0
+
+[[title_visibility]]
+frame = 120
+mask = "web-holes/000120.png"
+mask_sha256 = "622ef61d9c7221afd27324563cb19137d377a101efcbd2b7cf90a8422f32620e"
+minimum_selected_pixels = 6000
+minimum_mean_absolute_error = 30.0
+minimum_p50_absolute_error = 15.0

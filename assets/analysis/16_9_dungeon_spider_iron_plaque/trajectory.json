@@ -29,7 +29,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.022753281029310186
+    "occluder_coverage": 0.028220238062749835
   },
   {
     "frame": 1,
@@ -61,7 +61,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02351619122240894
+    "occluder_coverage": 0.02894522511005486
   },
   {
     "frame": 2,
@@ -93,7 +93,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025072940400218565
+    "occluder_coverage": 0.03095244304099141
   },
   {
     "frame": 3,
@@ -125,7 +125,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025856469787725392
+    "occluder_coverage": 0.03156382237008734
   },
   {
     "frame": 4,
@@ -157,7 +157,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026000804148581916
+    "occluder_coverage": 0.03226855409112102
   },
   {
     "frame": 5,
@@ -189,7 +189,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025114178789034713
+    "occluder_coverage": 0.02802249594539708
   },
   {
     "frame": 6,
@@ -221,7 +221,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02579461220450117
+    "occluder_coverage": 0.031954778467981594
   },
   {
     "frame": 7,
@@ -253,7 +253,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026114209717826325
+    "occluder_coverage": 0.03250341075840827
   },
   {
     "frame": 8,
@@ -285,7 +285,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027310122993494643
+    "occluder_coverage": 0.03417255476063832
   },
   {
     "frame": 9,
@@ -317,7 +317,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026402878439539368
+    "occluder_coverage": 0.03316055661313141
   },
   {
     "frame": 10,
@@ -349,7 +349,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02733074218790272
+    "occluder_coverage": 0.034428394490470304
   },
   {
     "frame": 11,
@@ -381,7 +381,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026382259245131292
+    "occluder_coverage": 0.0293187559671847
   },
   {
     "frame": 12,
@@ -413,7 +413,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027815293256492468
+    "occluder_coverage": 0.03438311312235853
   },
   {
     "frame": 13,
@@ -445,7 +445,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027866841242512656
+    "occluder_coverage": 0.03347360449999764
   },
   {
     "frame": 14,
@@ -477,7 +477,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.029052444920976937
+    "occluder_coverage": 0.03620843741478157
   },
   {
     "frame": 15,
@@ -509,7 +509,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.030928791612111716
+    "occluder_coverage": 0.038735744202317034
   },
   {
     "frame": 16,
@@ -541,7 +541,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.032114395290576
+    "occluder_coverage": 0.04028986544358443
   },
   {
     "frame": 17,
@@ -573,7 +573,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.030289596585461407
+    "occluder_coverage": 0.0380666715586715
   },
   {
     "frame": 18,
@@ -605,7 +605,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03026897739105333
+    "occluder_coverage": 0.03737257287318572
   },
   {
     "frame": 19,
@@ -637,7 +637,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.029650401558811098
+    "occluder_coverage": 0.03520145256160147
   },
   {
     "frame": 20,
@@ -669,7 +669,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02968133035042321
+    "occluder_coverage": 0.03665668252929598
   },
   {
     "frame": 21,
@@ -701,7 +701,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.029145231295813274
+    "occluder_coverage": 0.03653110759237139
   },
   {
     "frame": 22,
@@ -733,7 +733,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.028691609018835634
+    "occluder_coverage": 0.03585847712694557
   },
   {
     "frame": 23,
@@ -765,7 +765,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.030485478932338113
+    "occluder_coverage": 0.03706005057362797
   },
   {
     "frame": 24,
@@ -797,7 +797,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03389795560687444
+    "occluder_coverage": 0.04266737984821425
   },
   {
     "frame": 25,
@@ -829,7 +829,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.033959813190098664
+    "occluder_coverage": 0.042818465984494646
   },
   {
     "frame": 26,
@@ -861,7 +861,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0335268101075291
+    "occluder_coverage": 0.041830078836074654
   },
   {
     "frame": 27,
@@ -893,7 +893,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.032021608915739665
+    "occluder_coverage": 0.036699861548174006
   },
   {
     "frame": 28,
@@ -925,7 +925,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03279482870604245
+    "occluder_coverage": 0.0410768313634926
   },
   {
     "frame": 29,
@@ -957,7 +957,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.032464921595513264
+    "occluder_coverage": 0.040744215456835375
   },
   {
     "frame": 30,
@@ -989,7 +989,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.034351577883852076
+    "occluder_coverage": 0.042542573077356205
   },
   {
     "frame": 31,
@@ -1021,7 +1021,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.034351577883852076
+    "occluder_coverage": 0.04251928551661297
   },
   {
     "frame": 32,
@@ -1053,7 +1053,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03574337350639711
+    "occluder_coverage": 0.04417840293018978
   },
   {
     "frame": 33,
@@ -1085,7 +1085,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.034372197078260155
+    "occluder_coverage": 0.04336018478032573
   },
   {
     "frame": 34,
@@ -1117,7 +1117,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03498046331329835
+    "occluder_coverage": 0.04413845829474812
   },
   {
     "frame": 35,
@@ -1149,7 +1149,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03408352835654711
+    "occluder_coverage": 0.04284070237062093
   },
   {
     "frame": 36,
@@ -1181,7 +1181,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03585677907564151
+    "occluder_coverage": 0.042671341967924103
   },
   {
     "frame": 37,
@@ -1213,7 +1213,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03576399270080518
+    "occluder_coverage": 0.04552782812971551
   },
   {
     "frame": 38,
@@ -1245,7 +1245,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03735167067022691
+    "occluder_coverage": 0.04854906569780705
   },
   {
     "frame": 39,
@@ -1277,7 +1277,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03761972019753188
+    "occluder_coverage": 0.046826271360322955
   },
   {
     "frame": 40,
@@ -1309,7 +1309,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03833108240461045
+    "occluder_coverage": 0.046977600075360997
   },
   {
     "frame": 41,
@@ -1341,7 +1341,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.039135230986525354
+    "occluder_coverage": 0.04897078886814169
   },
   {
     "frame": 42,
@@ -1373,7 +1373,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03983628359639989
+    "occluder_coverage": 0.050707450624609844
   },
   {
     "frame": 43,
@@ -1405,7 +1405,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.040403311442621936
+    "occluder_coverage": 0.04966169359998397
   },
   {
     "frame": 44,
@@ -1437,7 +1437,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0418878934400033
+    "occluder_coverage": 0.052607933902140185
   },
   {
     "frame": 45,
@@ -1469,7 +1469,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.041145602441312615
+    "occluder_coverage": 0.0505356644343357
   },
   {
     "frame": 46,
@@ -1501,7 +1501,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0399496891656443
+    "occluder_coverage": 0.04953979777421846
   },
   {
     "frame": 47,
@@ -1533,7 +1533,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03966102044393126
+    "occluder_coverage": 0.049117872454919415
   },
   {
     "frame": 48,
@@ -1565,7 +1565,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.040011546748868525
+    "occluder_coverage": 0.048684424644627085
   },
   {
     "frame": 49,
@@ -1597,7 +1597,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0385372743486912
+    "occluder_coverage": 0.04821410486315831
   },
   {
     "frame": 50,
@@ -1629,7 +1629,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03723826510098251
+    "occluder_coverage": 0.045828949227659566
   },
   {
     "frame": 51,
@@ -1661,7 +1661,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03697021557367754
+    "occluder_coverage": 0.04576090588611314
   },
   {
     "frame": 52,
@@ -1693,7 +1693,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03901151582007691
+    "occluder_coverage": 0.04842498666322203
   },
   {
     "frame": 53,
@@ -1725,7 +1725,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03979504520758374
+    "occluder_coverage": 0.04898930571331584
   },
   {
     "frame": 54,
@@ -1757,7 +1757,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.040145571512521
+    "occluder_coverage": 0.04919452734236573
   },
   {
     "frame": 55,
@@ -1789,7 +1789,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03983628359639989
+    "occluder_coverage": 0.04843840935448361
   },
   {
     "frame": 56,
@@ -1821,7 +1821,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04058888419229461
+    "occluder_coverage": 0.04955386734216765
   },
   {
     "frame": 57,
@@ -1853,7 +1853,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04092910090002783
+    "occluder_coverage": 0.04952653680212867
   },
   {
     "frame": 58,
@@ -1885,7 +1885,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.041382723177005476
+    "occluder_coverage": 0.05072798895943206
   },
   {
     "frame": 59,
@@ -1917,7 +1917,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04181572625957504
+    "occluder_coverage": 0.051484228236693
   },
   {
     "frame": 60,
@@ -1949,7 +1949,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04259925564708187
+    "occluder_coverage": 0.05265184065729122
   },
   {
     "frame": 61,
@@ -1981,7 +1981,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04387764570038249
+    "occluder_coverage": 0.053528075560048634
   },
   {
     "frame": 62,
@@ -2013,7 +2013,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.046114828293658566
+    "occluder_coverage": 0.05646129746887254
   },
   {
     "frame": 63,
@@ -2045,7 +2045,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.044403435157788385
+    "occluder_coverage": 0.054297009792298026
   },
   {
     "frame": 64,
@@ -2077,7 +2077,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04624885305731105
+    "occluder_coverage": 0.056307623825843284
   },
   {
     "frame": 65,
@@ -2109,7 +2109,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04596018433559801
+    "occluder_coverage": 0.05594137033144552
   },
   {
     "frame": 66,
@@ -2141,7 +2141,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.044300339185748015
+    "occluder_coverage": 0.05344078763705416
   },
   {
     "frame": 67,
@@ -2173,7 +2173,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0429394723548151
+    "occluder_coverage": 0.05175336936840759
   },
   {
     "frame": 68,
@@ -2205,7 +2205,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.043052877924059506
+    "occluder_coverage": 0.05257377072709158
   },
   {
     "frame": 69,
@@ -2237,7 +2237,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.042320896522572864
+    "occluder_coverage": 0.05131866823453391
   },
   {
     "frame": 70,
@@ -2269,7 +2269,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0426920420219182
+    "occluder_coverage": 0.05215301787178772
   },
   {
     "frame": 71,
@@ -2301,7 +2301,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04375393053393404
+    "occluder_coverage": 0.05326475631851982
   },
   {
     "frame": 72,
@@ -2333,7 +2333,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.044104456838871306
+    "occluder_coverage": 0.05373224601448165
   },
   {
     "frame": 73,
@@ -2365,7 +2365,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04363021536748559
+    "occluder_coverage": 0.052386378636735745
   },
   {
     "frame": 74,
@@ -2397,7 +2397,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04466117508788932
+    "occluder_coverage": 0.05453679889432566
   },
   {
     "frame": 75,
@@ -2429,7 +2429,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04423848160252379
+    "occluder_coverage": 0.05401549714393835
   },
   {
     "frame": 76,
@@ -2461,7 +2461,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.044599317504665094
+    "occluder_coverage": 0.05409506297647773
   },
   {
     "frame": 77,
@@ -2493,7 +2493,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04460962710186913
+    "occluder_coverage": 0.05351849369911785
   },
   {
     "frame": 78,
@@ -2525,7 +2525,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.044207552810911675
+    "occluder_coverage": 0.053060868872637536
   },
   {
     "frame": 79,
@@ -2557,7 +2557,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04323845067373218
+    "occluder_coverage": 0.052575307059223725
   },
   {
     "frame": 80,
@@ -2589,7 +2589,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0430219491324474
+    "occluder_coverage": 0.05246230578790905
   },
   {
     "frame": 81,
@@ -2621,7 +2621,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04199098941204367
+    "occluder_coverage": 0.05145568480286541
   },
   {
     "frame": 82,
@@ -2653,7 +2653,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0425786364526738
+    "occluder_coverage": 0.052074584073451266
   },
   {
     "frame": 83,
@@ -2685,7 +2685,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.041341484788189324
+    "occluder_coverage": 0.05086646100031
   },
   {
     "frame": 84,
@@ -2717,7 +2717,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04048578822025423
+    "occluder_coverage": 0.04974655573540058
   },
   {
     "frame": 85,
@@ -2749,7 +2749,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.039846593193603924
+    "occluder_coverage": 0.048675813098727296
   },
   {
     "frame": 86,
@@ -2781,7 +2781,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.041114673649700506
+    "occluder_coverage": 0.04985652477224368
   },
   {
     "frame": 87,
@@ -2813,7 +2813,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0413621039825974
+    "occluder_coverage": 0.050196296752254496
   },
   {
     "frame": 88,
@@ -2845,7 +2845,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04237244450859305
+    "occluder_coverage": 0.05140607744690695
   },
   {
     "frame": 89,
@@ -2877,7 +2877,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04306318752126354
+    "occluder_coverage": 0.052311381370800526
   },
   {
     "frame": 90,
@@ -2909,7 +2909,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.043764240131138075
+    "occluder_coverage": 0.0535255284830922
   },
   {
     "frame": 91,
@@ -2941,7 +2941,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04322814107652814
+    "occluder_coverage": 0.05396617279653075
   },
   {
     "frame": 92,
@@ -2973,7 +2973,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04315597389609988
+    "occluder_coverage": 0.05629715250946706
   },
   {
     "frame": 93,
@@ -3005,7 +3005,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04360959617307752
+    "occluder_coverage": 0.061317441190317915
   },
   {
     "frame": 94,
@@ -3037,7 +3037,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.043568357784261366
+    "occluder_coverage": 0.0683966170775044
   },
   {
     "frame": 95,
@@ -3069,7 +3069,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.043104425910079694
+    "occluder_coverage": 0.07735913401000717
   },
   {
     "frame": 96,
@@ -3101,7 +3101,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04225903893934864
+    "occluder_coverage": 0.08655096872816262
   },
   {
     "frame": 97,
@@ -3133,7 +3133,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03912492138932132
+    "occluder_coverage": 0.09633089521466755
   },
   {
     "frame": 98,
@@ -3165,7 +3165,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03661968926874027
+    "occluder_coverage": 0.10419655186424348
   },
   {
     "frame": 99,
@@ -3197,7 +3197,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.035702135117580955
+    "occluder_coverage": 0.11832923072008496
   },
   {
     "frame": 100,
@@ -3229,7 +3229,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.036289782158211076
+    "occluder_coverage": 0.1361009548102052
   },
   {
     "frame": 101,
@@ -3261,7 +3261,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0374032186562471
+    "occluder_coverage": 0.15129774581665692
   },
   {
     "frame": 102,
@@ -3293,7 +3293,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04049609781745827
+    "occluder_coverage": 0.16545710833585542
   },
   {
     "frame": 103,
@@ -3325,7 +3325,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04056826499788653
+    "occluder_coverage": 0.1901296320666255
   },
   {
     "frame": 104,
@@ -3357,7 +3357,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.040506407414662306
+    "occluder_coverage": 0.19765875111962575
   },
   {
     "frame": 105,
@@ -3389,7 +3389,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04007340433209274
+    "occluder_coverage": 0.21371067267692798
   },
   {
     "frame": 106,
@@ -3421,7 +3421,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04074352815035517
+    "occluder_coverage": 0.23015314603419135
   },
   {
     "frame": 107,
@@ -3453,7 +3453,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.040155881109725046
+    "occluder_coverage": 0.24517976804211444
   },
   {
     "frame": 108,
@@ -3485,7 +3485,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04456838871305298
+    "occluder_coverage": 0.2683472523002635
   },
   {
     "frame": 109,
@@ -3517,7 +3517,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.049888140870336196
+    "occluder_coverage": 0.2719425120687567
   },
   {
     "frame": 110,
@@ -3549,7 +3549,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.042465230883429385
+    "occluder_coverage": 0.2541147118558138
   },
   {
     "frame": 111,
@@ -3581,7 +3581,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04480550944874584
+    "occluder_coverage": 0.2637675675030572
   },
   {
     "frame": 112,
@@ -3613,7 +3613,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.05333154633648463
+    "occluder_coverage": 0.2857703098559122
   },
   {
     "frame": 113,
@@ -3645,7 +3645,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.05312535439240389
+    "occluder_coverage": 0.2927909434028971
   },
   {
     "frame": 114,
@@ -3677,7 +3677,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.05039331113333402
+    "occluder_coverage": 0.29161653877708194
   },
   {
     "frame": 115,
@@ -3709,7 +3709,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04793962699877316
+    "occluder_coverage": 0.2929344691678935
   },
   {
     "frame": 116,
@@ -3741,7 +3741,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.055383156180088045
+    "occluder_coverage": 0.31882202946639326
   },
   {
     "frame": 117,
@@ -3773,7 +3773,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.05309442560079178
+    "occluder_coverage": 0.30323868920947117
   },
   {
     "frame": 118,
@@ -3805,7 +3805,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.05646566388651195
+    "occluder_coverage": 0.2885075281284784
   },
   {
     "frame": 119,
@@ -3837,7 +3837,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.051651081992226566
+    "occluder_coverage": 0.2535181702607355
   },
   {
     "frame": 120,
@@ -3869,7 +3869,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.049547924162602966
+    "occluder_coverage": 0.2288711577293294
   },
   {
     "frame": 121,
@@ -3901,7 +3901,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.049867521675928124
+    "occluder_coverage": 0.2064623789658127
   },
   {
     "frame": 122,
@@ -3933,7 +3933,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04812519974844583
+    "occluder_coverage": 0.19401732052757972
   },
   {
     "frame": 123,
@@ -3965,7 +3965,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.05469241316741755
+    "occluder_coverage": 0.19132639436795065
   },
   {
     "frame": 124,
@@ -3997,7 +3997,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.05599142241512624
+    "occluder_coverage": 0.16464378219094697
   },
   {
     "frame": 125,
@@ -4029,7 +4029,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04939328020454241
+    "occluder_coverage": 0.14107794318278863
   },
   {
     "frame": 126,
@@ -4061,7 +4061,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04836232048413869
+    "occluder_coverage": 0.13200319314503864
   },
   {
     "frame": 127,
@@ -4093,7 +4093,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.04853758363660732
+    "occluder_coverage": 0.13299538069400008
   },
   {
     "frame": 128,
@@ -4125,7 +4125,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03834139200181449
+    "occluder_coverage": 0.11972519061131028
   },
   {
     "frame": 129,
@@ -4157,7 +4157,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03667123725476046
+    "occluder_coverage": 0.12765460504438425
   },
   {
     "frame": 130,
@@ -4189,7 +4189,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.036145447797354555
+    "occluder_coverage": 0.11082372266617047
   },
   {
     "frame": 131,
@@ -4221,7 +4221,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03591863665886574
+    "occluder_coverage": 0.09629774278444347
   },
   {
     "frame": 132,
@@ -4253,7 +4253,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.036166066991762634
+    "occluder_coverage": 0.08278206299891736
   },
   {
     "frame": 133,
@@ -4285,7 +4285,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03581554068682537
+    "occluder_coverage": 0.06470424494632505
   },
   {
     "frame": 134,
@@ -4317,7 +4317,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03462993700836108
+    "occluder_coverage": 0.046645145887875376
   },
   {
     "frame": 135,
@@ -4349,7 +4349,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03469179459158531
+    "occluder_coverage": 0.043585014858959555
   },
   {
     "frame": 136,
@@ -4381,7 +4381,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03431033949503593
+    "occluder_coverage": 0.0430997764838896
   },
   {
     "frame": 137,
@@ -4413,7 +4413,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03391857480128251
+    "occluder_coverage": 0.04252033669122969
   },
   {
     "frame": 138,
@@ -4445,7 +4445,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.033124735816571646
+    "occluder_coverage": 0.04173219830732582
   },
   {
     "frame": 139,
@@ -4477,7 +4477,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03171232099961854
+    "occluder_coverage": 0.039785342057274055
   },
   {
     "frame": 140,
@@ -4509,7 +4509,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03159891543037414
+    "occluder_coverage": 0.04003758353553288
   },
   {
     "frame": 141,
@@ -4541,7 +4541,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03140303308349743
+    "occluder_coverage": 0.03956839578826668
   },
   {
     "frame": 142,
@@ -4573,7 +4573,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03354742930193717
+    "occluder_coverage": 0.04238639278716318
   },
   {
     "frame": 143,
@@ -4605,7 +4605,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.033908265204078476
+    "occluder_coverage": 0.042462966815023866
   },
   {
     "frame": 144,
@@ -4637,7 +4637,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03385671721805829
+    "occluder_coverage": 0.04262937584283481
   },
   {
     "frame": 145,
@@ -4669,7 +4669,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03434126828664804
+    "occluder_coverage": 0.043500718740644186
   },
   {
     "frame": 146,
@@ -4701,7 +4701,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03367114446838562
+    "occluder_coverage": 0.042656099935979346
   },
   {
     "frame": 147,
@@ -4733,7 +4733,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.031310246708661095
+    "occluder_coverage": 0.03975671776386051
   },
   {
     "frame": 148,
@@ -4765,7 +4765,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03169170180521047
+    "occluder_coverage": 0.040306360799111006
   },
   {
     "frame": 149,
@@ -4797,7 +4797,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03152674824994588
+    "occluder_coverage": 0.039750693724709844
   },
   {
     "frame": 150,
@@ -4829,7 +4829,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03206284730455581
+    "occluder_coverage": 0.04048599036921907
   },
   {
     "frame": 151,
@@ -4861,7 +4861,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03157829623596606
+    "occluder_coverage": 0.04030171137292091
   },
   {
     "frame": 152,
@@ -4893,7 +4893,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03228965844304463
+    "occluder_coverage": 0.04085454836181501
   },
   {
     "frame": 153,
@@ -4925,7 +4925,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03218656247100426
+    "occluder_coverage": 0.04103478437881745
   },
   {
     "frame": 154,
@@ -4957,7 +4957,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0315886058331701
+    "occluder_coverage": 0.040302398679401136
   },
   {
     "frame": 155,
@@ -4989,7 +4989,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.03039269255750178
+    "occluder_coverage": 0.038968215511819844
   },
   {
     "frame": 156,
@@ -5021,7 +5021,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.029928760683320104
+    "occluder_coverage": 0.0382698312682806
   },
   {
     "frame": 157,
@@ -5053,7 +5053,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02862975143561141
+    "occluder_coverage": 0.03626192603086365
   },
   {
     "frame": 158,
@@ -5085,7 +5085,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027598791715207686
+    "occluder_coverage": 0.034320366083689206
   },
   {
     "frame": 159,
@@ -5117,7 +5117,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026856500716517007
+    "occluder_coverage": 0.03303142385442686
   },
   {
     "frame": 160,
@@ -5149,7 +5149,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027578172520799613
+    "occluder_coverage": 0.03457539721766204
   },
   {
     "frame": 161,
@@ -5181,7 +5181,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02650597441157974
+    "occluder_coverage": 0.03344534407472066
   },
   {
     "frame": 162,
@@ -5213,7 +5213,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02609359052341825
+    "occluder_coverage": 0.03278455953863139
   },
   {
     "frame": 163,
@@ -5245,7 +5245,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026609070383620113
+    "occluder_coverage": 0.03344016906122216
   },
   {
     "frame": 164,
@@ -5277,7 +5277,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026897739105333156
+    "occluder_coverage": 0.03385938558439342
   },
   {
     "frame": 165,
@@ -5309,7 +5309,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02706269266059775
+    "occluder_coverage": 0.03378180081170901
   },
   {
     "frame": 166,
@@ -5341,7 +5341,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027371980576718868
+    "occluder_coverage": 0.033954436027635364
   },
   {
     "frame": 167,
@@ -5373,7 +5373,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027124550243821974
+    "occluder_coverage": 0.033484277965338316
   },
   {
     "frame": 168,
@@ -5405,7 +5405,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.028011175603369177
+    "occluder_coverage": 0.03443045640991111
   },
   {
     "frame": 169,
@@ -5437,7 +5437,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02751631493757539
+    "occluder_coverage": 0.03386104320590462
   },
   {
     "frame": 170,
@@ -5469,7 +5469,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02908337371258905
+    "occluder_coverage": 0.035561318148711586
   },
   {
     "frame": 171,
@@ -5501,7 +5501,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0279905564089611
+    "occluder_coverage": 0.03456278312225944
   },
   {
     "frame": 172,
@@ -5533,7 +5533,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.028609132241203337
+    "occluder_coverage": 0.03525506246706235
   },
   {
     "frame": 173,
@@ -5565,7 +5565,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027299813396290607
+    "occluder_coverage": 0.033337315667939564
   },
   {
     "frame": 174,
@@ -5597,7 +5597,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026464736022763592
+    "occluder_coverage": 0.032691813593588075
   },
   {
     "frame": 175,
@@ -5629,7 +5629,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026681237564048374
+    "occluder_coverage": 0.0328493280669485
   },
   {
     "frame": 176,
@@ -5661,7 +5661,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026454426425559553
+    "occluder_coverage": 0.03266387660665472
   },
   {
     "frame": 177,
@@ -5693,7 +5693,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025897708176541544
+    "occluder_coverage": 0.031592082795364455
   },
   {
     "frame": 178,
@@ -5725,7 +5725,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026464736022763592
+    "occluder_coverage": 0.03218526871762961
   },
   {
     "frame": 179,
@@ -5757,7 +5757,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026485355217171665
+    "occluder_coverage": 0.032065879539027585
   },
   {
     "frame": 180,
@@ -5789,7 +5789,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02669154716125241
+    "occluder_coverage": 0.03236210863202359
   },
   {
     "frame": 181,
@@ -5821,7 +5821,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026413188036743404
+    "occluder_coverage": 0.0322020470817068
   },
   {
     "frame": 182,
@@ -5853,7 +5853,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025959565759765765
+    "occluder_coverage": 0.03161217640246395
   },
   {
     "frame": 183,
@@ -5885,7 +5885,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026299782467498995
+    "occluder_coverage": 0.03202819897199165
   },
   {
     "frame": 184,
@@ -5917,7 +5917,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02669154716125241
+    "occluder_coverage": 0.03257691212200404
   },
   {
     "frame": 185,
@@ -5949,7 +5949,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02700083507737353
+    "occluder_coverage": 0.03285862691932859
   },
   {
     "frame": 186,
@@ -5981,7 +5981,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027052383063393713
+    "occluder_coverage": 0.03283242841349245
   },
   {
     "frame": 187,
@@ -6013,7 +6013,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027691578090044022
+    "occluder_coverage": 0.03306489972299524
   },
   {
     "frame": 188,
@@ -6045,7 +6045,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.027433838159943092
+    "occluder_coverage": 0.032765678825320416
   },
   {
     "frame": 189,
@@ -6077,7 +6077,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026938977494149304
+    "occluder_coverage": 0.032030948197912676
   },
   {
     "frame": 190,
@@ -6109,7 +6109,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02620699609266266
+    "occluder_coverage": 0.03126528877889281
   },
   {
     "frame": 191,
@@ -6141,7 +6141,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02609359052341825
+    "occluder_coverage": 0.03100322286094551
   },
   {
     "frame": 192,
@@ -6173,7 +6173,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025475014691176016
+    "occluder_coverage": 0.03073218152896175
   },
   {
     "frame": 193,
@@ -6205,7 +6205,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02512448838623875
+    "occluder_coverage": 0.030013663248529762
   },
   {
     "frame": 194,
@@ -6237,7 +6237,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02572244502407291
+    "occluder_coverage": 0.031003788878046803
   },
   {
     "frame": 195,
@@ -6269,7 +6269,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02609359052341825
+    "occluder_coverage": 0.031330582894518316
   },
   {
     "frame": 196,
@@ -6301,7 +6301,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02639256884233533
+    "occluder_coverage": 0.03190072383479813
   },
   {
     "frame": 197,
@@ -6333,7 +6333,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026609070383620113
+    "occluder_coverage": 0.03195870015789852
   },
   {
     "frame": 198,
@@ -6365,7 +6365,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02627916327309092
+    "occluder_coverage": 0.031506695072639125
   },
   {
     "frame": 199,
@@ -6397,7 +6397,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.026031732940194025
+    "occluder_coverage": 0.031194577071011028
   },
   {
     "frame": 200,
@@ -6429,7 +6429,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02565027784364465
+    "occluder_coverage": 0.030614652120835705
   },
   {
     "frame": 201,
@@ -6461,7 +6461,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025062630803014525
+    "occluder_coverage": 0.029882792008728003
   },
   {
     "frame": 202,
@@ -6493,7 +6493,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02493891563656608
+    "occluder_coverage": 0.029863951725210062
   },
   {
     "frame": 203,
@@ -6525,7 +6525,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02498015402538223
+    "occluder_coverage": 0.029674376426034578
   },
   {
     "frame": 204,
@@ -6557,7 +6557,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025258513149891235
+    "occluder_coverage": 0.030205906914040404
   },
   {
     "frame": 205,
@@ -6589,7 +6589,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.025000773219790304
+    "occluder_coverage": 0.029820853565917838
   },
   {
     "frame": 206,
@@ -6621,7 +6621,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.024093528665835025
+    "occluder_coverage": 0.029039305238265922
   },
   {
     "frame": 207,
@@ -6653,7 +6653,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.024289411012711735
+    "occluder_coverage": 0.02879992043416745
   },
   {
     "frame": 208,
@@ -6685,7 +6685,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0241141478602431
+    "occluder_coverage": 0.028692175035936955
   },
   {
     "frame": 209,
@@ -6717,7 +6717,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.024196624637875398
+    "occluder_coverage": 0.028694317814963743
   },
   {
     "frame": 210,
@@ -6749,7 +6749,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.024186315040671362
+    "occluder_coverage": 0.02887851595167596
   },
   {
     "frame": 211,
@@ -6781,7 +6781,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.023495572028000865
+    "occluder_coverage": 0.027959223319419364
   },
   {
     "frame": 212,
@@ -6813,7 +6813,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02251616029361733
+    "occluder_coverage": 0.02671168119814499
   },
   {
     "frame": 213,
@@ -6845,7 +6845,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.022413064321576956
+    "occluder_coverage": 0.026805720896563027
   },
   {
     "frame": 214,
@@ -6877,7 +6877,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.021907894058579132
+    "occluder_coverage": 0.0263070194004383
   },
   {
     "frame": 215,
@@ -6909,7 +6909,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.021897584461375096
+    "occluder_coverage": 0.026216901391937164
   },
   {
     "frame": 216,
@@ -6941,7 +6941,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0215676773508459
+    "occluder_coverage": 0.025769505303074838
   },
   {
     "frame": 217,
@@ -6973,7 +6973,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02123777024031671
+    "occluder_coverage": 0.0254109334693391
   },
   {
     "frame": 218,
@@ -7005,7 +7005,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.02034083528356547
+    "occluder_coverage": 0.02430295499335232
   },
   {
     "frame": 219,
@@ -7037,7 +7037,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.0197944266317515
+    "occluder_coverage": 0.02358221307430773
   },
   {
     "frame": 220,
@@ -7069,7 +7069,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.019361423549181935
+    "occluder_coverage": 0.02294301804765741
   },
   {
     "frame": 221,
@@ -7101,7 +7101,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.018505726981246844
+    "occluder_coverage": 0.022014466992813807
   },
   {
     "frame": 222,
@@ -7133,7 +7133,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.017598482427291565
+    "occluder_coverage": 0.021049973852031417
   },
   {
     "frame": 223,
@@ -7165,7 +7165,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.017299504108374487
+    "occluder_coverage": 0.02073971562087934
   },
   {
     "frame": 224,
@@ -7197,7 +7197,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.016794333845376663
+    "occluder_coverage": 0.02021526034664102
   },
   {
     "frame": 225,
@@ -7229,7 +7229,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.01676340505376455
+    "occluder_coverage": 0.020293128127876193
   },
   {
     "frame": 226,
@@ -7261,7 +7261,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.01660876109570399
+    "occluder_coverage": 0.02000943227069686
   },
   {
     "frame": 227,
@@ -7293,7 +7293,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.01669123787333629
+    "occluder_coverage": 0.02011390285569781
   },
   {
     "frame": 228,
@@ -7325,7 +7325,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.016784024248172623
+    "occluder_coverage": 0.020194843301197744
   },
   {
     "frame": 229,
@@ -7357,7 +7357,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.016072662041094053
+    "occluder_coverage": 0.019272073706746967
   },
   {
     "frame": 230,
@@ -7389,7 +7389,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.015567491778096229
+    "occluder_coverage": 0.01868960167961534
   },
   {
     "frame": 231,
@@ -7421,7 +7421,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.014990154334670144
+    "occluder_coverage": 0.017991257865868887
   },
   {
     "frame": 232,
@@ -7453,7 +7453,7 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.01403136179469468
+    "occluder_coverage": 0.01684535624408841
   },
   {
     "frame": 233,
@@ -7485,6 +7485,6 @@
     "reprojection_error": 0.0,
     "ecc": 1.0,
     "plaque_visibility": 1.0,
-    "occluder_coverage": 0.013278761198799963
+    "occluder_coverage": 0.015796647844576548
   }
 ]

@@ -10,8 +10,8 @@ surface_space = "scene-plane"
 trajectory_model = "reviewed-dense-quad-track-234-frames"
 loop_closed = false
 has_occluder = true
-occlusion_mode = "declared-only"
-automatic_ml_foreground = false
+occlusion_mode = "automatic"
+automatic_ml_foreground = true
 analysis_gate_passed = true
 
 [source]
@@ -73,8 +73,8 @@ guide_keyframes = 0
 
 [scenes.manifest]
 path = "../../scenes/16_9_dungeon_spider_iron_plaque/scene.toml"
-sha256 = "4b006775b507bdb118a1a9e4a4fce4ab83c0333ed80c7fe2c7a91e5af16a9f6a"
-semantic_sha256 = "6cadc6fe221877d50e90942d97edb223e451c032c27ec1706117f7b3f83c5065"
+sha256 = "a6baac3a3f5382c82ff9f242571e5f235c4135e9ae13479e2616ebbb7ccde83b"
+semantic_sha256 = "0487d7b4ee52275c7ba1811cbf2b393902d2539eb59d3308734d24b93f06a0bb"
 
 [scenes.trajectory]
 path = "../../scenes/16_9_dungeon_spider_iron_plaque/trajectory.toml"
@@ -83,12 +83,12 @@ semantic_sha256 = "88df1a2a59cad36559ec2917f95c314c6c771dab8c89cf5dc02e3a4caa227
 
 [[scenes.layer_artifacts]]
 path = "layers/spider/artifact.toml"
-sha256 = "73801c40361dc4bc12b50683a0006612c034dc99cee844616712200e56637582"
+sha256 = "726e20925bdeeac6ea12cea58a1054ce89c0b60bf3a86e18c6641bdd1efda50a"
 semantic_sha256 = "ec2efae78f6dd31db9b399028029e67d2d3a4994f5994b933a2a7abeb9fe0587"
 
 [confidence]
 plaque_detection = 0.98
 motion = 0.99
 extraction = 0.9668860006374616
-occlusion = 0.8270085775520927
-overall = 0.9385051045918964
+occlusion = 0.8869806282018807
+overall = 0.9550754226801019

@@ -40,6 +40,22 @@ pub fn has_authored_opaque_source_foreground(inputs: &[LayerInput]) -> bool {
     })
 }
 
+/// Return the calibration policy that may safely be applied after authored opaque
+/// masks have been projected into source coordinates. Different policies cannot be
+/// collapsed into one without changing at least one layer's declared semantics.
+pub fn shared_authored_opaque_source_matte(inputs: &[LayerInput]) -> Option<LayerMatte> {
+    let mut mattes = inputs
+        .iter()
+        .filter(|input| {
+            input.scene.role == LayerRole::Foreground
+                && input.scene.matte.mode == LayerMatteMode::Opaque
+                && input.artifact.coordinates == LayerCoordinates::SourcePixels
+        })
+        .map(|input| input.scene.matte);
+    let first = mattes.next()?;
+    mattes.all(|matte| matte == first).then_some(first)
+}
+
 pub(crate) fn source_opaque_foreground_mask(
     inputs: &[LayerInput],
     frame: usize,
@@ -736,6 +752,7 @@ mod tests {
     use super::{
         LayerInput, alpha_over, apply_matte_policy, build_tracking_exclusions,
         exclude_outside_surface_support, has_authored_foreground, intersect, package,
+        shared_authored_opaque_source_matte,
     };
     use crate::{
         model::{Mat3, MotionSample, RectF},
@@ -781,6 +798,39 @@ mod tests {
         );
 
         assert!(!has_authored_foreground(&[shadow, writing_surface]));
+    }
+
+    #[test]
+    fn projected_authored_detail_uses_only_a_shared_opaque_matte_policy() {
+        let policy = LayerMatte {
+            mode: LayerMatteMode::Opaque,
+            support_threshold: 0.03,
+            solid_threshold: 0.20,
+        };
+        let mut inputs = vec![
+            layer_input(
+                LayerRole::Foreground,
+                LayerCoordinates::SourcePixels,
+                LayerArtifactKind::AlphaImage,
+                None,
+                None,
+            ),
+            layer_input(
+                LayerRole::Foreground,
+                LayerCoordinates::SourcePixels,
+                LayerArtifactKind::AlphaSequence,
+                Some(0),
+                Some(1),
+            ),
+        ];
+        for input in &mut inputs {
+            input.scene.matte = policy;
+        }
+
+        assert_eq!(shared_authored_opaque_source_matte(&inputs), Some(policy));
+
+        inputs[1].scene.matte.solid_threshold = 0.35;
+        assert_eq!(shared_authored_opaque_source_matte(&inputs), None);
     }
 
     #[test]

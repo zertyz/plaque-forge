@@ -9,6 +9,10 @@ use anyhow::{Context, Result};
 use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
+    analysis::{
+        AUTHORED_OCCLUDER_WORK_DIR, AUTOMATIC_MATERIAL_WORK_DIR, AUTOMATIC_OCCLUDER_WORK_DIR,
+        OCCLUDER_DIR,
+    },
     color::Rgba,
     layers::{self, LayerInput},
     model::{MotionSample, RectF},
@@ -196,8 +200,20 @@ pub fn extract(
     automatic_candidates: bool,
     progress: &mut ProgressReporter,
 ) -> Result<OcclusionResult> {
-    let masks_dir = output_root.join("occluder");
+    let masks_dir = output_root.join(OCCLUDER_DIR);
+    let automatic_masks_dir = output_root.join(AUTOMATIC_OCCLUDER_WORK_DIR);
+    let automatic_material_dir = output_root.join(AUTOMATIC_MATERIAL_WORK_DIR);
+    let authored_masks_dir = output_root.join(AUTHORED_OCCLUDER_WORK_DIR);
     fs::create_dir_all(&masks_dir)?;
+    if automatic_candidates {
+        fs::create_dir_all(&automatic_masks_dir)?;
+        fs::create_dir_all(&automatic_material_dir)?;
+    }
+    let has_authored_channel = layers::has_authored_opaque_source_foreground(authored_layers);
+    let authored_matte = layers::shared_authored_opaque_source_matte(authored_layers);
+    if has_authored_channel {
+        fs::create_dir_all(&authored_masks_dir)?;
+    }
     let width = extraction.median.width() as usize;
     let height = extraction.median.height() as usize;
     // The robust median is the canonical plaque appearance for the supported
@@ -206,7 +222,8 @@ pub fn extract(
     let mut decoder = Decoder::spawn(ffmpeg, input, info)?;
     let mut structural_scores = Vec::with_capacity(info.frames);
     let mut residuals = Vec::with_capacity(info.frames);
-    let mut canonical_masks = Vec::with_capacity(info.frames);
+    let mut automatic_masks = Vec::with_capacity(info.frames);
+    let mut authored_masks = Vec::with_capacity(info.frames);
     let structural_guard = dilate(&extraction.structural_mask, width, height, 4);
 
     for (frame_index, sample) in motion.iter().take(info.frames).enumerate() {
@@ -307,19 +324,33 @@ pub fn extract(
         } else {
             vec![0_u8; residual.len()]
         };
+        let mut authored = vec![0_u8; residual.len()];
         if let Some(semantic) = authored_foreground.as_deref() {
-            recover_authored_photometric_detail(
+            let authored_exclusion_radius = (width.min(height) / 24).clamp(3, 12);
+            remove_known_foreground(
                 &mut selected,
+                semantic,
+                width,
+                height,
+                authored_exclusion_radius,
+            );
+            recover_authored_photometric_detail(
+                &mut authored,
                 &authored_photometric,
                 semantic,
                 width,
                 height,
             );
         }
-        let candidate_coverage = selected.iter().filter(|&&value| value > 0).count() as f64
+        let candidate_coverage = selected
+            .iter()
+            .zip(&authored)
+            .filter(|(automatic, authored)| **automatic > 0 || **authored > 0)
+            .count() as f64
             / selected.len().max(1) as f64;
         residuals.push(residual);
-        canonical_masks.push(selected);
+        automatic_masks.push(selected);
+        authored_masks.push(authored);
         progress.update(
             frame_index + 1,
             format!("candidate coverage {:.3}%", candidate_coverage * 100.0),
@@ -328,14 +359,17 @@ pub fn extract(
     decoder.finish()?;
 
     // An authored opaque layer already supplies an identity observation on every
-    // frame. Its photometric detail is therefore frame-exact and must not be
-    // expanded from neighboring residuals: doing that turns a moving cast shadow
-    // into an opaque halo. Automatic candidates still need temporal recovery.
-    let canonical_masks = if automatic_candidates {
-        recover_temporal_details(&canonical_masks, &residuals, width, height)
-    } else {
-        canonical_masks
-    };
+    // frame. Keep that detail in a separate channel so temporal recovery can only
+    // expand genuinely automatic foreground. Otherwise a moving cast shadow near
+    // an authored spider becomes an opaque halo and the authored actor can also
+    // dominate prompts intended for an unrelated crossing web.
+    let (automatic_masks, canonical_masks) = merge_temporal_foreground_channels(
+        &automatic_masks,
+        &authored_masks,
+        &residuals,
+        width,
+        height,
+    );
     let mut coverages = Vec::with_capacity(canonical_masks.len());
     let mut content_coverages = Vec::with_capacity(canonical_masks.len());
     let mut temporal_agreement = Vec::new();
@@ -381,6 +415,40 @@ pub fn extract(
             &full.alpha_mask(),
             &masks_dir.join(format!("{frame_index:06}.png")),
         )?;
+        if automatic_candidates {
+            save_canonical_source_mask(
+                &automatic_masks[frame_index],
+                width,
+                height,
+                info,
+                rect,
+                motion[frame_index].transform,
+                None,
+                &automatic_masks_dir.join(format!("{frame_index:06}.png")),
+            )?;
+            save_canonical_source_mask(
+                &residuals[frame_index],
+                width,
+                height,
+                info,
+                rect,
+                motion[frame_index].transform,
+                None,
+                &automatic_material_dir.join(format!("{frame_index:06}.png")),
+            )?;
+        }
+        if has_authored_channel {
+            save_canonical_source_mask(
+                &authored_masks[frame_index],
+                width,
+                height,
+                info,
+                rect,
+                motion[frame_index].transform,
+                authored_matte,
+                &authored_masks_dir.join(format!("{frame_index:06}.png")),
+            )?;
+        }
     }
 
     let max_coverage = coverages.iter().copied().fold(0.0, f64::max);
@@ -415,6 +483,15 @@ pub fn extract(
         // Candidate masks remain visible in diagnostics, but are not allowed to
         // contaminate rendering when temporal evidence is weak.
         crate::staged_output::remove_child(output_root, &masks_dir)?;
+        for working in [
+            &automatic_masks_dir,
+            &automatic_material_dir,
+            &authored_masks_dir,
+        ] {
+            if working.exists() {
+                crate::staged_output::remove_child(output_root, working)?;
+            }
+        }
         for sample in motion.iter_mut() {
             sample.occluder_coverage = 0.0;
         }
@@ -693,6 +770,78 @@ fn neighbors(x: usize, y: usize, w: usize, h: usize) -> impl Iterator<Item = (us
     v.into_iter()
 }
 
+fn merge_temporal_foreground_channels(
+    automatic: &[Vec<u8>],
+    authored: &[Vec<u8>],
+    residuals: &[Vec<u8>],
+    width: usize,
+    height: usize,
+) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let recovered_automatic = recover_temporal_details(automatic, residuals, width, height);
+    let combined = recovered_automatic
+        .iter()
+        .zip(authored)
+        .map(|(automatic, authored)| {
+            automatic
+                .iter()
+                .zip(authored)
+                .map(|(&automatic, &authored)| automatic.max(authored))
+                .collect()
+        })
+        .collect();
+    (recovered_automatic, combined)
+}
+
+fn remove_known_foreground(
+    automatic: &mut [u8],
+    authored: &[u8],
+    width: usize,
+    height: usize,
+    radius: usize,
+) {
+    if automatic.len() != authored.len()
+        || automatic.len() != width.saturating_mul(height)
+        || automatic.is_empty()
+    {
+        return;
+    }
+    let authored_support = dilate(authored, width, height, radius);
+    for (automatic, authored) in automatic.iter_mut().zip(authored_support) {
+        if authored > 0 {
+            *automatic = 0;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_canonical_source_mask(
+    mask: &[u8],
+    width: usize,
+    height: usize,
+    info: &VideoInfo,
+    rect: RectF,
+    transform: crate::model::Mat3,
+    matte: Option<crate::scene::LayerMatte>,
+    path: &Path,
+) -> Result<()> {
+    let canonical = Surface::from_alpha_mask(
+        width as u32,
+        height as u32,
+        mask,
+        Rgba::new(255, 255, 255, 255),
+    )?;
+    let mut full = Surface::new(info.width, info.height);
+    full.warp_blend(&canonical, transformed_rect(rect, transform), 1.0)?;
+    let mut alpha = full.alpha_mask();
+    if let Some(matte) = matte {
+        // Projection interpolation must not silently turn declared opaque material
+        // into translucent detail. Reapply the shared authored policy only to this
+        // channel; automatic web material keeps its measured porous alpha.
+        layers::apply_matte_policy(&mut alpha, matte);
+    }
+    save_luma(info.width, info.height, &alpha, path)
+}
+
 fn recover_temporal_details(
     selected: &[Vec<u8>],
     residuals: &[Vec<u8>],
@@ -903,8 +1052,9 @@ fn save_luma(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
 mod tests {
     use super::{
         authored_material_changed, classify_occluder, local_range, mask_iou,
-        recover_authored_photometric_detail, recover_temporal_details,
-        select_foreground_components, smooth_visibility, structural_match_score, tracking_presence,
+        merge_temporal_foreground_channels, recover_authored_photometric_detail,
+        recover_temporal_details, remove_known_foreground, select_foreground_components,
+        smooth_visibility, structural_match_score, tracking_presence,
     };
 
     fn cavity(width: usize, height: usize) -> Vec<u8> {
@@ -1005,6 +1155,52 @@ mod tests {
         let recovered = recover_temporal_details(&selected, &residuals, width, height);
 
         assert!(recovered[1][10 * width + 22] > 0);
+    }
+
+    #[test]
+    fn automatic_temporal_recovery_cannot_spread_authored_detail() {
+        let (width, height) = (24, 12);
+        let automatic = vec![vec![0_u8; width * height]; 3];
+        let mut authored = automatic.clone();
+        let mut residuals = automatic.clone();
+        authored[1][6 * width + 12] = 255;
+        for residual in &mut residuals {
+            residual[6 * width + 13] = 255;
+        }
+
+        let (recovered_automatic, combined) =
+            merge_temporal_foreground_channels(&automatic, &authored, &residuals, width, height);
+
+        assert!(
+            recovered_automatic
+                .iter()
+                .flatten()
+                .all(|&alpha| alpha == 0)
+        );
+        assert_eq!(combined[0][6 * width + 13], 0);
+        assert_eq!(combined[1][6 * width + 12], 255);
+        assert_eq!(combined[2][6 * width + 13], 0);
+    }
+
+    #[test]
+    fn authored_foreground_is_removed_from_automatic_discovery_only() {
+        let (width, height) = (12, 5);
+        let mut automatic = vec![0_u8; width * height];
+        automatic[2 * width + 1] = 255;
+        automatic[2 * width + 8] = 255;
+        let mut authored = vec![0_u8; width * height];
+        authored[2 * width + 8] = 255;
+
+        remove_known_foreground(&mut automatic, &authored, width, height, 1);
+
+        assert_eq!(automatic[2 * width + 1], 255, "remote web material remains");
+        assert_eq!(automatic[2 * width + 7], 0);
+        assert_eq!(
+            automatic[2 * width + 8],
+            0,
+            "known spider is not rediscovered"
+        );
+        assert_eq!(automatic[2 * width + 9], 0);
     }
 
     #[test]

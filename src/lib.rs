@@ -21,8 +21,9 @@
 //!   segmentation with prompt support.
 //! - **Rendering (`render`)**: Line-breaking typography fitting (`typography`), effect
 //!   shaders (`effects`), projective warping, and linear-light layer compositing.
-//! - **Verification (`verify`)**: Automated quality scorecards measuring tracking lock,
-//!   temporal stability, occlusion restoration, and trajectory curvature.
+//! - **Verification (`verify`)**: Automated quality scorecards measuring independent
+//!   source-motion lock, rendered title stability, occlusion restoration, and trajectory
+//!   dynamics.
 //! - **Homologation (`homologation`)**: Executable acceptance contracts protecting
 //!   previously accepted geometry, typography, provenance, and foreground ordering.
 //! - **Safety & Staging (`staged_output`)**: Lease-held atomic file staging preventing

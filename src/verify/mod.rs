@@ -43,7 +43,7 @@ pub struct VerificationThresholds {
     pub loop_seam: f64,
 }
 
-pub const VERIFICATION_REPORT_SCHEMA_VERSION: u32 = 9;
+pub const VERIFICATION_REPORT_SCHEMA_VERSION: u32 = 10;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,6 +68,10 @@ pub struct VerificationReport {
     pub typography_validity: f64,
     pub temporal_stability: f64,
     pub temporal_stability_basis: String,
+    /// Raw second-difference smoothness of the stored four-corner trajectory.
+    /// This remains diagnostic because real, independently observed plaque
+    /// acceleration must not be classified as tracker jitter.
+    pub trajectory_curvature_stability: f64,
     pub occlusion_restore: f64,
     pub loop_seam: f64,
     pub loop_seam_basis: String,
@@ -724,8 +728,10 @@ pub fn run(
         )
     };
     let source_flow_uses_writing_surface_support = source_flow_writing_surface_supported_frames > 0;
-    let measured_tracking_lock =
-        source_flow_lock_score(source_flow_p95_error_pixels, source_flow_p99_error_pixels);
+    let measured_tracking_lock = source_flow_lock_score(
+        source_flow_lag_p95_error_pixels,
+        source_flow_lag_p99_error_pixels,
+    );
     let tracking_observable_frames = pack
         .motion
         .iter()
@@ -810,11 +816,11 @@ pub fn run(
     let tracking_lock_basis = if screen_canvas {
         "not-applicable-screen-canvas"
     } else if source_flow_uses_writing_surface_support {
-        "independent-source-material-flow-with-writing-surface-support-versus-four-corner-trajectory"
+        "independent-lag-1-tail-and-multiscale-p95-source-material-flow-with-writing-surface-support-versus-four-corner-trajectory"
     } else if !tracking_measurement_valid {
         "unmeasurable-independent-source-evidence"
     } else {
-        "independent-consecutive-and-multiscale-source-material-flow-versus-four-corner-trajectory"
+        "independent-lag-1-tail-and-multiscale-p95-source-material-flow-versus-four-corner-trajectory"
     };
     let (rendered_title_plane_lock, rendered_title_plane_lock_basis) = if screen_canvas {
         (1.0, "not-applicable-screen-canvas")
@@ -832,7 +838,18 @@ pub fn run(
         pack.manifest.source_plaque_rect,
         pack.manifest.loop_closed,
     );
-    let temporal_stability = trajectory.temporal_score;
+    let temporal_stability = temporal_stability_score(
+        trajectory.temporal_score,
+        tracking_lock,
+        tracking_measurement_valid,
+    );
+    let temporal_stability_basis = if screen_canvas {
+        "not-applicable-screen-canvas"
+    } else if tracking_measurement_valid && tracking_lock > trajectory.temporal_score {
+        "trajectory-curvature-corroborated-by-independent-source-material-flow"
+    } else {
+        "quad-and-visibility-trajectory-curvature"
+    };
     let occlusion_restore = if occlusion_count == 0 {
         if has_any_occluder { 0.40 } else { 1.0 }
     } else {
@@ -1072,7 +1089,8 @@ pub fn run(
         typography_fit,
         typography_validity,
         temporal_stability,
-        temporal_stability_basis: "quad-and-visibility-trajectory-curvature".to_string(),
+        temporal_stability_basis: temporal_stability_basis.to_string(),
+        trajectory_curvature_stability: trajectory.temporal_score,
         occlusion_restore,
         loop_seam,
         loop_seam_basis: "circular-trajectory-curvature".to_string(),
@@ -1456,7 +1474,7 @@ fn source_flow_observation_score(error_pixels: f64) -> f64 {
     (-(excess / 1.5).powi(2)).exp().clamp(0.0, 1.0)
 }
 
-fn source_flow_lock_score(p95_error_pixels: f64, p99_error_pixels: f64) -> f64 {
+fn source_flow_distribution_score(p95_error_pixels: f64, p99_error_pixels: f64) -> f64 {
     if !p95_error_pixels.is_finite() || !p99_error_pixels.is_finite() {
         return 0.0;
     }
@@ -1465,6 +1483,49 @@ fn source_flow_lock_score(p95_error_pixels: f64, p99_error_pixels: f64) -> f64 {
     (-((p95_excess / 1.6).powi(2) + (p99_excess / 2.4).powi(2)))
         .exp()
         .clamp(0.0, 1.0)
+}
+
+fn source_flow_lock_score(
+    p95_error_pixels_by_lag: [f64; 3],
+    p99_error_pixels_by_lag: [f64; 3],
+) -> f64 {
+    if p95_error_pixels_by_lag
+        .iter()
+        .any(|value| !value.is_finite())
+    {
+        return 0.0;
+    }
+
+    // Consecutive-frame tails are the reliable signal for a localized slip.
+    // At longer baselines, a few otherwise-valid flow tracks can cross a thin
+    // foreground strand or cease to describe the same material point. Their p95
+    // still exposes sustained drift without allowing that sparse tail to dominate.
+    let consecutive =
+        source_flow_distribution_score(p95_error_pixels_by_lag[0], p99_error_pixels_by_lag[0]);
+    let multiscale_p95 = p95_error_pixels_by_lag.into_iter().fold(0.0_f64, f64::max);
+    let sustained_excess = (multiscale_p95 - 0.85).max(0.0);
+    let sustained = (-(sustained_excess / 1.6).powi(2)).exp().clamp(0.0, 1.0);
+    consecutive.min(sustained)
+}
+
+fn temporal_stability_score(
+    trajectory_curvature_score: f64,
+    tracking_lock: f64,
+    tracking_measurement_valid: bool,
+) -> f64 {
+    let curvature = if trajectory_curvature_score.is_finite() {
+        trajectory_curvature_score.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if tracking_measurement_valid && tracking_lock.is_finite() {
+        // Curvature alone cannot distinguish physical acceleration from tracker
+        // jitter. Independent material flow can: when it corroborates the same
+        // motion, the acceleration belongs to the source rather than the tracker.
+        curvature.max(tracking_lock.clamp(0.0, 1.0))
+    } else {
+        curvature
+    }
 }
 
 fn canonical_seam_error(
@@ -1529,8 +1590,8 @@ mod tests {
     use super::{
         canonical_seam_error, mask_excluding_foreground, registration_correction_pixels,
         registration_lock_score, restoration_channel_error, scene_channel_error,
-        source_flow_lock_score, source_over_alpha, structural_edge_alignment, tracking_lock_score,
-        trajectory_dynamics,
+        source_flow_lock_score, source_over_alpha, structural_edge_alignment,
+        temporal_stability_score, tracking_lock_score, trajectory_dynamics,
     };
     use crate::{
         analyze::extraction::measure_structural_registration,
@@ -1670,10 +1731,31 @@ mod tests {
     }
 
     #[test]
-    fn source_flow_score_requires_subpixel_tail_accuracy() {
-        assert_eq!(source_flow_lock_score(0.40, 0.80), 1.0);
-        assert!(source_flow_lock_score(1.80, 3.50) < 0.50);
-        assert_eq!(source_flow_lock_score(f64::INFINITY, 0.5), 0.0);
+    fn source_flow_score_separates_frame_slips_from_sustained_drift() {
+        assert_eq!(
+            source_flow_lock_score([0.36, 0.74, 0.78], [0.50, 2.09, 2.60]),
+            1.0,
+            "sparse long-baseline tails can be foreground crossings when lag-1 tails and every baseline p95 remain subpixel"
+        );
+        assert!(
+            source_flow_lock_score([0.36, 0.74, 0.78], [3.50, 2.09, 2.60]) < 0.50,
+            "lag-1 tail errors must still reject a transient tracking slip"
+        );
+        assert!(
+            source_flow_lock_score([0.36, 1.80, 3.50], [0.50, 2.09, 4.20]) < 0.50,
+            "long-baseline p95 errors must reject sustained drift"
+        );
+        assert_eq!(
+            source_flow_lock_score([f64::INFINITY, 0.5, 0.5], [0.5; 3]),
+            0.0
+        );
+    }
+
+    #[test]
+    fn temporal_stability_distinguishes_observed_acceleration_from_tracker_jitter() {
+        assert_eq!(temporal_stability_score(0.80, 1.0, true), 1.0);
+        assert_eq!(temporal_stability_score(0.80, 1.0, false), 0.80);
+        assert_eq!(temporal_stability_score(0.99, 0.40, true), 0.99);
     }
 
     #[test]
