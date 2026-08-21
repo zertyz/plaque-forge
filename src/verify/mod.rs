@@ -43,7 +43,7 @@ pub struct VerificationThresholds {
     pub loop_seam: f64,
 }
 
-pub const VERIFICATION_REPORT_SCHEMA_VERSION: u32 = 10;
+pub const VERIFICATION_REPORT_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -52,6 +52,8 @@ pub struct VerificationReport {
     pub program_version: String,
     pub source_sha256: String,
     pub analysis_manifest_sha256: String,
+    pub analysis_inputs_sha256: String,
+    pub renderer_source_sha256: String,
     pub render_manifest_sha256: String,
     pub rendered_sha256: String,
     pub passed: bool,
@@ -178,19 +180,26 @@ pub fn run(
     let rendered_sha256 = crate::digest::file_sha256(&args.rendered)?;
     let analysis_manifest_sha256 =
         crate::digest::file_sha256(&pack.root.join(crate::analysis::MANIFEST_FILE))?;
+    let analysis_inputs_sha256 =
+        pack.render_inputs_sha256(manifest.used_analysis_occluder_masks)?;
     let render_manifest_sha256 = crate::digest::bytes_sha256(&manifest_bytes);
     if source_sha256 != pack.manifest.source.sha256
         || manifest.source_sha256 != source_sha256
         || manifest.analysis_manifest_sha256 != analysis_manifest_sha256
+        || manifest.analysis_inputs_sha256 != analysis_inputs_sha256
         || manifest.rendered_sha256 != rendered_sha256
         || manifest.frames != rendered_info.frames
         || manifest.analyzer_build != pack.manifest.analyzer_build
         || manifest.renderer_build != crate::build_info::RENDERER_BUILD_VERSION
+        || manifest.renderer_source_sha256 != crate::build_info::RENDERER_SOURCE_SHA256
+        || manifest.used_analysis_occluder_masks
+            != (crate::render::should_use_analysis_occluders(&pack)
+                && pack.root.join(crate::analysis::OCCLUDER_DIR).is_dir())
         || manifest.used_injected_surface != pack.manifest.injected_surface.is_some()
     {
         bail!("render manifest provenance does not match the source, analysis, or rendered video");
     }
-    crate::render::load_decision_trace(&manifest_path, &manifest)?;
+    let decision_trace = crate::render::load_decision_trace(&manifest_path, &manifest)?;
     let text_mask_path = manifest.canonical_text_mask.resolve_from(&manifest_path);
     let text_mask_image = image::open(&text_mask_path)
         .with_context(|| {
@@ -263,7 +272,7 @@ pub fn run(
     )?;
     let registration_template = load_rgba(&pack.require_asset(REGISTRATION_TEMPLATE_FILE)?)?;
     let structural_matcher = StructuralMatcher::new(&registration_template, &registration_mask);
-    let foregrounds = ForegroundReader::open(&pack)?;
+    let foregrounds = ForegroundReader::open(&pack, manifest.used_analysis_occluder_masks)?;
     let has_any_occluder = pack.manifest.has_occluder || !foregrounds.is_empty();
     let writing_surface_layer = pack.manifest.layers.iter().find(|layer| {
         layer.role == crate::scene::LayerRole::WritingSurface
@@ -380,7 +389,7 @@ pub fn run(
         let mut source_occluder = foregrounds
             .frame_mask(frame_index, sample.transform)?
             .unwrap_or_default();
-        if pack.manifest.has_occluder {
+        if manifest.used_analysis_occluder_masks {
             let path = pack
                 .root
                 .join(OCCLUDER_DIR)
@@ -806,22 +815,6 @@ pub fn run(
             && source_flow_median_spatial_coverage >= 0.42
             && source_flow_median_inlier_fraction >= 0.65
             && source_flow_p99_error_pixels.is_finite());
-    let tracking_lock = if screen_canvas {
-        1.0
-    } else if !tracking_measurement_valid {
-        0.0
-    } else {
-        measured_tracking_lock
-    };
-    let tracking_lock_basis = if screen_canvas {
-        "not-applicable-screen-canvas"
-    } else if source_flow_uses_writing_surface_support {
-        "independent-lag-1-tail-and-multiscale-p95-source-material-flow-with-writing-surface-support-versus-four-corner-trajectory"
-    } else if !tracking_measurement_valid {
-        "unmeasurable-independent-source-evidence"
-    } else {
-        "independent-lag-1-tail-and-multiscale-p95-source-material-flow-versus-four-corner-trajectory"
-    };
     let (rendered_title_plane_lock, rendered_title_plane_lock_basis) = if screen_canvas {
         (1.0, "not-applicable-screen-canvas")
     } else if title_plane_lock_count < 12 {
@@ -832,6 +825,22 @@ pub fn run(
             "source-subtracted-title-registration-in-expected-surface-coordinates",
         )
     };
+    let fully_reviewed_trajectory = is_fully_reviewed_trajectory(
+        &decision_trace.tracking.trajectory_model,
+        decision_trace.tracking.locked_keyframes,
+        decision_trace.tracking.guide_keyframes,
+        rendered_info.frames,
+        &pack.motion,
+    );
+    let reviewed_title_evidence = fully_reviewed_trajectory && title_plane_lock_count >= 12;
+    let (tracking_lock, tracking_lock_basis) = authoritative_tracking_lock(
+        screen_canvas,
+        reviewed_title_evidence,
+        rendered_title_plane_lock,
+        tracking_measurement_valid,
+        measured_tracking_lock,
+        source_flow_uses_writing_surface_support,
+    );
     let scene_integrity = (-untouched_error / 1.5).exp().clamp(0.0, 1.0);
     let trajectory = trajectory_dynamics(
         &pack.motion,
@@ -841,10 +850,12 @@ pub fn run(
     let temporal_stability = temporal_stability_score(
         trajectory.temporal_score,
         tracking_lock,
-        tracking_measurement_valid,
+        tracking_measurement_valid || reviewed_title_evidence,
     );
     let temporal_stability_basis = if screen_canvas {
         "not-applicable-screen-canvas"
+    } else if reviewed_title_evidence && tracking_lock > trajectory.temporal_score {
+        "fully-reviewed-dense-trajectory-corroborated-by-direct-rendered-title-plane-lock"
     } else if tracking_measurement_valid && tracking_lock > trajectory.temporal_score {
         "trajectory-curvature-corroborated-by-independent-source-material-flow"
     } else {
@@ -1074,6 +1085,8 @@ pub fn run(
         program_version: env!("CARGO_PKG_VERSION").to_string(),
         source_sha256,
         analysis_manifest_sha256,
+        analysis_inputs_sha256,
+        renderer_source_sha256: crate::build_info::RENDERER_SOURCE_SHA256.to_string(),
         render_manifest_sha256,
         rendered_sha256,
         passed,
@@ -1508,6 +1521,52 @@ fn source_flow_lock_score(
     consecutive.min(sustained)
 }
 
+fn is_fully_reviewed_trajectory(
+    model: &str,
+    locked_keyframes: usize,
+    guide_keyframes: usize,
+    frames: usize,
+    motion: &[crate::model::MotionSample],
+) -> bool {
+    model.starts_with("reviewed-dense-quad-track-")
+        && locked_keyframes == frames
+        && guide_keyframes == 0
+        && motion.len() == frames
+        && motion.iter().all(|sample| {
+            sample.measurement_valid && sample.measurement_source == "reviewed-dense-quad"
+        })
+}
+
+fn authoritative_tracking_lock(
+    screen_canvas: bool,
+    reviewed_title_evidence: bool,
+    rendered_title_plane_lock: f64,
+    source_flow_measurement_valid: bool,
+    source_flow_lock: f64,
+    source_flow_uses_writing_surface_support: bool,
+) -> (f64, &'static str) {
+    if screen_canvas {
+        (1.0, "not-applicable-screen-canvas")
+    } else if reviewed_title_evidence {
+        (
+            rendered_title_plane_lock.clamp(0.0, 1.0),
+            "fully-reviewed-dense-trajectory-and-direct-rendered-title-plane-lock",
+        )
+    } else if !source_flow_measurement_valid {
+        (0.0, "unmeasurable-independent-source-evidence")
+    } else if source_flow_uses_writing_surface_support {
+        (
+            source_flow_lock,
+            "independent-lag-1-tail-and-multiscale-p95-source-material-flow-with-writing-surface-support-versus-four-corner-trajectory",
+        )
+    } else {
+        (
+            source_flow_lock,
+            "independent-lag-1-tail-and-multiscale-p95-source-material-flow-versus-four-corner-trajectory",
+        )
+    }
+}
+
 fn temporal_stability_score(
     trajectory_curvature_score: f64,
     tracking_lock: f64,
@@ -1520,8 +1579,8 @@ fn temporal_stability_score(
     };
     if tracking_measurement_valid && tracking_lock.is_finite() {
         // Curvature alone cannot distinguish physical acceleration from tracker
-        // jitter. Independent material flow can: when it corroborates the same
-        // motion, the acceleration belongs to the source rather than the tracker.
+        // jitter. Corroborating source flow can do so for automatic tracks; direct
+        // title-plane lock provides the equivalent evidence for a fully reviewed one.
         curvature.max(tracking_lock.clamp(0.0, 1.0))
     } else {
         curvature
@@ -1588,10 +1647,11 @@ fn weighted_geometric_mean(values: &[(f64, f64)]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_seam_error, mask_excluding_foreground, registration_correction_pixels,
-        registration_lock_score, restoration_channel_error, scene_channel_error,
-        source_flow_lock_score, source_over_alpha, structural_edge_alignment,
-        temporal_stability_score, tracking_lock_score, trajectory_dynamics,
+        authoritative_tracking_lock, canonical_seam_error, is_fully_reviewed_trajectory,
+        mask_excluding_foreground, registration_correction_pixels, registration_lock_score,
+        restoration_channel_error, scene_channel_error, source_flow_lock_score, source_over_alpha,
+        structural_edge_alignment, temporal_stability_score, tracking_lock_score,
+        trajectory_dynamics,
     };
     use crate::{
         analyze::extraction::measure_structural_registration,
@@ -1756,6 +1816,54 @@ mod tests {
         assert_eq!(temporal_stability_score(0.80, 1.0, true), 1.0);
         assert_eq!(temporal_stability_score(0.80, 1.0, false), 0.80);
         assert_eq!(temporal_stability_score(0.99, 0.40, true), 0.99);
+    }
+
+    #[test]
+    fn fully_reviewed_title_evidence_is_authoritative_over_occluded_source_flow() {
+        let motion = (0..3)
+            .map(|frame| {
+                let mut sample = motion(frame, frame as f64);
+                sample.measurement_source = "reviewed-dense-quad".into();
+                sample
+            })
+            .collect::<Vec<_>>();
+        assert!(is_fully_reviewed_trajectory(
+            "reviewed-dense-quad-track-3-frames",
+            3,
+            0,
+            3,
+            &motion,
+        ));
+
+        let (score, basis) = authoritative_tracking_lock(false, true, 0.99, true, 0.01, true);
+        assert_eq!(score, 0.99);
+        assert_eq!(
+            basis,
+            "fully-reviewed-dense-trajectory-and-direct-rendered-title-plane-lock"
+        );
+    }
+
+    #[test]
+    fn incomplete_review_cannot_override_independent_source_flow() {
+        let mut motion = (0..3)
+            .map(|frame| {
+                let mut sample = motion(frame, frame as f64);
+                sample.measurement_source = "reviewed-dense-quad".into();
+                sample
+            })
+            .collect::<Vec<_>>();
+        motion[1].measurement_source = "tracker".into();
+        assert!(!is_fully_reviewed_trajectory(
+            "reviewed-dense-quad-track-3-frames",
+            3,
+            0,
+            3,
+            &motion,
+        ));
+
+        let (score, basis) = authoritative_tracking_lock(false, false, 1.0, true, 0.42, true);
+        assert_eq!(score, 0.42);
+        assert!(basis.contains("source-material-flow"));
     }
 
     #[test]

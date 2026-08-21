@@ -63,10 +63,12 @@ scene = "../scenes/swamp-wooden-plaque-with-foreground-objects/scene.toml"
 
 [[capabilities]]
 id = "portrait-scene-plane-geometry"
-description = "Portrait aspect-ratio geometry and fitting remain independent from 16:9 assumptions."
+description = "Portrait geometry remains independent from 16:9 assumptions while an opaque walking foreground and a porous web cross the title."
 representative_asset = "9_16_dungeon_spider_iron_plaque"
 scene = "../scenes/9_16_dungeon_spider_iron_plaque/scene.toml"
 contract = "9_16_dungeon_spider_iron_plaque/contract.toml"
+ci = true
+
 [[capabilities]]
 id = "temporary-retracting-plaque-occlusion"
 description = "A retracting portrait plaque remains rigid and disappears behind foreground housing without leaking title pixels."

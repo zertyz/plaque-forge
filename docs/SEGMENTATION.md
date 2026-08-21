@@ -10,6 +10,10 @@ Plaque Forge treats **model choice**, **execution device**, and **numeric precis
 | `balanced` | SAM 2.1 Large → SAM 2.1 Large + Cutie on evidence failure | BF16 | off | normal local analysis |
 | `canonical` | SAM 2.1 Large + Cutie | FP32 | off | reproducible acceptance/bake-off baseline |
 
+A request that does not specify a profile uses `canonical`; `--precision auto`
+therefore resolves to FP32. `preview` and `balanced` must be selected explicitly
+when iteration speed is more important than the final-quality contract.
+
 A caller may override model/backend/precision explicitly. Device selection (`cpu`, `xpu`, `cuda`, `auto`) never changes the sealed precision policy. If execution falls back to another device, the same requested precision remains in force or the worker fails explicitly.
 
 ## Semantic planning
@@ -70,7 +74,7 @@ The setup performs a real predictor-construction smoke test. If the current publ
 
 ## Adaptive policy and independent evidence
 
-`assets/segmentation/policy.toml` is the versioned acceptance policy for automatic candidate escalation. Rust checks prompt survival, negative-prompt rejection, active-frame occupancy, and catastrophic frame coverage in the stored 16-bit mask domain. For a repeatedly boxed foreground object, it also measures every frame between prompts: minimum and fifth-percentile area relative to the interpolated prompt-frame area, plus fifth-percentile adjacent-frame IoU. This rejects anchor-only masks that look correct at prompts but blink away between them. Python never decides whether a cheaper candidate is sufficient.
+`assets/segmentation/policy.toml` is the versioned acceptance policy for automatic candidate escalation. Rust checks prompt survival, negative-prompt rejection, active-frame occupancy, catastrophic frame coverage, and whether a foreground mask merely copied most of its prompt rectangle in the stored 16-bit mask domain. For a repeatedly boxed foreground object, it also measures every frame between prompts: minimum and fifth-percentile area relative to the interpolated prompt-frame area, plus fifth-percentile adjacent-frame IoU. This rejects both rectangular/blob false positives and anchor-only masks that look correct at prompts but blink away between them. Python never decides whether a cheaper candidate is sufficient.
 
 Each prompted layer records `strategy-selection.json` beside its artifact with the candidates attempted, plan hashes, independent evidence, rejection reasons, and selected plan. Explicit `--backend` requests disable adaptive substitution and execute exactly one plan. Canonical currently remains on SAM2+Cutie until measured bake-offs and homologated renders justify a cheaper candidate.
 

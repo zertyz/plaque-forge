@@ -302,6 +302,43 @@ impl Analysis {
             .path
             .resolve_from(&self.root.join(MANIFEST_FILE))
     }
+
+    /// Identity of every analysis artifact that can affect the rendered pixels.
+    /// Diagnostics and ML sidecars are intentionally excluded because the renderer
+    /// never reads them.
+    pub fn render_inputs_sha256(&self, use_occluder_masks: bool) -> Result<String> {
+        let mut paths = vec![
+            PathBuf::from(MANIFEST_FILE),
+            PathBuf::from(TRAJECTORY_FILE),
+            PathBuf::from(CONTENT_MASK_FILE),
+        ];
+        if let Some(surface) = &self.manifest.injected_surface {
+            paths.push(surface.path.as_path().to_path_buf());
+        }
+        for layer in &self.manifest.layers {
+            match layer.kind {
+                LayerArtifactKind::AlphaImage => paths.push(layer.path.as_path().to_path_buf()),
+                LayerArtifactKind::AlphaSequence => {
+                    let first = layer
+                        .first_frame
+                        .context("layer sequence missing first frame")?;
+                    let last = layer
+                        .last_frame
+                        .context("layer sequence missing last frame")?;
+                    paths.extend(
+                        (first..=last).map(|frame| sequence_path(layer.path.as_path(), frame)),
+                    );
+                }
+            }
+        }
+        if use_occluder_masks {
+            paths.extend(
+                (0..self.manifest.source.frames)
+                    .map(|frame| Path::new(OCCLUDER_DIR).join(format!("{frame:06}.png"))),
+            );
+        }
+        crate::digest::relative_files_sha256(&self.root, paths.iter())
+    }
 }
 
 fn validate_layer_semantics(layers: &[LayerAsset]) -> Result<()> {

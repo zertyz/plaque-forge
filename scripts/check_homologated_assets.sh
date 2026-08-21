@@ -63,4 +63,9 @@ run_case \
   $'Seeing what\nothers cannot\nsee!' \
   "classic-glow"
 
+run_case \
+  "9_16_dungeon_spider_iron_plaque" \
+  "Seeing what others cannot see!" \
+  "gold-shine"
+
 printf 'coverage:    %s\n' "output/homologation-coverage.json"

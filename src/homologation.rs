@@ -31,7 +31,7 @@ pub fn audit_capabilities(matrix_path: &Path) -> Result<matrix::CapabilityCovera
 }
 
 pub const HOMOLOGATION_FORMAT: &str = "plaque-forge.homologation/1";
-pub const HOMOLOGATION_REPORT_SCHEMA_VERSION: u32 = 3;
+pub const HOMOLOGATION_REPORT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -150,6 +150,8 @@ pub struct HomologationReport {
     pub contract_sha256: String,
     pub source_sha256: String,
     pub analysis_manifest_sha256: String,
+    pub analysis_inputs_sha256: String,
+    pub renderer_source_sha256: String,
     pub render_manifest_sha256: String,
     pub rendered_sha256: String,
     pub passed: bool,
@@ -402,6 +404,20 @@ pub(crate) fn run(
         &analysis_manifest_sha256,
         &mut failures,
     );
+    let analysis_inputs_sha256 =
+        analysis.render_inputs_sha256(manifest.used_analysis_occluder_masks)?;
+    check_equal(
+        "render manifest analysis-input bundle SHA-256",
+        &manifest.analysis_inputs_sha256,
+        &analysis_inputs_sha256,
+        &mut failures,
+    );
+    check_equal(
+        "render manifest renderer source SHA-256",
+        manifest.renderer_source_sha256.as_str(),
+        crate::build_info::RENDERER_SOURCE_SHA256,
+        &mut failures,
+    );
     if let Err(error) = crate::render::load_decision_trace(&manifest_path, &manifest) {
         failures.push(format!("render decision trace is invalid: {error:#}"));
     }
@@ -487,6 +503,8 @@ pub(crate) fn run(
         contract_sha256,
         source_sha256,
         analysis_manifest_sha256,
+        analysis_inputs_sha256,
+        renderer_source_sha256: crate::build_info::RENDERER_SOURCE_SHA256.to_string(),
         render_manifest_sha256,
         rendered_sha256,
         passed,

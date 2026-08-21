@@ -18,10 +18,10 @@ const POLICY_DOCUMENT: &str = include_str!("../assets/segmentation/policy.toml")
 pub enum SegmentationProfile {
     /// Fast iteration. Uses SAM2 Small first and may escalate to the large model.
     Preview,
-    /// Normal local development. Tries SAM2 Large before paying for Cutie.
-    #[default]
+    /// Faster explicit local iteration. Tries SAM2 Large before paying for Cutie.
     Balanced,
     /// Reproducibility-first acceptance path. Keeps the robust ensemble and FP32.
+    #[default]
     Canonical,
 }
 
@@ -114,6 +114,7 @@ pub struct AcceptancePolicy {
     pub min_nonempty_permille: u16,
     pub max_foreground_coverage_permille: u16,
     pub max_surface_coverage_permille: u16,
+    pub max_prompt_box_fill_permille: u16,
     pub min_interprompt_area_ratio_permille: u16,
     pub min_interprompt_area_p05_permille: u16,
     pub min_adjacent_iou_p05_permille: u16,
@@ -153,6 +154,7 @@ struct PolicyThresholds {
     min_nonempty_permille: u16,
     max_foreground_coverage_permille: u16,
     max_surface_coverage_permille: u16,
+    max_prompt_box_fill_permille: u16,
     min_interprompt_area_ratio_permille: u16,
     min_interprompt_area_p05_permille: u16,
     min_adjacent_iou_p05_permille: u16,
@@ -166,6 +168,7 @@ impl From<PolicyThresholds> for AcceptancePolicy {
             min_nonempty_permille: value.min_nonempty_permille,
             max_foreground_coverage_permille: value.max_foreground_coverage_permille,
             max_surface_coverage_permille: value.max_surface_coverage_permille,
+            max_prompt_box_fill_permille: value.max_prompt_box_fill_permille,
             min_interprompt_area_ratio_permille: value.min_interprompt_area_ratio_permille,
             min_interprompt_area_p05_permille: value.min_interprompt_area_p05_permille,
             min_adjacent_iou_p05_permille: value.min_adjacent_iou_p05_permille,
@@ -551,6 +554,14 @@ mod tests {
         let policy = load_policy().unwrap();
         assert_eq!(policy.format, "plaque-forge.segmentation-policy/1");
         assert!(!policy.policy_id.is_empty());
+    }
+
+    #[test]
+    fn default_profile_is_the_canonical_quality_path() {
+        assert_eq!(
+            SegmentationProfile::default(),
+            SegmentationProfile::Canonical
+        );
     }
 
     #[test]

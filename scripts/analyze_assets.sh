@@ -8,7 +8,7 @@ use_ml=true
 backend="auto"
 model="auto"
 device="auto"
-profile="balanced"
+profile="canonical"
 precision="auto"
 cases=()
 
@@ -33,7 +33,7 @@ Options:
   --backend NAME   Segmentation backend or auto (default: auto; Rust plans the strategy).
   --model NAME     Model override or auto (default: auto).
   --device NAME    auto, cpu, cuda, or xpu (default: auto; execution only).
-  --profile NAME   preview, balanced, or canonical (default: balanced).
+  --profile NAME   preview, balanced, or canonical (default: canonical; highest quality).
   --precision NAME auto, fp32, or bf16 (default: auto; resolved independently of device).
 
 For the full workflow, run ./scripts/setup_segmentation.sh once first. Its Python,

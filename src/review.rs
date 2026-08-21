@@ -183,6 +183,8 @@ fn validate_verification_provenance(
     for field in [
         "source_sha256",
         "analysis_manifest_sha256",
+        "analysis_inputs_sha256",
+        "renderer_source_sha256",
         "rendered_sha256",
     ] {
         let expected = render_manifest
@@ -1262,6 +1264,8 @@ mod tests {
         let manifest = json!({
             "source_sha256": "source",
             "analysis_manifest_sha256": "analysis",
+            "analysis_inputs_sha256": "analysis-inputs",
+            "renderer_source_sha256": "renderer-source",
             "rendered_sha256": "render"
         });
         let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
@@ -1270,6 +1274,8 @@ mod tests {
         let verification = json!({
             "source_sha256": "source",
             "analysis_manifest_sha256": "analysis",
+            "analysis_inputs_sha256": "analysis-inputs",
+            "renderer_source_sha256": "renderer-source",
             "rendered_sha256": "different-render",
             "render_manifest_sha256": crate::digest::bytes_sha256(&manifest_bytes)
         });

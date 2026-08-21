@@ -20,11 +20,11 @@ analysis data remains under `assets/analysis`; it is never itself accepted as th
 The current schema (`plaque-forge.homologation/1`) pins:
 
 - the source-video identity;
-- the intended tracking and writable geometry of the homologated surface;
+- the intended tracking and writable geometry of the homologated surface, optionally including the reviewed trajectory identity;
 - title text, selected font file, style identity, line layout, and safe typography limits;
 - sparse source-preservation masks on selected frames, including mask identity and minimum witness coverage;
 - sparse title-visibility masks where reviewed pixels must remain visibly changed from the source;
-- provenance of the rendered video, its render manifest, and the analysis manifest.
+- provenance of the rendered video, its render manifest, every consumed analysis input, and the exact renderer-source identity.
 
 A source-preservation mask means: **pixels selected by this reviewed mask must still
 look like the source in the new render**. How the implementation achieves that is not

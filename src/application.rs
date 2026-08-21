@@ -209,7 +209,7 @@ impl AnalyzeRequest {
             segmentation_backend: "auto".into(),
             segmentation_model: "auto".into(),
             segmentation_device: "auto".into(),
-            segmentation_profile: "balanced".into(),
+            segmentation_profile: "canonical".into(),
             segmentation_precision: "auto".into(),
             force_ml: false,
             progress: ProgressMode::Auto,
