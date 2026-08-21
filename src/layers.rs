@@ -387,19 +387,16 @@ pub struct ForegroundReader<'a> {
 }
 
 impl<'a> ForegroundReader<'a> {
-    pub fn open(pack: &'a Analysis) -> Result<Self> {
+    pub fn open(pack: &'a Analysis, fused_source_material: bool) -> Result<Self> {
         let mut canonical = Vec::new();
         let mut source_static = Vec::new();
         let mut sequences = Vec::new();
-        for layer in pack.manifest.layers.iter().filter(|layer| {
-            matches!(
-                layer.role,
-                LayerRole::Foreground
-                    | LayerRole::Shadow
-                    | LayerRole::Reflection
-                    | LayerRole::Modulation
-            )
-        }) {
+        for layer in pack
+            .manifest
+            .layers
+            .iter()
+            .filter(|layer| directly_restores_layer(layer, fused_source_material))
+        {
             match (layer.coordinates, layer.kind) {
                 (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => {
                     let mut mask = load_mask(
@@ -489,6 +486,18 @@ impl<'a> ForegroundReader<'a> {
         }
         Ok(combined.iter().any(|&alpha| alpha > 0).then_some(combined))
     }
+}
+
+fn directly_restores_layer(layer: &LayerAsset, fused_source_material: bool) -> bool {
+    let composited_role = matches!(
+        layer.role,
+        LayerRole::Foreground | LayerRole::Shadow | LayerRole::Reflection | LayerRole::Modulation
+    );
+    composited_role
+        && !(fused_source_material
+            && layer.role == LayerRole::Foreground
+            && layer.coordinates == LayerCoordinates::SourcePixels
+            && layer.matte.mode == LayerMatteMode::Opaque)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -751,8 +760,8 @@ fn intersect(output: &mut [u8], input: &[u8]) {
 mod tests {
     use super::{
         LayerInput, alpha_over, apply_matte_policy, build_tracking_exclusions,
-        exclude_outside_surface_support, has_authored_foreground, intersect, package,
-        shared_authored_opaque_source_matte,
+        directly_restores_layer, exclude_outside_surface_support, has_authored_foreground,
+        intersect, package, shared_authored_opaque_source_matte,
     };
     use crate::{
         model::{Mat3, MotionSample, RectF},
@@ -766,6 +775,46 @@ mod tests {
         fs,
         path::{Path, PathBuf},
     };
+
+    #[test]
+    fn fused_material_replaces_only_the_opaque_source_semantic_layer() {
+        let make = |role, coordinates, mode| crate::analysis::LayerAsset {
+            id: "test".into(),
+            role,
+            coordinates,
+            kind: LayerArtifactKind::AlphaImage,
+            affects_layout: false,
+            affects_tracking: false,
+            matte: LayerMatte {
+                mode,
+                ..LayerMatte::default()
+            },
+            path: crate::portable_path::PortablePath::bundle("mask.png").unwrap(),
+            first_frame: None,
+            last_frame: None,
+            generator: None,
+        };
+        let semantic = make(
+            LayerRole::Foreground,
+            LayerCoordinates::SourcePixels,
+            LayerMatteMode::Opaque,
+        );
+        let optical = make(
+            LayerRole::Foreground,
+            LayerCoordinates::SourcePixels,
+            LayerMatteMode::Optical,
+        );
+        let shadow = make(
+            LayerRole::Shadow,
+            LayerCoordinates::SourcePixels,
+            LayerMatteMode::Optical,
+        );
+
+        assert!(directly_restores_layer(&semantic, false));
+        assert!(!directly_restores_layer(&semantic, true));
+        assert!(directly_restores_layer(&optical, true));
+        assert!(directly_restores_layer(&shadow, true));
+    }
 
     #[test]
     fn foreground_layer_is_authoritative() {

@@ -593,6 +593,8 @@ struct SegmentationEvidence {
     nonempty_permille: u16,
     maximum_coverage_permille: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
+    maximum_prompt_box_fill_permille: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     minimum_interprompt_area_ratio_permille: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     interprompt_area_ratio_p05_permille: Option<u16>,
@@ -629,6 +631,7 @@ fn strategy_evidence(
         layer.role,
         layer.active_frames,
         &layer.prompts,
+        layer.matte.support_threshold,
         info,
     )
 }
@@ -638,6 +641,7 @@ fn strategy_evidence_for_inputs(
     role: LayerRole,
     active_frames: Option<[usize; 2]>,
     prompts: &[SegmentationPrompt],
+    support_threshold: f64,
     info: &VideoInfo,
 ) -> Result<SegmentationEvidence> {
     let artifact = LayerArtifact::load(artifact_path)?;
@@ -651,10 +655,12 @@ fn strategy_evidence_for_inputs(
     }
     let [active_start, active_end] = active_frames.unwrap_or([0, info.frames.saturating_sub(1)]);
     let pixels_per_frame = u64::from(info.width) * u64::from(info.height);
+    let support_alpha = (support_threshold.clamp(0.0, 1.0) * 65_535.0).round() as u16;
     let mut nonempty = 0usize;
     let mut maximum_coverage = 0.0_f64;
     let mut positive_samples = Vec::new();
     let mut negative_samples = Vec::new();
+    let mut prompt_box_fill = Vec::new();
     let mut frame_areas = vec![0_u64; paths.len()];
     let persistent_track = persistent_prompt_track(role, prompts, active_start, active_end);
     let mut adjacent_ious = Vec::new();
@@ -664,7 +670,7 @@ fn strategy_evidence_for_inputs(
         let mask = image::open(path)
             .with_context(|| format!("failed to inspect segmentation evidence {}", path.display()))?
             .to_luma16();
-        let active_pixels = mask.iter().filter(|&&alpha| alpha > 2_056).count() as u64;
+        let active_pixels = mask.iter().filter(|&&alpha| alpha > support_alpha).count() as u64;
         frame_areas[frame] = active_pixels;
         if (active_start..=active_end).contains(&frame) {
             if active_pixels > 0 {
@@ -685,11 +691,16 @@ fn strategy_evidence_for_inputs(
             for &point in &prompt.negative_points {
                 negative_samples.push(sample_pixel_u16(&mask, point));
             }
+            if role == LayerRole::Foreground
+                && let Some(bounds) = prompt.box_bounds
+            {
+                prompt_box_fill.push(box_fill_permille(&mask, bounds, support_alpha));
+            }
         }
         if persistent_track.is_some_and(|(start, end)| (start..=end).contains(&frame)) {
             let support = mask
                 .iter()
-                .map(|&alpha| u8::from(alpha > 2_056))
+                .map(|&alpha| u8::from(alpha > support_alpha))
                 .collect::<Vec<_>>();
             if let Some(previous) = previous_support.as_deref() {
                 adjacent_ious.push(binary_iou_permille(previous, &support));
@@ -707,6 +718,7 @@ fn strategy_evidence_for_inputs(
         maximum_negative_alpha_u16: negative_samples.into_iter().max(),
         nonempty_permille: ((nonempty * 1_000) / active_frames.max(1)).min(1_000) as u16,
         maximum_coverage_permille: (maximum_coverage * 1_000.0).round().clamp(0.0, 1_000.0) as u16,
+        maximum_prompt_box_fill_permille: prompt_box_fill.into_iter().max(),
         minimum_interprompt_area_ratio_permille: temporal
             .as_ref()
             .map(|evidence| evidence.minimum_area_ratio_permille),
@@ -717,6 +729,26 @@ fn strategy_evidence_for_inputs(
             .as_ref()
             .map(|evidence| evidence.adjacent_iou_p05_permille),
     })
+}
+
+fn box_fill_permille(
+    mask: &image::ImageBuffer<image::Luma<u16>, Vec<u16>>,
+    [x, y, width, height]: [f64; 4],
+    support_alpha: u16,
+) -> u16 {
+    let left = x.floor().clamp(0.0, f64::from(mask.width())) as u32;
+    let top = y.floor().clamp(0.0, f64::from(mask.height())) as u32;
+    let right = (x + width).ceil().clamp(0.0, f64::from(mask.width())) as u32;
+    let bottom = (y + height).ceil().clamp(0.0, f64::from(mask.height())) as u32;
+    let mut active = 0_u64;
+    let mut total = 0_u64;
+    for yy in top..bottom {
+        for xx in left..right {
+            active += u64::from(mask.get_pixel(xx, yy)[0] > support_alpha);
+            total += 1;
+        }
+    }
+    ((active * 1_000 + total / 2) / total.max(1)).min(1_000) as u16
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -907,6 +939,14 @@ fn evidence_acceptance(
         failures.push(format!(
             "maximum frame coverage {}/1000 > {maximum}/1000",
             evidence.maximum_coverage_permille
+        ));
+    }
+    if let Some(value) = evidence.maximum_prompt_box_fill_permille
+        && value > policy.max_prompt_box_fill_permille
+    {
+        failures.push(format!(
+            "prompt-box fill {value}/1000 > {}/1000 (mask resembles a prompt rectangle rather than the object)",
+            policy.max_prompt_box_fill_permille
         ));
     }
     if let Some(value) = evidence.minimum_interprompt_area_ratio_permille
@@ -1420,6 +1460,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
                     LayerRole::Foreground,
                     None,
                     &worker_layer.prompts,
+                    0.03,
                     request.info,
                 )?;
                 let (accepted, failures) =
@@ -1502,6 +1543,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             LayerRole::Foreground,
             None,
             &worker_layer.prompts,
+            0.03,
             request.info,
         )?;
         let (accepted, failures) =
@@ -2445,6 +2487,7 @@ mod adaptive_evidence_tests {
         min_nonempty_permille: 0,
         max_foreground_coverage_permille: 980,
         max_surface_coverage_permille: 980,
+        max_prompt_box_fill_permille: 800,
         min_interprompt_area_ratio_permille: 250,
         min_interprompt_area_p05_permille: 350,
         min_adjacent_iou_p05_permille: 500,
@@ -2457,6 +2500,7 @@ mod adaptive_evidence_tests {
             maximum_negative_alpha_u16: Some(2_000),
             nonempty_permille: 700,
             maximum_coverage_permille: 220,
+            maximum_prompt_box_fill_permille: Some(320),
             minimum_interprompt_area_ratio_permille: None,
             interprompt_area_ratio_p05_permille: None,
             adjacent_iou_p05_permille: None,
@@ -2471,6 +2515,7 @@ mod adaptive_evidence_tests {
             maximum_negative_alpha_u16: None,
             nonempty_permille: 700,
             maximum_coverage_permille: 220,
+            maximum_prompt_box_fill_permille: Some(320),
             minimum_interprompt_area_ratio_permille: None,
             interprompt_area_ratio_p05_permille: None,
             adjacent_iou_p05_permille: None,
@@ -2487,6 +2532,7 @@ mod adaptive_evidence_tests {
             maximum_negative_alpha_u16: Some(0),
             nonempty_permille: 1_000,
             maximum_coverage_permille: 20,
+            maximum_prompt_box_fill_permille: Some(320),
             minimum_interprompt_area_ratio_permille: Some(0),
             interprompt_area_ratio_p05_permille: Some(0),
             adjacent_iou_p05_permille: Some(0),
@@ -2500,6 +2546,29 @@ mod adaptive_evidence_tests {
             reasons
                 .iter()
                 .any(|reason| reason.contains("adjacent mask IoU"))
+        );
+    }
+
+    #[test]
+    fn independent_evidence_rejects_a_filled_prompt_rectangle() {
+        let evidence = SegmentationEvidence {
+            minimum_prompt_alpha_u16: Some(u16::MAX),
+            maximum_negative_alpha_u16: Some(0),
+            nonempty_permille: 1_000,
+            maximum_coverage_permille: 20,
+            maximum_prompt_box_fill_permille: Some(980),
+            minimum_interprompt_area_ratio_permille: None,
+            interprompt_area_ratio_p05_permille: None,
+            adjacent_iou_p05_permille: None,
+        };
+
+        let (accepted, reasons) = evidence_acceptance(&evidence, POLICY, LayerRole::Foreground);
+
+        assert!(!accepted);
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("prompt-box fill"))
         );
     }
 

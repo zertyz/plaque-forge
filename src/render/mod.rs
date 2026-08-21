@@ -20,8 +20,8 @@ use crate::{
     video::{self, Decoder, Encoder},
 };
 
-pub const RENDER_MANIFEST_SCHEMA_VERSION: u32 = 3;
-pub const DECISION_TRACE_SCHEMA_VERSION: u32 = 1;
+pub const RENDER_MANIFEST_SCHEMA_VERSION: u32 = 4;
+pub const DECISION_TRACE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,11 +31,13 @@ pub struct RenderManifest {
     pub program_version: String,
     #[serde(default)]
     pub renderer_build: String,
+    pub renderer_source_sha256: String,
     #[serde(default)]
     pub analyzer_build: String,
     pub typography: TypographyMetrics,
     pub frames: usize,
     pub used_occluder_masks: bool,
+    pub used_analysis_occluder_masks: bool,
     pub scene_foreground_layers: usize,
     #[serde(default)]
     pub used_injected_surface: bool,
@@ -43,6 +45,7 @@ pub struct RenderManifest {
     pub injected_surface_sha256: Option<String>,
     pub source_sha256: String,
     pub analysis_manifest_sha256: String,
+    pub analysis_inputs_sha256: String,
     pub rendered_sha256: String,
     pub canonical_text_mask: PortablePath,
     pub canonical_text_mask_sha256: String,
@@ -74,6 +77,8 @@ pub struct RenderDecisionTrace {
     pub schema_version: u32,
     pub source_sha256: String,
     pub analysis_manifest_sha256: String,
+    pub analysis_inputs_sha256: String,
+    pub renderer_source_sha256: String,
     pub rendered_sha256: String,
     pub surface: SurfaceDecision,
     pub tracking: TrackingDecision,
@@ -340,8 +345,12 @@ fn render_to(
     let mut encoder = Encoder::spawn(&args.ffmpeg, &source, &args.output, &info, &encoder_args)?;
     let masks_dir = pack.root.join(OCCLUDER_DIR);
     let use_masks = should_use_analysis_occluders(&pack) && masks_dir.is_dir();
+    let analysis_inputs_sha256 = pack.render_inputs_sha256(use_masks)?;
     let authored_occluder_matte = authored_occluder_matte(&pack);
-    let foregrounds = ForegroundReader::open(&pack)?;
+    // Opaque source masks carry semantic identity, not material alpha. When the
+    // analyzer has produced a frame-local fused matte, restoring the semantic mask
+    // too would turn prompt boxes/blobs into solid foreground and close porous gaps.
+    let foregrounds = ForegroundReader::open(&pack, use_masks)?;
     let scene_foreground_layers = pack
         .manifest
         .layers
@@ -555,6 +564,8 @@ fn render_to(
         schema_version: DECISION_TRACE_SCHEMA_VERSION,
         source_sha256: pack.manifest.source.sha256.clone(),
         analysis_manifest_sha256: analysis_manifest_sha256.clone(),
+        analysis_inputs_sha256: analysis_inputs_sha256.clone(),
+        renderer_source_sha256: crate::build_info::RENDERER_SOURCE_SHA256.to_string(),
         rendered_sha256: rendered_sha256.clone(),
         surface: SurfaceDecision {
             id: selected_surface_id,
@@ -610,10 +621,12 @@ fn render_to(
         schema_version: RENDER_MANIFEST_SCHEMA_VERSION,
         program_version: env!("CARGO_PKG_VERSION").to_string(),
         renderer_build: crate::build_info::RENDERER_BUILD_VERSION.to_string(),
+        renderer_source_sha256: crate::build_info::RENDERER_SOURCE_SHA256.to_string(),
         analyzer_build: pack.manifest.analyzer_build.clone(),
         typography: text_render.metrics,
         frames: frame_index,
         used_occluder_masks: use_masks || !foregrounds.is_empty(),
+        used_analysis_occluder_masks: use_masks,
         scene_foreground_layers,
         used_injected_surface: injected_surface.is_some(),
         injected_surface_sha256: pack
@@ -623,6 +636,7 @@ fn render_to(
             .map(|surface| surface.source_sha256.clone()),
         source_sha256: pack.manifest.source.sha256.clone(),
         analysis_manifest_sha256,
+        analysis_inputs_sha256,
         rendered_sha256,
         canonical_text_mask: PortablePath::bundle(
             canonical_text_mask_path
@@ -651,7 +665,7 @@ fn render_to(
     Ok(frame_index)
 }
 
-fn should_use_analysis_occluders(pack: &Analysis) -> bool {
+pub(crate) fn should_use_analysis_occluders(pack: &Analysis) -> bool {
     let authored_opaque_source_foreground = pack.manifest.layers.iter().any(|layer| {
         layer.role == crate::scene::LayerRole::Foreground
             && layer.coordinates == crate::scene::LayerCoordinates::SourcePixels
@@ -711,6 +725,8 @@ pub(crate) fn load_decision_trace(
     anyhow::ensure!(
         trace.source_sha256 == manifest.source_sha256
             && trace.analysis_manifest_sha256 == manifest.analysis_manifest_sha256
+            && trace.analysis_inputs_sha256 == manifest.analysis_inputs_sha256
+            && trace.renderer_source_sha256 == manifest.renderer_source_sha256
             && trace.rendered_sha256 == manifest.rendered_sha256
             && trace.typography == manifest.typography,
         "render decision trace provenance or typography differs from its render manifest"

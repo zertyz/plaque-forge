@@ -9,44 +9,181 @@ source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949d
 [geometry]
 tracking_bounds = [128.0, 159.0, 464.0, 280.0]
 writable_bounds = [160.0, 190.0, 401.0, 215.0]
+trajectory_sha256 = "f1b3f9f6f4cd16c4de9a26c9dfc09b9080573660bf7dfd06a058246bd2556c50"
 
 [render]
-text = "Seeing what\nothers cannot\nsee!"
-style = "../../../styles/bronze-relief-banded.toml"
-style_sha256 = "123e76e84a102f846831d5fff03ef1e7f5139a34f77d7fb9cd4c5bea1c8522da"
+text = "Seeing what others cannot see!"
+style = "../../../styles/gold-shine.toml"
+style_sha256 = "c0c16a2398a7fa30329bc9626623db36e0cbd83d4c3ef6e6625677ac556b0c4a"
 font_file = "NotoSerif-Regular.ttf"
 fit_mode = "artistic"
-resolved_text = "Seeing what\nothers cannot\nsee!"
+resolved_text = "Seeing what\nothers\ncannot see!"
 
 [typography]
 lines = 3
-maximum_font_size = 96.0
+maximum_font_size = 58.0
 maximum_clipped_pixels = 0
 maximum_missing_glyphs = 0
 maximum_fallback_glyphs = 0
 
-# Sparse accepted-champion witnesses around the spider/title intersection. They
-# deliberately do not claim that the translucent web crossing is perfect.
+# Sparse, human-reviewed samples cover prompt and between-prompt frames throughout
+# the spider's walk. Each witness selects only spider material at its intersection
+# with the title; every-frame continuity is separately enforced by the analysis gate.
+
 [[source_preservation]]
-frame = 168
-mask = "foreground/000168.png"
-mask_sha256 = "e87d28eabd14c089c66cca1e1c6e41d16f258245b36622b9b1bd20609fc88afa"
+frame = 108
+mask = "foreground/000108.png"
+mask_sha256 = "7c2a051ab5ef737757e2d2add39779a238207fd937fa633a332b7b04b75eeccf"
+minimum_selected_pixels = 900
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 116
+mask = "foreground/000116.png"
+mask_sha256 = "cbaaf946834a4469c6eb408fdbb04dcb5da320d7b52447f61a634b08f4edef57"
 minimum_selected_pixels = 700
 maximum_mean_absolute_error = 12.0
-maximum_p95_absolute_error = 25.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 124
+mask = "foreground/000124.png"
+mask_sha256 = "a526cb87a1a101ba2a763c96309e712bcc371e49efc5875331d73aa7ee57e600"
+minimum_selected_pixels = 550
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 132
+mask = "foreground/000132.png"
+mask_sha256 = "43b48e58ef0e8dd4c46d1c24ca59c307d5bae554e25fbecdc88ece7c36ed8d8e"
+minimum_selected_pixels = 700
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 140
+mask = "foreground/000140.png"
+mask_sha256 = "49caea9259e1a497af5ea83b5b7553195919078d12847cdfaafd1800697f8a21"
+minimum_selected_pixels = 700
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 148
+mask = "foreground/000148.png"
+mask_sha256 = "2884ad8dc80ac707e0af6112f36b13a59c3e6fd800852493852be0e199c13972"
+minimum_selected_pixels = 500
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 156
+mask = "foreground/000156.png"
+mask_sha256 = "6ce402b95332983076997b61b5a981ddaf1098cfb2e12ca30de7c3c6fe62381d"
+minimum_selected_pixels = 350
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 164
+mask = "foreground/000164.png"
+mask_sha256 = "6623ea539585ccd770b382b193edba816beef7d1dcc0ab8c670f744c26ca4459"
+minimum_selected_pixels = 600
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 172
+mask = "foreground/000172.png"
+mask_sha256 = "57df67f6e6251783589782c407c90a66698a2f572f20ead34f71d6959fd2d883"
+minimum_selected_pixels = 450
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
 
 [[source_preservation]]
 frame = 180
 mask = "foreground/000180.png"
-mask_sha256 = "49ece71559618c68d4bcc9cf4f8bd20c82598d34a5abffa7f2af404488899184"
-minimum_selected_pixels = 500
+mask_sha256 = "3c6d07d10c1726791c872a8dccf36d3537aacb92185d09c4c2c5d58170700862"
+minimum_selected_pixels = 400
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 188
+mask = "foreground/000188.png"
+mask_sha256 = "5cbbcd71dadf234e01082411950eb4d2df234fc57d545816b939455b1be82bb8"
+minimum_selected_pixels = 450
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 196
+mask = "foreground/000196.png"
+mask_sha256 = "38dc442005b2bb12953731b2ea7543efdae761c9ffbc09d7cab96a7032acc1f3"
+minimum_selected_pixels = 350
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+[[source_preservation]]
+frame = 204
+mask = "foreground/000204.png"
+mask_sha256 = "5cc20ce06d6a52e126adcc468f3cbd1ec199acc4bdbb9c94a09adedbb2621ced"
+minimum_selected_pixels = 400
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 35.0
+
+# Reviewed material pixels protect the crossing web as a porous foreground.
+# Genuine threads preserve source pixels instead of accepting title paint.
+
+[[source_preservation]]
+frame = 104
+mask = "web-foreground/000104.png"
+mask_sha256 = "3eb31da1354bbeb54ed4139bd0d0d4165b3f8b6a75ab8773d97a2fee3f8420a0"
+minimum_selected_pixels = 4000
 maximum_mean_absolute_error = 12.0
 maximum_p95_absolute_error = 25.0
 
 [[source_preservation]]
-frame = 192
-mask = "foreground/000192.png"
-mask_sha256 = "a446386466c0b41bb95662a587f81825d15c820ee435d50ddf364b70b2ef47c0"
-minimum_selected_pixels = 500
+frame = 112
+mask = "web-foreground/000112.png"
+mask_sha256 = "ec690ecd5506e7003c6b5226d0c02b20a3dbda1279aeff0b951c1a2afd6edc5c"
+minimum_selected_pixels = 7000
 maximum_mean_absolute_error = 12.0
 maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 120
+mask = "web-foreground/000120.png"
+mask_sha256 = "c979cd622723d75aca0e7a25433f83d431f5b318ff4274e9a14aeef05caf6ab6"
+minimum_selected_pixels = 2500
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+# Complementary reviewed title pixels sit in genuine gaps between nearby web
+# strands. An opaque web-shaped sheet would pass the material witnesses and fail these.
+
+[[title_visibility]]
+frame = 104
+mask = "web-holes/000104.png"
+mask_sha256 = "3246d21dfc8ee8255e8d7907a1ccde704f11dad9a7a15f2aa8d6edc103b55222"
+minimum_selected_pixels = 10000
+minimum_mean_absolute_error = 30.0
+minimum_p50_absolute_error = 15.0
+
+[[title_visibility]]
+frame = 112
+mask = "web-holes/000112.png"
+mask_sha256 = "1c4b2ce41b12913dac1b295782dfa8411896bdb6b7ce759cf77016d6a35622dd"
+minimum_selected_pixels = 7500
+minimum_mean_absolute_error = 30.0
+minimum_p50_absolute_error = 15.0
+
+[[title_visibility]]
+frame = 120
+mask = "web-holes/000120.png"
+mask_sha256 = "e975084d0b729391115f3b84e2c4e38e258728d8ee936b1272cff76401bcd7df"
+minimum_selected_pixels = 12000
+minimum_mean_absolute_error = 30.0
+minimum_p50_absolute_error = 15.0

@@ -90,7 +90,9 @@ Analysis cache compatibility is explicit in `build_info::ANALYZER_CACHE_VERSION`
 - Change `ANALYZER_CACHE_VERSION` when analysis semantics change such that an old cache must not be reused, even if its schema still parses.
 - Do not invalidate analysis caches for renderer-only, CLI-only, documentation, or unrelated refactoring changes.
 
-No custom `build.rs` source hashing is used. Renderer-only text effects and styles therefore do not invalidate scene analysis.
+Renderer implementation identity is a build-time SHA-256 over the Rust source and
+resolved Cargo inputs. It invalidates stale render/verification evidence without
+invalidating reusable scene analysis. Style files retain their own independent hashes.
 
 Generated manifests never contain absolute paths. A format or semantic analyzer
 identity mismatch requires a real rebuild; no migration command can relabel stale
@@ -109,7 +111,7 @@ output/                                               complete published render 
 /tmp/plaque-forge-python/                             optional disposable ML runtime/cache
 ```
 
-Analysis/segmentation stages are RAII-owned and committed by rename when possible. Render publishes video, text mask, decision trace, optional contact sheet, and manifest as one recoverable file bundle with the manifest last. The manifest hashes the decision trace; verification and homologation reject a missing, changed, or provenance-inconsistent trace. Stale work is reaped after 24 hours; successful analysis purges that asset's retained failures.
+Analysis/segmentation stages are RAII-owned and committed by rename when possible. Render publishes video, text mask, decision trace, optional contact sheet, and manifest as one recoverable file bundle with the manifest last. The manifest hashes the decision trace, the exact renderer source build, and a deterministic bundle identity covering the analysis manifest, trajectory, content mask, packed layer masks, injected surface, and every analysis occluder frame actually consumed. Verification and homologation reject missing, changed, or provenance-inconsistent evidence. Stale work is reaped after 24 hours; successful analysis purges that asset's retained failures.
 
 ## Human diagnostics
 
@@ -129,5 +131,5 @@ otherwise difficult to infer from pixels alone: selected surface and selection r
 plane geometry, trajectory model and authored keyframe counts, foreground layers excluded from
 tracking, typography resolution, and compositing-layer matte/layout/tracking semantics. The trace
 is diagnostic evidence, not an independent source of truth: its SHA-256 is pinned by the render
-manifest and its source/analysis/render identities are cross-checked whenever the manifest is
+manifest and its source/analysis-input/renderer/render identities are cross-checked whenever the manifest is
 verified or homologated. Human review pages surface the same trace.

@@ -162,7 +162,7 @@ pub struct AnalyzeArgs {
     pub segmentation_device: String,
 
     /// ML quality/performance policy: preview, balanced, or canonical.
-    #[arg(long, default_value = "balanced")]
+    #[arg(long, default_value = "canonical")]
     pub segmentation_profile: String,
 
     /// Numeric policy: auto, fp32, or bf16. `auto` is resolved from the profile.
@@ -255,7 +255,7 @@ pub struct SegmentArgs {
     #[arg(long, default_value = "auto")]
     pub device: String,
 
-    #[arg(long, default_value = "balanced")]
+    #[arg(long, default_value = "canonical")]
     pub profile: String,
 
     #[arg(long, default_value = "auto")]
@@ -717,6 +717,8 @@ mod tests {
         };
         let actual: AnalyzeRequest = analyze_args.into();
         let expected = AnalyzeRequest::text_free("source.mp4");
+        assert_eq!(expected.segmentation_profile, "canonical");
+        assert_eq!(expected.segmentation_precision, "auto");
         assert_eq!(
             actual.minimum_analysis_confidence,
             expected.minimum_analysis_confidence

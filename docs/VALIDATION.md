@@ -32,7 +32,7 @@ Full-frame verification acceptance requires:
 - the overall score meets `--minimum-score` (default `0.95`);
 - each component meets its verifier-defined threshold recorded in the verification JSON;
 - every render has the source frame count and timing;
-- source, analysis manifest, rendered video, canonical text mask, render decision trace, optional contact sheet, font, style, encoder arguments, and implementation versions match recorded provenance;
+- source, every consumed analysis input, rendered video, canonical text mask, render decision trace, optional contact sheet, font, style, encoder arguments, and the exact renderer-source identity match recorded provenance;
 - declared SDR color metadata and display rotation are preserved;
 - visual review finds no plaque drift, foreground inversion, hard matte edge, temporal blinking, or obviously poor title composition.
 
@@ -48,19 +48,19 @@ Rigid plaque tracking is verified from independent source material flow at conse
 and longer frame baselines. Every comparison detects fresh source features, follows
 them with a forward/backward optical-flow check, rejects coherent foreground motion
 with a robust projective model, and then measures the stored four-corner trajectory's
-prediction. When a scene declares a complete lossless source-pixel writing-surface
-sequence, the verifier instead refits its visible four-corner silhouette and directly
-compares that absolute geometry with the stored trajectory. This is the appropriate
-primary evidence for a low-texture or softly deforming surface such as a cloud; source
-flow remains a reported secondary diagnostic. Clipped silhouettes are not treated as
-four-corner observations.
+prediction. A complete lossless source-pixel writing-surface sequence limits those
+features to material that belongs to the plaque. This remains the primary evidence for
+automatic or partially authored trajectories.
 
-The rendered title is never registered to certify source tracking. A physical surface
-without enough independent material or silhouette evidence fails as unmeasurable
-instead of receiving an optimistic score. Reports expose median/p95/p99 residuals,
-support counts, spatial coverage, and the worst frame. Interpolated frames are never
-relabelled as observations. Appearance-template corrections remain diagnostics because
-animated light can make them suggest false motion.
+A different rule applies to a dense, fully locked, explicitly reviewed four-corner
+trajectory. Once every frame is reviewed and provenance-pinned, direct source-subtracted
+title registration against that exact plane is authoritative for render tracking. This
+prevents moving web/spider texture from overruling both the reviewed geometry and a
+measured zero-drift title. Independent source-flow distributions remain in the report as
+diagnostics; an incomplete review, guide frame, or missing direct title evidence restores
+the automatic evidence path. A hard trajectory-residual failure still rejects either
+path. Appearance-template corrections remain diagnostics because animated light can
+suggest false motion.
 
 Verification JSON and `review.html` also report p95/p99 residuals separately at
 1-, 6-, and 12-frame lags. The one-frame baseline catches a transient jump; the
@@ -72,15 +72,17 @@ when the sustained distribution is subpixel. The aggregate distribution is never
 substitute for the per-baseline evidence or its worst-frame diagnostic.
 
 Raw trajectory curvature is reported separately from temporal stability. Curvature is
-only evidence of tracker jitter when independent source-material flow does not
-corroborate the same acceleration; physically observed acceleration must not be failed
-merely because the plaque does not move at constant velocity.
+only evidence of tracker jitter when neither independent source-material flow nor a
+fully reviewed trajectory with direct title-plane evidence corroborates the motion;
+physically observed acceleration must not be failed merely because the plaque does not
+move at constant velocity. The localized four-corner residual limit remains mandatory.
 
 The verifier separately subtracts the source from every rendered frame, rectifies that
 actual title difference with the expected plaque homography, and registers it against
 a canonical title signature. This catches a compositor that leaves text in screen
-coordinates even when the stored trajectory itself looks plausible. It supplements—
-and never replaces—the independent source-structure test above.
+coordinates even when the stored trajectory itself looks plausible. It supplements
+automatic tracking evidence and is authoritative only for the fully reviewed
+dense-trajectory case described above.
 
 The plaque catalog and generated-path portability are part of `cargo test`. Catalog validation checks unique IDs and paths, both `16:9` and `9:16` members per artistic family, dimensions, SHA-256 identities, and useful transparent/soft alpha.
 

@@ -4,10 +4,12 @@
 /// later runs. Renderer, CLI, documentation, or unrelated refactors must not invalidate
 /// analysis caches.
 pub const ANALYZER_CACHE_VERSION: &str =
-    "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics";
+    "surface-analysis-v11-bounded-semantic-material-depth-reviewed-dynamics";
 
-/// Identifies the renderer in generated render manifests without introducing a custom
-/// build script. Package releases are the unit of renderer provenance.
+/// Human-facing renderer release.
 pub const RENDERER_BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Exact identity of the Rust renderer implementation and resolved build inputs.
+pub const RENDERER_SOURCE_SHA256: &str = env!("PLAQUE_FORGE_RENDERER_SOURCE_SHA256");
 
 pub const LONG_VERSION: &str = env!("CARGO_PKG_VERSION");
