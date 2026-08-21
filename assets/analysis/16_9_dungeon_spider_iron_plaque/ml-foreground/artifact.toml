@@ -9,7 +9,7 @@ affects_layout = false
 [generator]
 backend = "sam2-cutie"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16"
+version = "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16"
 requested_device = "auto"
 source_sha256 = "fef84a24bf58c04414b06e8a1e690dc0a902f05c8d0d148b21f4c3797665d126"
 prompt_sha256 = "7edd85b007b2733c1354f9cfdbb3aedbe88ab3988efb8083537065b330c1b3e8"

@@ -1,0 +1,64 @@
+{
+  "format": "plaque-forge.segmentation-result/2",
+  "backend": "sam2-cutie-vitmatte",
+  "model": "facebook/sam2.1-hiera-large",
+  "version": "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+vitmatte-4.57.1@xpu/fp32",
+  "plan_sha256": "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93",
+  "precision": "fp32",
+  "frames": 240,
+  "mean_confidence": 0.7066819260517756,
+  "minimum_confidence": 0.6313287019729614,
+  "request_sha256": "fb71f747a533723eb1d4abe4b0844f8bfd5ac4e0c573827ec968d95dbb7a9a61",
+  "source_sha256": "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33",
+  "prompt_sha256": "88e15c2b9d8ddb29e518f6e58e31f97ec448cf4c5377325a362cbec6e41fb001",
+  "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
+  "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
+  "nonempty_frames": 240,
+  "mean_coverage": 0.07875376157407409,
+  "maximum_coverage": 0.085078125,
+  "soft_edge_pixels": 18882792,
+  "execution": [
+    {
+      "stage": "Decode frames",
+      "device": "cpu",
+      "precision": "lossless",
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 9430.977
+    },
+    {
+      "stage": "SAM 2",
+      "device": "xpu",
+      "precision": "fp32",
+      "seconds": 1273.789871,
+      "cache_hit": false,
+      "process_peak_rss_mib": 9430.977,
+      "accelerator_peak_mib": 4457.343
+    },
+    {
+      "stage": "Cutie",
+      "device": "cpu",
+      "precision": "fp32",
+      "seconds": 284.594005,
+      "cache_hit": false,
+      "process_peak_rss_mib": 9430.977
+    },
+    {
+      "stage": "ViTMatte",
+      "device": "xpu",
+      "precision": "fp32",
+      "seconds": 85.364078,
+      "cache_hit": false,
+      "process_peak_rss_mib": 9430.977,
+      "accelerator_peak_mib": 2864.827
+    },
+    {
+      "stage": "Temporal stabilization",
+      "device": "cpu",
+      "precision": "fp32",
+      "seconds": 28.19811,
+      "cache_hit": false,
+      "process_peak_rss_mib": 9430.977
+    }
+  ]
+}

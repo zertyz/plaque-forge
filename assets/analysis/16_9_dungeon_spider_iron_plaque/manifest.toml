@@ -34,7 +34,7 @@ backend = "auto"
 model = "auto"
 device = "auto"
 profile = "canonical"
-precision = "auto"
+precision = "fp32"
 worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
@@ -83,7 +83,7 @@ semantic_sha256 = "88df1a2a59cad36559ec2917f95c314c6c771dab8c89cf5dc02e3a4caa227
 
 [[scenes.layer_artifacts]]
 path = "layers/spider/artifact.toml"
-sha256 = "726e20925bdeeac6ea12cea58a1054ce89c0b60bf3a86e18c6641bdd1efda50a"
+sha256 = "73801c40361dc4bc12b50683a0006612c034dc99cee844616712200e56637582"
 semantic_sha256 = "ec2efae78f6dd31db9b399028029e67d2d3a4994f5994b933a2a7abeb9fe0587"
 
 [confidence]

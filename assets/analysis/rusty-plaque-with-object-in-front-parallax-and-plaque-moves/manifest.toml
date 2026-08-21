@@ -33,9 +33,9 @@ height = 133.0
 backend = "auto"
 model = "auto"
 device = "auto"
-profile = "balanced"
-precision = "auto"
-worker_sha256 = "1c8f13d6c0f32fc8472b7592f7df15b00354a7a9c42606d468bd9e4e4559eb3b"
+profile = "canonical"
+precision = "fp32"
+worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [[layers]]

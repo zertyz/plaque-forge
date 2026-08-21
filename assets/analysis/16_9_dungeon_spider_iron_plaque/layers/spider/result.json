@@ -24,7 +24,7 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 57.258
+      "process_peak_rss_mib": 9430.977
     },
     {
       "stage": "Cutie",
@@ -32,7 +32,7 @@
       "precision": "fp32",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 1456.562
+      "process_peak_rss_mib": 9430.977
     },
     {
       "stage": "Temporal stabilization",
@@ -40,7 +40,7 @@
       "precision": "fp32",
       "seconds": 1e-06,
       "cache_hit": false,
-      "process_peak_rss_mib": 3672.984
+      "process_peak_rss_mib": 9430.977
     }
   ]
 }
