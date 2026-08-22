@@ -19,12 +19,12 @@ representative_asset = "16_9_dungeon_spider_iron_plaque"
 [[capabilities]]
 id = "foreground-parallax"
 description = "Foreground support remains correct while foreground and writing surface move differently."
-representative_asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
+representative_asset = "16_9_scrapyard_iron_plaque_foreground_chains"
 
 [[capabilities]]
 id = "soft-or-translucent-boundary"
 description = "Optical alpha refinement preserves genuinely soft/translucent edges without background leakage."
-representative_asset = "swamp-wooden-plaque-with-foreground-objects"
+representative_asset = "16_9_swamp_wooden_plaque_foreground_vines_and_lizard"
 
 [[capabilities]]
 id = "human-fine-detail"

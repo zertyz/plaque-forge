@@ -109,7 +109,7 @@ The normal analyzer invokes ML automatically when appropriate. Direct segmentati
   --text 'Custom title' \
   --font-family 'Noto Serif' \
   --style gold-shine \
-  swamp-rusty-plaque
+  16_9_swamp_iron_plaque
 ```
 
 `artistic` fitting is the default. Rendering requires a complete current analysis cache and does not silently run expensive analysis.

@@ -65,7 +65,7 @@ fn analyzed_foreground_layers_have_no_frame_dropouts() {
 
     let scenes_with_active_occlusion = [
         "16_9_dungeon_spider_iron_plaque",
-        "swamp-wooden-plaque-with-foreground-objects",
+        "16_9_swamp_wooden_plaque_foreground_vines_and_lizard",
     ];
 
     for scene_name in scenes_with_active_occlusion {

@@ -54,7 +54,7 @@ run_case \
   "classic-glow"
 
 run_case \
-  "rusty-plaque-with-object-in-front-parallax-and-plaque-moves" \
+  "16_9_scrapyard_iron_plaque_foreground_chains" \
   $'SEEING\nFURTHER' \
   "classic-glow"
 
