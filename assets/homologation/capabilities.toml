@@ -37,9 +37,9 @@ contract = "16_9_background_digifall/contract.toml"
 [[capabilities]]
 id = "foreground-parallax-on-moving-plaque"
 description = "Foreground depth ordering must survive plaque motion and parallax."
-representative_asset = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves"
-scene = "../scenes/rusty-plaque-with-object-in-front-parallax-and-plaque-moves/scene.toml"
-contract = "rusty-plaque-with-object-in-front-parallax-and-plaque-moves/contract.toml"
+representative_asset = "16_9_scrapyard_iron_plaque_foreground_chains"
+scene = "../scenes/16_9_scrapyard_iron_plaque_foreground_chains/scene.toml"
+contract = "16_9_scrapyard_iron_plaque_foreground_chains/contract.toml"
 ci = true
 
 [[capabilities]]
@@ -52,14 +52,14 @@ contract = "16_9_mountain_top_day_hummingbird_cloudy_plaque/contract.toml"
 [[capabilities]]
 id = "background-motion-independent-of-plaque"
 description = "Background animation must not pull an otherwise stable writing surface off lock."
-representative_asset = "static-holographic-plaque-with-background-movement"
-scene = "../scenes/static-holographic-plaque-with-background-movement/scene.toml"
+representative_asset = "9_16_lonely_ogre_holographic_static_plaque"
+scene = "../scenes/9_16_lonely_ogre_holographic_static_plaque/scene.toml"
 
 [[capabilities]]
 id = "multi-layer-foreground-and-shadow"
 description = "Multiple foreground/shadow layers compose independently around the writing surface."
-representative_asset = "swamp-wooden-plaque-with-foreground-objects"
-scene = "../scenes/swamp-wooden-plaque-with-foreground-objects/scene.toml"
+representative_asset = "16_9_swamp_wooden_plaque_foreground_vines_and_lizard"
+scene = "../scenes/16_9_swamp_wooden_plaque_foreground_vines_and_lizard/scene.toml"
 
 [[capabilities]]
 id = "portrait-scene-plane-geometry"

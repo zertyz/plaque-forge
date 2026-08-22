@@ -10,6 +10,6 @@ cd "$(dirname "$0")/.."
   16_9_swamp_wooden_plaque \
   9_16_dungeon_spider_iron_temporary_plaque \
   9_16_swamp_wooden_plaque \
-  rusty-plaque-with-object-in-front-parallax-and-plaque-moves \
-  swamp-rusty-plaque \
-  swamp-wooden-plaque-with-foreground-objects
+  16_9_scrapyard_iron_plaque_foreground_chains \
+  16_9_swamp_iron_plaque \
+  16_9_swamp_wooden_plaque_foreground_vines_and_lizard

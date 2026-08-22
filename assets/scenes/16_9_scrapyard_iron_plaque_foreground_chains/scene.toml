@@ -1,0 +1,29 @@
+# Authored scene intent. Generated trajectories and ML masks live in assets/analysis.
+format = "plaque-forge.scene/1"
+source = "../../16_9_scrapyard_iron_plaque_foreground_chains.mp4"
+default_surface = "main"
+
+[[surfaces]]
+id = "main"
+space = "scene-plane"
+depth = "declared-only"
+reference_frame = 113
+bounds = [322.0, 46.0, 634.0, 133.0]
+
+# Frozen from the human-accepted canonical content mask so homologation can pin
+# the exact irregular writing cavity without approximating it as a rectangle.
+[surfaces.writable_region]
+shape = "mask"
+bounds = [384.0, 61.0, 515.0, 94.0]
+path = "writable-mask.png"
+
+[[layers]]
+id = "chains"
+role = "foreground"
+surface = "main"
+in_front_of = "main"
+artifact = "chains/artifact.toml"
+active_frames = [60, 116]
+affects_layout = false
+# This reviewed foreground must never perturb the already-correct plaque trajectory.
+affects_tracking = false
