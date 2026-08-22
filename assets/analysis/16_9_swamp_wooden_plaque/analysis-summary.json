@@ -12,7 +12,7 @@
   "has_occluder": true,
   "minimum_analysis_confidence": 0.7,
   "motion_confidence": 0.8751623300528671,
-  "occluder_mean_coverage": 0.012337031605222835,
+  "occluder_mean_coverage": 0.012337018752164702,
   "occlusion_confidence": 0.9234123451945071,
   "overall": 0.9301519535545764,
   "registration_area": 0.37687032951999866,

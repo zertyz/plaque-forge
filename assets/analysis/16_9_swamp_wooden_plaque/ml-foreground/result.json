@@ -3,20 +3,20 @@
   "backend": "sam2-cutie",
   "model": "facebook/sam2.1-hiera-large",
   "version": "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16",
-  "plan_sha256": "458275d6215a7090e55d15d312ad7ed57b5901bd594989f7202af322511b3c0b",
+  "plan_sha256": "d11cb42c6809000c184f50855a10c351f9f5ea232485ca5ba81082b43e926de8",
   "precision": "fp32",
   "frames": 240,
-  "mean_confidence": 0.8405157352487246,
+  "mean_confidence": 0.8405149052540462,
   "minimum_confidence": 0.0,
-  "request_sha256": "7cdac0364c2e2e131a6863fcb1279a33245c003749ad3a99f6856277eaaa12f7",
+  "request_sha256": "91c4a03685d51cdeb5405eeb0fd60c88212e2143d2ee6ac79e5ac23a6348b16b",
   "source_sha256": "5336784452c6473c5cc41258cb605b4bd1c48e264ce609948ba4a24bc53ac0db",
   "prompt_sha256": "01be4b28a6b4d4cf9e7ae1958174319926701185de0975fa6c3f60a044144892",
   "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
   "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
   "nonempty_frames": 196,
-  "mean_coverage": 0.006584897641782408,
+  "mean_coverage": 0.006584929289641204,
   "maximum_coverage": 0.01787760416666667,
-  "soft_edge_pixels": 1498545,
+  "soft_edge_pixels": 1498567,
   "execution": [
     {
       "stage": "Decode frames",
@@ -24,24 +24,24 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 3925.207
     },
     {
       "stage": "SAM 2",
       "device": "xpu",
       "precision": "fp32",
-      "seconds": 1059.30895,
+      "seconds": 1039.959983,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977,
-      "accelerator_peak_mib": 4011.506
+      "process_peak_rss_mib": 7804.328,
+      "accelerator_peak_mib": 2645.603
     },
     {
       "stage": "Cutie",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 289.705621,
+      "seconds": 321.247419,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 7804.328
     },
     {
       "stage": "Temporal stabilization",
@@ -49,7 +49,7 @@
       "precision": "fp32",
       "seconds": 1e-06,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 7804.328
     }
   ]
 }

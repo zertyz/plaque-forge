@@ -2,7 +2,7 @@
 format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
-analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+analyzer_build = "surface-analysis-v11-bounded-semantic-material-depth-reviewed-dynamics"
 reference_frame = 10
 canonical_width = 990
 canonical_height = 680
@@ -34,7 +34,7 @@ backend = "auto"
 model = "auto"
 device = "auto"
 profile = "canonical"
-precision = "fp32"
+precision = "auto"
 worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
