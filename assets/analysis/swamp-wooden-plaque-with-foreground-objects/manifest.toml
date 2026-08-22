@@ -2,7 +2,7 @@
 format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
-analyzer_build = "surface-analysis-v10-bounded-semantic-material-depth-physical-dynamics"
+analyzer_build = "surface-analysis-v11-bounded-semantic-material-depth-reviewed-dynamics"
 reference_frame = 72
 canonical_width = 641
 canonical_height = 285
@@ -34,7 +34,7 @@ backend = "auto"
 model = "auto"
 device = "auto"
 profile = "canonical"
-precision = "fp32"
+precision = "auto"
 worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
 runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
@@ -145,7 +145,7 @@ semantic_sha256 = "e9ad02319dd28b73d2cef75571698bc4bd6d27137528bc0b3cf9f3fd5f272
 
 [[scenes.layer_artifacts]]
 path = "layers/lizard/artifact.toml"
-sha256 = "73836ff24410cbc736da7a41ad774ff86be29dede050d6373f899192e8f2de16"
+sha256 = "da7fb39cdc8d697b5c41dbf8b519f537a08fcece161c6ca1c2d9d73fbc258630"
 semantic_sha256 = "cc10cf3ab2e86e4d52b1b996641c6654c684b4b9b087c024bf71d57eff2cee5b"
 
 [confidence]

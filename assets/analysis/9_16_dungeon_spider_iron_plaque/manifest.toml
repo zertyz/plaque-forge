@@ -111,7 +111,7 @@ semantic_sha256 = "05484bc05d12b85d0f498486c3a6936aea1ab9a97403e2b3a28d8d8833fb9
 
 [[scenes.layer_artifacts]]
 path = "layers/spider/artifact.toml"
-sha256 = "6eae11910b77e4a2b2d5f4eb30346c3560e8ebaeb28a7844dce92e9365dded9f"
+sha256 = "43b3d0b97162cbda318f21cd1021bba15a70fb8acabdb59b5a197115cdcefe7f"
 semantic_sha256 = "fa3f37c45b24e782854ffce4fc58c28924246163589d296cc61704d675ee1a77"
 
 [[scenes.layer_artifacts]]

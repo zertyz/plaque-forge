@@ -3,12 +3,12 @@
   "backend": "sam2-cutie",
   "model": "facebook/sam2.1-hiera-large",
   "version": "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16",
-  "plan_sha256": "458275d6215a7090e55d15d312ad7ed57b5901bd594989f7202af322511b3c0b",
+  "plan_sha256": "d11cb42c6809000c184f50855a10c351f9f5ea232485ca5ba81082b43e926de8",
   "precision": "fp32",
   "frames": 240,
   "mean_confidence": 0.9473906027774016,
   "minimum_confidence": 0.8678338527679443,
-  "request_sha256": "5d528b356aac1e2cd59b5a6e8b66fd04af310731580570db50ac46f506770b68",
+  "request_sha256": "4b65701daa42c291aa31015e3251f7c01c36814d66436924dce4fcb42ad47197",
   "source_sha256": "bb44a77f0b052d3dec8a3bf7ce66c6845085dc085b0c91936e6907f069890961",
   "prompt_sha256": "a9568c2986d5303d97d401c9e9bd801c58909403e9d4a156e66e72eed8bdc178",
   "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
@@ -24,24 +24,24 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 7804.328
     },
     {
       "stage": "SAM 2",
       "device": "xpu",
       "precision": "fp32",
-      "seconds": 740.000859,
+      "seconds": 739.915816,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977,
-      "accelerator_peak_mib": 4012.506
+      "process_peak_rss_mib": 7804.328,
+      "accelerator_peak_mib": 2647.119
     },
     {
       "stage": "Cutie",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 280.397437,
+      "seconds": 299.246907,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 7804.328
     },
     {
       "stage": "Temporal stabilization",
@@ -49,7 +49,7 @@
       "precision": "fp32",
       "seconds": 1e-06,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 7804.328
     }
   ]
 }

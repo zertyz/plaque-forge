@@ -1,6 +1,6 @@
 {
   "format": "plaque-forge.segmentation-strategy-selection/1",
-  "policy_id": "temporal-continuity-2026-08",
+  "policy_id": "temporal-continuity-box-bounds-2026-08",
   "selected_plan_sha256": "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93",
   "attempts": [
     {
@@ -13,7 +13,7 @@
         "minimum_prompt_alpha_u16": 65535,
         "maximum_negative_alpha_u16": 0,
         "nonempty_permille": 1000,
-        "maximum_coverage_permille": 72
+        "maximum_coverage_permille": 74
       },
       "reasons": []
     }
