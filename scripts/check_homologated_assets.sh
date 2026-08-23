@@ -28,7 +28,7 @@ run_case() {
 
   ./scripts/render_assets.sh \
     --text "$text" \
-    --font-family "Noto Serif" \
+    --font "$PWD/fonts/NotoSerif-Regular.ttf" \
     --style "$style" \
     --fit artistic \
     "$case_name"
