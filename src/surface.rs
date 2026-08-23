@@ -3,7 +3,49 @@ use crate::{
     geometry::{Point, Quad, homography},
 };
 use anyhow::{Result, bail};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
+
+static SRGB_TO_LINEAR_TABLE: LazyLock<[f32; 256]> = LazyLock::new(|| {
+    std::array::from_fn(|index| {
+        let encoded = index as f32 / 255.0;
+        if encoded <= 0.04045 {
+            encoded / 12.92
+        } else {
+            ((encoded + 0.055) / 1.055).powf(2.4)
+        }
+    })
+});
+
+static LINEAR_TO_SRGB_TABLE: LazyLock<Box<[u8; 65_536]>> = LazyLock::new(|| {
+    Box::new(std::array::from_fn(|index| {
+        let linear = index as f32 / 65_535.0;
+        let encoded = if linear <= 0.003_130_8 {
+            linear * 12.92
+        } else {
+            1.055 * linear.powf(1.0 / 2.4) - 0.055
+        };
+        (encoded * 255.0).round().clamp(0.0, 255.0) as u8
+    }))
+});
+
+static MIXTURE_BOUNDS_TABLE: LazyLock<Box<[(u8, u8); 65_536]>> = LazyLock::new(|| {
+    let srgb_to_lin = *SRGB_TO_LINEAR_TABLE;
+    let lin_to_srgb = &**LINEAR_TO_SRGB_TABLE;
+    let mut bounds = Box::new([(0u8, 0u8); 65_536]);
+    for index in 0..=u16::MAX as usize {
+        let known = (index >> 8) as u8;
+        let known_weight = (index & 0xff) as f32 / 255.0;
+        let known_contribution = srgb_to_lin[known as usize] * known_weight;
+        let idx_min = (known_contribution.clamp(0.0, 1.0) * 65_535.0).round() as usize;
+        let idx_max =
+            ((known_contribution + 1.0 - known_weight).clamp(0.0, 1.0) * 65_535.0).round() as usize;
+        bounds[index] = (
+            lin_to_srgb[idx_min].saturating_sub(1),
+            lin_to_srgb[idx_max].saturating_add(1),
+        );
+    }
+    bounds
+});
 
 #[derive(Clone, Debug)]
 pub struct Surface {
@@ -57,14 +99,16 @@ impl Surface {
         if mask.len() != self.width as usize * self.height as usize {
             bail!("restore mask dimensions do not match frame");
         }
-        for ((dst, src), &alpha) in self
-            .pixels
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(original.pixels.as_chunks::<4>().0.iter())
-            .zip(mask)
-        {
+        let dst_chunks = self.pixels.as_chunks_mut::<4>().0;
+        let src_chunks = original.pixels.as_chunks::<4>().0;
+        for ((dst, src), &alpha) in dst_chunks.iter_mut().zip(src_chunks.iter()).zip(mask) {
+            if alpha == 0 {
+                continue;
+            }
+            if alpha == 255 && src[3] == 255 {
+                dst.copy_from_slice(src);
+                continue;
+            }
             blend_over(
                 dst,
                 Rgba::new(src[0], src[1], src[2], src[3]),
@@ -132,13 +176,19 @@ impl Surface {
             for x in left..right {
                 let sx = (x - dx) as u32;
                 let sy = (y - dy) as u32;
-                self.blend_pixel(x, y, source.pixel(sx, sy), opacity);
+                let pixel = source.pixel(sx, sy);
+                if pixel.a > 0 {
+                    self.blend_pixel(x, y, pixel, opacity);
+                }
             }
         }
     }
 
     /// Warps the whole source canvas to the destination quadrilateral and alpha-composites it.
     pub fn warp_blend(&mut self, source: &Surface, destination: Quad, opacity: f32) -> Result<()> {
+        if opacity <= 0.0 {
+            return Ok(());
+        }
         let source_quad = Quad::from_rect(
             0.0,
             0.0,
@@ -158,7 +208,9 @@ impl Surface {
                 else {
                     continue;
                 };
-                if let Some(pixel) = source.sample_bilinear(mapped.x - 0.5, mapped.y - 0.5) {
+                if let Some(pixel) = source.sample_bilinear(mapped.x - 0.5, mapped.y - 0.5)
+                    && pixel.a > 0
+                {
                     self.blend_pixel(x, y, pixel, opacity);
                 }
             }
@@ -181,14 +233,16 @@ impl Surface {
         );
         let to_frame = homography(canonical, source_quad)?;
         let mut result = Self::new(width, height);
+        let dest_slice = result.pixels.as_chunks_mut::<4>().0;
 
         for y in 0..height {
+            let row_offset = y as usize * width as usize;
             for x in 0..width {
                 let Some(mapped) = to_frame.transform(Point::new(x as f64, y as f64)) else {
                     continue;
                 };
                 if let Some(pixel) = frame.sample_bilinear(mapped.x, mapped.y) {
-                    result.set_pixel(x, y, pixel);
+                    dest_slice[row_offset + x as usize] = pixel.as_array();
                 }
             }
         }
@@ -276,61 +330,119 @@ impl Surface {
         }
     }
 
+    #[inline(always)]
     fn sample_bilinear(&self, x: f64, y: f64) -> Option<Rgba> {
         if x < -0.5 || y < -0.5 || x > self.width as f64 - 0.5 || y > self.height as f64 - 0.5 {
             return None;
         }
-        let x = x.clamp(0.0, self.width.saturating_sub(1) as f64);
-        let y = y.clamp(0.0, self.height.saturating_sub(1) as f64);
+        let max_x = self.width.saturating_sub(1);
+        let max_y = self.height.saturating_sub(1);
+        let x = x.clamp(0.0, max_x as f64);
+        let y = y.clamp(0.0, max_y as f64);
         let x0 = x.floor() as u32;
         let y0 = y.floor() as u32;
-        let x1 = (x0 + 1).min(self.width - 1);
-        let y1 = (y0 + 1).min(self.height - 1);
+        let x1 = (x0 + 1).min(max_x);
+        let y1 = (y0 + 1).min(max_y);
         let fx = (x - x0 as f64) as f32;
         let fy = (y - y0 as f64) as f32;
 
-        let p00 = self.pixel(x0, y0);
-        let p10 = self.pixel(x1, y0);
-        let p01 = self.pixel(x0, y1);
-        let p11 = self.pixel(x1, y1);
-        let weights = [
-            (1.0 - fx) * (1.0 - fy),
-            fx * (1.0 - fy),
-            (1.0 - fx) * fy,
-            fx * fy,
-        ];
-        let pixels = [p00, p10, p01, p11];
-        let alpha = pixels
-            .iter()
-            .zip(weights)
-            .map(|(pixel, weight)| pixel.a as f32 / 255.0 * weight)
-            .sum::<f32>();
+        let stride = self.width as usize * 4;
+        let row0 = y0 as usize * stride;
+        let row1 = y1 as usize * stride;
+        let i00 = row0 + x0 as usize * 4;
+        let i10 = row0 + x1 as usize * 4;
+        let i01 = row1 + x0 as usize * 4;
+        let i11 = row1 + x1 as usize * 4;
+
+        let p00 = &self.pixels[i00..i00 + 4];
+        let p10 = &self.pixels[i10..i10 + 4];
+        let p01 = &self.pixels[i01..i01 + 4];
+        let p11 = &self.pixels[i11..i11 + 4];
+
+        let a00 = p00[3];
+        let a10 = p10[3];
+        let a01 = p01[3];
+        let a11 = p11[3];
+
+        if (a00 | a10 | a01 | a11) == 0 {
+            return Some(Rgba::new(0, 0, 0, 0));
+        }
+
+        let w0 = (1.0 - fx) * (1.0 - fy);
+        let w1 = fx * (1.0 - fy);
+        let w2 = (1.0 - fx) * fy;
+        let w3 = fx * fy;
+
+        if a00 == 255 && a10 == 255 && a01 == 255 && a11 == 255 {
+            let r = linear_to_srgb(
+                srgb_to_linear(p00[0]) * w0
+                    + srgb_to_linear(p10[0]) * w1
+                    + srgb_to_linear(p01[0]) * w2
+                    + srgb_to_linear(p11[0]) * w3,
+            );
+            let g = linear_to_srgb(
+                srgb_to_linear(p00[1]) * w0
+                    + srgb_to_linear(p10[1]) * w1
+                    + srgb_to_linear(p01[1]) * w2
+                    + srgb_to_linear(p11[1]) * w3,
+            );
+            let b = linear_to_srgb(
+                srgb_to_linear(p00[2]) * w0
+                    + srgb_to_linear(p10[2]) * w1
+                    + srgb_to_linear(p01[2]) * w2
+                    + srgb_to_linear(p11[2]) * w3,
+            );
+            return Some(Rgba::new(r, g, b, 255));
+        }
+
+        let aw0 = (a00 as f32 / 255.0) * w0;
+        let aw1 = (a10 as f32 / 255.0) * w1;
+        let aw2 = (a01 as f32 / 255.0) * w2;
+        let aw3 = (a11 as f32 / 255.0) * w3;
+
+        let alpha = aw0 + aw1 + aw2 + aw3;
         if alpha <= f32::EPSILON {
             return Some(Rgba::new(0, 0, 0, 0));
         }
-        let channel = |select: fn(&Rgba) -> u8| -> u8 {
-            let premultiplied = pixels
-                .iter()
-                .zip(weights)
-                .map(|(pixel, weight)| {
-                    srgb_to_linear(select(pixel)) * (pixel.a as f32 / 255.0) * weight
-                })
-                .sum::<f32>();
-            linear_to_srgb(premultiplied / alpha)
-        };
+
+        let inv_alpha = 1.0 / alpha;
+        let r = linear_to_srgb(
+            (srgb_to_linear(p00[0]) * aw0
+                + srgb_to_linear(p10[0]) * aw1
+                + srgb_to_linear(p01[0]) * aw2
+                + srgb_to_linear(p11[0]) * aw3)
+                * inv_alpha,
+        );
+        let g = linear_to_srgb(
+            (srgb_to_linear(p00[1]) * aw0
+                + srgb_to_linear(p10[1]) * aw1
+                + srgb_to_linear(p01[1]) * aw2
+                + srgb_to_linear(p11[1]) * aw3)
+                * inv_alpha,
+        );
+        let b = linear_to_srgb(
+            (srgb_to_linear(p00[2]) * aw0
+                + srgb_to_linear(p10[2]) * aw1
+                + srgb_to_linear(p01[2]) * aw2
+                + srgb_to_linear(p11[2]) * aw3)
+                * inv_alpha,
+        );
+
         Some(Rgba::new(
-            channel(|pixel| pixel.r),
-            channel(|pixel| pixel.g),
-            channel(|pixel| pixel.b),
+            r,
+            g,
+            b,
             (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
         ))
     }
 
+    #[inline(always)]
     fn index(&self, x: u32, y: u32) -> usize {
         (y as usize * self.width as usize + x as usize) * 4
     }
 }
 
+#[inline(always)]
 fn blend_over(destination: &mut [u8], source: Rgba, opacity: f32) {
     let sa = source.a as f32 / 255.0 * opacity.clamp(0.0, 1.0);
     if sa <= 0.0 {
@@ -352,55 +464,26 @@ fn blend_over(destination: &mut [u8], source: Rgba, opacity: f32) {
     destination[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
 }
 
+#[inline(always)]
 fn srgb_to_linear(value: u8) -> f32 {
-    static TABLE: OnceLock<[f32; 256]> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        std::array::from_fn(|index| {
-            let encoded = index as f32 / 255.0;
-            if encoded <= 0.04045 {
-                encoded / 12.92
-            } else {
-                ((encoded + 0.055) / 1.055).powf(2.4)
-            }
-        })
-    })[value as usize]
+    SRGB_TO_LINEAR_TABLE[value as usize]
 }
 
+#[inline(always)]
 fn linear_to_srgb(value: f32) -> u8 {
-    static TABLE: OnceLock<Box<[u8; 65_536]>> = OnceLock::new();
-    let table = TABLE.get_or_init(|| {
-        Box::new(std::array::from_fn(|index| {
-            let linear = index as f32 / 65_535.0;
-            let encoded = if linear <= 0.003_130_8 {
-                linear * 12.92
-            } else {
-                1.055 * linear.powf(1.0 / 2.4) - 0.055
-            };
-            (encoded * 255.0).round().clamp(0.0, 255.0) as u8
-        }))
-    });
     let index = (value.clamp(0.0, 1.0) * 65_535.0).round() as usize;
-    table[index]
+    LINEAR_TO_SRGB_TABLE[index]
 }
 
 /// Distance outside all possible linear-light mixtures containing `known` at
 /// exactly `known_weight`. A one-level encoded allowance covers LUT/FFmpeg rounding.
+#[inline(always)]
 pub(crate) fn constrained_linear_mixture_error(known: u8, observed: u8, known_weight: u8) -> u64 {
-    static BOUNDS: OnceLock<Box<[(u8, u8)]>> = OnceLock::new();
-    let bounds = BOUNDS.get_or_init(|| {
-        (0..=u16::MAX)
-            .map(|index| {
-                let known = (index >> 8) as u8;
-                let known_weight = (index & 0xff) as f32 / 255.0;
-                let known_contribution = srgb_to_linear(known) * known_weight;
-                (
-                    linear_to_srgb(known_contribution).saturating_sub(1),
-                    linear_to_srgb(known_contribution + 1.0 - known_weight).saturating_add(1),
-                )
-            })
-            .collect()
-    });
-    let (minimum, maximum) = bounds[usize::from(known) * 256 + usize::from(known_weight)];
+    if known_weight == 255 {
+        return known.abs_diff(observed).saturating_sub(1) as u64;
+    }
+    let (minimum, maximum) =
+        MIXTURE_BOUNDS_TABLE[usize::from(known) * 256 + usize::from(known_weight)];
     if observed < minimum {
         u64::from(minimum - observed)
     } else if observed > maximum {

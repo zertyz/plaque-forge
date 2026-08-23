@@ -79,19 +79,13 @@ impl SourceFlowConsistency {
 pub(crate) fn surface_luma_mat(surface: &Surface) -> Result<Mat> {
     let width = surface.width() as i32;
     let height = surface.height() as i32;
-    let mut bgra = Mat::new_rows_cols_with_default(height, width, core::CV_8UC4, Scalar::all(0.0))?;
-    for y in 0..surface.height() {
-        for x in 0..surface.width() {
-            let pixel = surface.pixel(x, y);
-            *bgra.at_2d_mut::<core::Vec4b>(y as i32, x as i32)? =
-                core::Vec4b::from([pixel.b, pixel.g, pixel.r, pixel.a]);
-        }
-    }
+    let mut rgba = Mat::new_rows_cols_with_default(height, width, core::CV_8UC4, Scalar::all(0.0))?;
+    rgba.data_bytes_mut()?.copy_from_slice(surface.pixels());
     let mut gray = Mat::default();
     imgproc::cvt_color(
-        &bgra,
+        &rgba,
         &mut gray,
-        imgproc::COLOR_BGRA2GRAY,
+        imgproc::COLOR_RGBA2GRAY,
         0,
         AlgorithmHint::ALGO_HINT_DEFAULT,
     )?;
@@ -107,11 +101,19 @@ pub(crate) fn apply_byte_exclusion(
     let Some(exclusion) = exclusion else {
         return Ok(());
     };
-    for y in 0..height {
-        for x in 0..width {
-            let offset = (y * width + x) as usize;
-            if exclusion.get(offset).copied().unwrap_or(0) > 0 {
-                *mask.at_2d_mut::<u8>(y, x)? = 0;
+    if let Ok(bytes) = mask.data_bytes_mut() {
+        for (dst, &exc) in bytes.iter_mut().zip(exclusion.iter()) {
+            if exc > 0 {
+                *dst = 0;
+            }
+        }
+    } else {
+        for y in 0..height {
+            for x in 0..width {
+                let offset = (y * width + x) as usize;
+                if exclusion.get(offset).copied().unwrap_or(0) > 0 {
+                    *mask.at_2d_mut::<u8>(y, x)? = 0;
+                }
             }
         }
     }
@@ -602,9 +604,13 @@ pub(crate) fn load_exclusion_bytes(
         bail!("occluder mask dimensions differ from video");
     }
     let mut bytes = vec![0u8; (width * height) as usize];
-    for y in 0..mask.rows() {
-        for x in 0..mask.cols() {
-            bytes[(y * mask.cols() + x) as usize] = *mask.at_2d::<u8>(y, x)?;
+    if let Ok(data) = mask.data_bytes() {
+        bytes.copy_from_slice(data);
+    } else {
+        for y in 0..mask.rows() {
+            for x in 0..mask.cols() {
+                bytes[(y * mask.cols() + x) as usize] = *mask.at_2d::<u8>(y, x)?;
+            }
         }
     }
     Ok(Some(bytes))

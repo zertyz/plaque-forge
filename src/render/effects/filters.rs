@@ -104,18 +104,20 @@ pub fn dilate_alpha_circular(source: &[u8], width: usize, height: usize, radius:
         })
         .collect::<Vec<_>>();
     let mut output = vec![0u8; source.len()];
+    let mut deque = std::collections::VecDeque::<usize>::with_capacity(2 * radius + 2);
     for (dy, dx) in row_spans {
         let left = x0.saturating_sub(dx);
         let right = x1.saturating_add(dx).min(width - 1);
         let mut filtered = vec![0_u8; right - left + 1];
         for source_y in y0..=y1 {
-            horizontal_max_filter(
+            horizontal_max_filter_with_deque(
                 &source[source_y * width..(source_y + 1) * width],
                 x0,
                 x1,
                 dx,
                 left,
                 &mut filtered,
+                &mut deque,
             );
             if let Some(target_y) = source_y.checked_sub(dy) {
                 merge_max(
@@ -143,7 +145,28 @@ pub fn horizontal_max_filter(
     output_left: usize,
     output: &mut [u8],
 ) {
-    let mut deque = std::collections::VecDeque::<usize>::new();
+    let mut deque = std::collections::VecDeque::with_capacity(2 * radius + 2);
+    horizontal_max_filter_with_deque(
+        source,
+        source_left,
+        source_right,
+        radius,
+        output_left,
+        output,
+        &mut deque,
+    );
+}
+
+pub fn horizontal_max_filter_with_deque(
+    source: &[u8],
+    source_left: usize,
+    source_right: usize,
+    radius: usize,
+    output_left: usize,
+    output: &mut [u8],
+    deque: &mut std::collections::VecDeque<usize>,
+) {
+    deque.clear();
     let mut next = source_left;
     for (offset, destination) in output.iter_mut().enumerate() {
         let x = output_left + offset;
