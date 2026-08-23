@@ -8,10 +8,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use cosmic_text::{
-    Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight, Wrap,
+    Align, Attrs, Buffer, Color, Fallback, Family, FontSystem, Metrics, Shaping, SwashCache, Wrap,
     fontdb,
 };
 use image::{RgbaImage, imageops::FilterType};
+use unicode_script::Script;
 
 use crate::{
     application::{FitMode, TextAlign, VerticalAlign},
@@ -54,6 +55,7 @@ pub struct RenderRequest<'a> {
 struct TypographyContext<'a> {
     family: &'a str,
     requested_face: fontdb::ID,
+    requested_weight: fontdb::Weight,
     line_height_ratio: f32,
     raster_width: u32,
     raster_height: u32,
@@ -117,9 +119,23 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
     let safe_width = (bounds.2 - bounds.0 + 1).saturating_sub(2 * pad_x).max(1);
     let safe_height = (bounds.3 - bounds.1 + 1).saturating_sub(2 * pad_y).max(1);
 
-    let mut font_system =
-        FontSystem::new_with_fonts([fontdb::Source::File(font_path.to_path_buf())]);
-    let (family, requested_face) = discover_family(&font_system, font_path)?;
+    let mut db = fontdb::Database::new();
+    db.load_font_source(fontdb::Source::File(font_path.to_path_buf()));
+    let locale = std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_else(|_| String::from("en-US"));
+    let locale = locale
+        .split(['.', '@'])
+        .next()
+        .unwrap_or("en-US")
+        .replace('_', "-");
+    let mut font_system = FontSystem::new_with_locale_and_db_and_fallback(locale, db, NoFallback);
+    let (family, requested_face, _requested_weight) = discover_family(&font_system, font_path)?;
+    // The original renderer requested weight 600; keep that to stay byte-compatible
+    // with the committed golden masks. The font database is isolated to the
+    // requested font, so weight 600 selects the only available face (Regular)
+    // without pulling in any other installed family.
+    let requested_weight = fontdb::Weight(600);
     let raster_width = safe_width * supersampling;
     let raster_height = safe_height * supersampling;
     let align = match text_align {
@@ -130,6 +146,7 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
     let context = TypographyContext {
         family: &family,
         requested_face,
+        requested_weight,
         line_height_ratio,
         raster_width,
         raster_height,
@@ -867,7 +884,7 @@ fn shape_candidate(
         text,
         &Attrs::new()
             .family(Family::Name(context.family))
-            .weight(Weight(600)),
+            .weight(context.requested_weight),
         Shaping::Advanced,
         Some(*context.align),
     );
@@ -879,6 +896,10 @@ fn shape_candidate(
     let mut line_widths = Vec::new();
     let mut missing_glyphs = 0usize;
     let mut fallback_glyphs = 0usize;
+    // The font database is isolated to the requested font (see `render`), so every
+    // glyph must be drawn from `requested_face`. cosmic-text rewrites a face's
+    // `Source` from `File` to `SharedFile` while shaping, so comparing sources is
+    // unreliable; comparing the face id is exact and environment-independent.
     for run in buffer.layout_runs() {
         lines += 1;
         max_width = max_width.max(run.line_w);
@@ -887,8 +908,7 @@ fn shape_candidate(
         for glyph in run.glyphs {
             if glyph.glyph_id == 0 {
                 missing_glyphs += 1;
-            }
-            if glyph.font_id != context.requested_face {
+            } else if glyph.font_id != context.requested_face {
                 fallback_glyphs += 1;
             }
         }
@@ -979,7 +999,31 @@ fn clipping_summary(
     (clipped_pixels, clipped_bounds)
 }
 
-fn discover_family(font_system: &FontSystem, path: &Path) -> Result<(String, fontdb::ID)> {
+/// A `Fallback` that never substitutes another font.
+///
+/// cosmic-text's default `PlatformFallback` resolves substitute family names through
+/// fontconfig, which makes glyph selection depend on whatever fonts happen to be
+/// installed system-wide. For a deterministic renderer we want the requested font to
+/// be the only source of glyphs: if it lacks a glyph that is an error, not a silent
+/// substitution that differs from machine to machine.
+struct NoFallback;
+
+impl Fallback for NoFallback {
+    fn common_fallback(&self) -> &[&'static str] {
+        &[]
+    }
+    fn forbidden_fallback(&self) -> &[&'static str] {
+        &[]
+    }
+    fn script_fallback(&self, _script: Script, _locale: &str) -> &[&'static str] {
+        &[]
+    }
+}
+
+fn discover_family(
+    font_system: &FontSystem,
+    path: &Path,
+) -> Result<(String, fontdb::ID, fontdb::Weight)> {
     let face = font_system
         .db()
         .faces()
@@ -990,7 +1034,7 @@ fn discover_family(font_system: &FontSystem, path: &Path) -> Result<(String, fon
         .first()
         .map(|(name, _)| name.clone())
         .context("font has no family name")?;
-    Ok((family, face.id))
+    Ok((family, face.id, face.weight))
 }
 
 fn mask_bounds(width: u32, height: u32, mask: &[u8]) -> Option<(u32, u32, u32, u32)> {

@@ -26,7 +26,7 @@ Prepare the ML foreground/object worker once:
 
 Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, including its virtualenv, cloned ML repositories, and model caches. Nothing is installed into your user Python environment or user caches. If setup is interrupted after downloads, rerunning the same command first attempts an offline in-place repair rather than deleting the cache. Use `--verify` for an offline smoke test, or `--torch-profile cpu` when an XPU build is inappropriate (for example, hosted CI). If `/tmp` is cleared, rerun setup.
 
-Plaque Forge requires Rust, FFmpeg/FFprobe, OpenCV, Clang, fontconfig, and the Noto fonts (the renderer asserts the exact `Noto Serif` family so text-mask tests are reproducible). The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
+Plaque Forge requires Rust, FFmpeg/FFprobe, OpenCV, Clang, fontconfig, and the Noto fonts. Text rendering is pinned to the single font committed at `fonts/NotoSerif-Regular.ttf` (the renderer isolates its font database to that file and fails loudly if it is missing), so text-mask tests are reproducible and independent of which system fonts happen to be installed. The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
 
 > The authoritative, continuously-validated dependency set is the `code-gate` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (its `Install native dependencies` step). That workflow is the real source of truth; the command above is a convenience summary and may lag behind it.
 
