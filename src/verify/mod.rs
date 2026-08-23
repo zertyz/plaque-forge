@@ -347,8 +347,10 @@ pub fn run(
         for (&allowed_alpha, (source, rendered)) in allowed_mask.iter().zip(
             original_frame
                 .pixels()
-                .chunks_exact(4)
-                .zip(rendered_frame.pixels().chunks_exact(4)),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(rendered_frame.pixels().as_chunks::<4>().0.iter()),
         ) {
             if allowed_alpha < 255 {
                 let difference = (0..3)
@@ -375,8 +377,10 @@ pub fn run(
         for (&mask, (observed, template)) in structural_mask.iter().zip(
             original_canonical
                 .pixels()
-                .chunks_exact(4)
-                .zip(structural_template.pixels().chunks_exact(4)),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(structural_template.pixels().as_chunks::<4>().0.iter()),
         ) {
             if mask > 64 {
                 let difference = (0..3)
@@ -442,8 +446,8 @@ pub fn run(
         };
         for ((&alpha, source), rendered) in source_occluder
             .iter()
-            .zip(original_frame.pixels().chunks_exact(4))
-            .zip(rendered_frame.pixels().chunks_exact(4))
+            .zip(original_frame.pixels().as_chunks::<4>().0.iter())
+            .zip(rendered_frame.pixels().as_chunks::<4>().0.iter())
         {
             if alpha > 0 {
                 occlusion_error += (0..3)
@@ -610,8 +614,10 @@ pub fn run(
         )?;
         let delta: Vec<i16> = rendered_canonical
             .pixels()
-            .chunks_exact(4)
-            .zip(original_canonical.pixels().chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(original_canonical.pixels().as_chunks::<4>().0.iter())
             .flat_map(|(rendered, source)| {
                 (0..3).map(move |channel| rendered[channel] as i16 - source[channel] as i16)
             })
@@ -649,7 +655,13 @@ pub fn run(
         if let Some(previous) = &previous_delta {
             for (pixel_index, (&text_alpha, (current, prior))) in canonical_text_mask
                 .iter()
-                .zip(delta.chunks_exact(3).zip(previous.chunks_exact(3)))
+                .zip(
+                    delta
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .zip(previous.as_chunks::<3>().0.iter()),
+                )
                 .enumerate()
             {
                 let current_occluded = canonical_occluder
@@ -1253,7 +1265,11 @@ fn title_difference_signature(
         "title-difference dimensions are inconsistent"
     );
     let mut pixels = vec![0u8; support.len() * 4];
-    for (pixel, (&allowed, channels)) in support.iter().zip(delta.chunks_exact(3)).enumerate() {
+    for (pixel, (&allowed, channels)) in support
+        .iter()
+        .zip(delta.as_chunks::<3>().0.iter())
+        .enumerate()
+    {
         let hidden = occluder.is_some_and(|mask| mask.get(pixel).is_some_and(|&alpha| alpha >= 32));
         if allowed <= 16 || hidden {
             continue;

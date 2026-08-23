@@ -924,7 +924,9 @@ fn blur_luma(src: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> 
 fn grayscale(surface: &Surface) -> Vec<u8> {
     surface
         .pixels()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| {
             ((pixel[0] as u32 * 54 + pixel[1] as u32 * 183 + pixel[2] as u32 * 19) >> 8) as u8
         })

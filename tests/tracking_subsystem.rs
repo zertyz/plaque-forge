@@ -193,8 +193,10 @@ fn synthetic_occlusion_modifies_pixels_while_ground_truth_geometry_persists() {
     let clean_p4 = clean_frames[4].pixels();
     let occluded_p4 = occluded_frames[4].pixels();
     let differing_pixels = clean_p4
-        .chunks_exact(4)
-        .zip(occluded_p4.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(occluded_p4.as_chunks::<4>().0.iter())
         .filter(|(c, o)| c != o)
         .count();
 
