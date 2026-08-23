@@ -59,8 +59,10 @@ impl Surface {
         }
         for ((dst, src), &alpha) in self
             .pixels
-            .chunks_exact_mut(4)
-            .zip(original.pixels.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(original.pixels.as_chunks::<4>().0.iter())
             .zip(mask)
         {
             blend_over(
@@ -82,7 +84,7 @@ impl Surface {
                 self.height
             );
         }
-        for (pixel, &mask_alpha) in self.pixels.chunks_exact_mut(4).zip(mask) {
+        for (pixel, &mask_alpha) in self.pixels.as_chunks_mut::<4>().0.iter_mut().zip(mask) {
             pixel[3] = ((pixel[3] as u16 * mask_alpha as u16 + 127) / 255) as u8;
         }
         Ok(())
@@ -214,11 +216,11 @@ impl Surface {
     }
 
     pub fn alpha_mask(&self) -> Vec<u8> {
-        self.pixels.chunks_exact(4).map(|pixel| pixel[3]).collect()
+        self.pixels.as_chunks::<4>().0.iter().map(|pixel| pixel[3]).collect()
     }
 
     pub fn recolor(&mut self, color: Rgba) {
-        for pixel in self.pixels.chunks_exact_mut(4) {
+        for pixel in self.pixels.as_chunks_mut::<4>().0.iter_mut() {
             pixel[0] = color.r;
             pixel[1] = color.g;
             pixel[2] = color.b;
@@ -231,7 +233,7 @@ impl Surface {
             bail!("alpha mask dimensions do not match its length");
         }
         let mut surface = Self::new(width, height);
-        for (pixel, &alpha) in surface.pixels.chunks_exact_mut(4).zip(mask) {
+        for (pixel, &alpha) in surface.pixels.as_chunks_mut::<4>().0.iter_mut().zip(mask) {
             pixel[0] = color.r;
             pixel[1] = color.g;
             pixel[2] = color.b;
