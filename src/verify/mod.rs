@@ -271,7 +271,8 @@ pub fn run(
         pack.manifest.canonical_height,
     )?;
     let registration_template = load_rgba(&pack.require_asset(REGISTRATION_TEMPLATE_FILE)?)?;
-    let structural_matcher = StructuralMatcher::new(&registration_template, &registration_mask);
+    let structural_matcher =
+        StructuralMatcher::new(&registration_template, &registration_mask).map(std::sync::Arc::new);
     let foregrounds = ForegroundReader::open(&pack, manifest.used_analysis_occluder_masks)?;
     let has_any_occluder = pack.manifest.has_occluder || !foregrounds.is_empty();
     let writing_surface_layer = pack.manifest.layers.iter().find(|layer| {
@@ -300,7 +301,8 @@ pub fn run(
     let mut source_flow_errors_by_lag = [Vec::new(), Vec::new(), Vec::new()];
     let mut source_flow_inliers = Vec::new();
     let mut source_flow_coverages = Vec::new();
-    let mut source_flow_history: VecDeque<(usize, Surface, Vec<u8>)> = VecDeque::new();
+    let mut source_flow_history: VecDeque<(usize, std::sync::Arc<Surface>, Vec<u8>)> =
+        VecDeque::new();
     let mut source_flow_writing_surface_supported_frames = 0usize;
     let mut source_flow_writing_surface_fallback_frames = 0usize;
     let mut occlusion_error = 0_u64;
@@ -311,7 +313,7 @@ pub fn run(
     let mut title_plane_lock_count = 0usize;
     let mut title_plane_maximum_drift = 0.0_f64;
     let mut title_plane_worst_frame = 0usize;
-    let mut title_plane_matcher: Option<StructuralMatcher> = None;
+    let mut title_plane_matcher: Option<std::sync::Arc<StructuralMatcher>> = None;
     let mut previous_delta: Option<Vec<i16>> = None;
     let mut previous_occluder: Option<Vec<u8>> = None;
     let mut first_delta: Option<Vec<i16>> = None;
@@ -319,14 +321,79 @@ pub fn run(
     let mut first_seam_occluder: Option<Vec<u8>> = None;
     let mut last_seam_occluder = Vec::new();
     let mut worst_tracking = (0usize, 1.0f64);
-    let mut worst_tracking_preview = None;
+    let mut worst_tracking_preview: Option<(std::sync::Arc<Surface>, crate::geometry::Quad)> = None;
     let mut worst_scene = (0usize, 0.0f64);
     let mut frame_index = 0usize;
+    let mut pending_title = false;
+    // The ECC optimizer dominates verification runtime. Two resident workers run
+    // the structural and title-plane registrations concurrently with the frame
+    // pipeline; each job is a pure function of its inputs, results are consumed
+    // in dispatch order, so every report value matches inline evaluation exactly.
+    let (structural_tx, structural_rx) = std::sync::mpsc::sync_channel::<(
+        std::sync::Arc<StructuralMatcher>,
+        std::sync::Arc<Surface>,
+        Option<Vec<u8>>,
+    )>(0);
+    let (structural_result_tx, structural_result_rx) = std::sync::mpsc::sync_channel::<f64>(0);
+    let structural_worker = std::thread::spawn(move || {
+        while let Ok((matcher, current, exclusion)) = structural_rx.recv() {
+            let correction = matcher
+                .measure_excluding(&current, 4, exclusion.as_deref())
+                .map(|registration| {
+                    let relative_improvement =
+                        (registration.before - registration.after) / registration.before.max(1.0);
+                    // A moving light or fine foreground line can produce a
+                    // slightly cheaper transform even when the surface is
+                    // already aligned. Demand a material improvement before
+                    // interpreting the optimizer's displacement as geometry.
+                    if registration.after + 1.0 < registration.before
+                        && relative_improvement >= 0.12
+                        && registration.ecc.unwrap_or(1.0) >= 0.72
+                    {
+                        registration_correction_pixels(
+                            &registration,
+                            current.width(),
+                            current.height(),
+                        )
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(f64::INFINITY);
+            if structural_result_tx.send(correction).is_err() {
+                break;
+            }
+        }
+    });
+    let (title_tx, title_rx) = std::sync::mpsc::sync_channel::<(
+        std::sync::Arc<StructuralMatcher>,
+        std::sync::Arc<Surface>,
+    )>(0);
+    let (title_result_tx, title_result_rx) =
+        std::sync::mpsc::sync_channel::<Option<StructuralRegistration>>(0);
+    let title_worker = std::thread::spawn(move || {
+        while let Ok((matcher, signature)) = title_rx.recv() {
+            let registration = matcher.measure(&signature, 6);
+            if title_result_tx.send(registration).is_err() {
+                break;
+            }
+        }
+    });
+    // The usable-registration-support denominator is frame-invariant; computing it
+    // once per verification is exact and avoids rescanning the mask every frame.
+    let registration_support_total = registration_mask
+        .iter()
+        .filter(|&&value| value > 64)
+        .count()
+        .max(1);
 
     loop {
-        let Some(original_frame) = original_decoder.next_frame()? else {
+        let Some(original_frame_surface) = original_decoder.next_frame()? else {
             break;
         };
+        // The original frame is shared with the flow-history deque and the diagnostic
+        // preview; sharing through an Arc avoids a full buffer copy per frame.
+        let original_frame = std::sync::Arc::new(original_frame_surface);
         let rendered_frame = rendered_decoder
             .next_frame()?
             .context("render ended before source")?;
@@ -376,11 +443,13 @@ pub fn run(
             worst_scene = (frame_index, frame_scene_mean);
         }
 
-        let original_canonical = rectify(
+        // Shared with the registration worker; Arc avoids copying the rectified
+        // plaque for the job envelope.
+        let original_canonical = std::sync::Arc::new(rectify(
             &original_frame,
             pack.manifest.source_plaque_rect,
             sample.transform,
-        )?;
+        )?);
         for (&mask, (observed, template)) in structural_mask.iter().zip(
             original_canonical
                 .pixels()
@@ -484,7 +553,12 @@ pub fn run(
             )
         };
 
-        let frame_tracking_score = if sample.plaque_visibility >= 0.5
+        let mut frame_tracking_score = 1.0_f64;
+        // Eligible frames dispatch their ECC measurement to the resident worker
+        // and settle the correction just before frame bookkeeping, keeping every
+        // accumulated value and its ordering identical to inline evaluation.
+        let mut pending_structural: Option<(f64, bool)> = None;
+        if sample.plaque_visibility >= 0.5
             && crate::analyze::tracking::surface_visible_fraction(
                 pack.manifest.source_plaque_rect,
                 sample.transform,
@@ -503,50 +577,25 @@ pub fn run(
                 .iter()
                 .filter(|&&value| value > 64)
                 .count() as f64
-                / registration_mask
-                    .iter()
-                    .filter(|&&value| value > 64)
-                    .count()
-                    .max(1) as f64;
-            if usable_fraction < 0.30 {
-                1.0
-            } else {
+                / registration_support_total as f64;
+            if usable_fraction >= 0.30 {
                 structural_alignment_sum += alignment;
                 structural_alignment_count += 1;
-                let structural_correction = match &structural_matcher {
-                    Some(matcher) => matcher
-                        .measure_excluding(&original_canonical, 4, canonical_occluder.as_deref())
-                        .map(|registration| {
-                            let relative_improvement = (registration.before - registration.after)
-                                / registration.before.max(1.0);
-                            // A moving light or fine foreground line can produce a
-                            // slightly cheaper transform even when the surface is
-                            // already aligned. Demand a material improvement before
-                            // interpreting the optimizer's displacement as geometry.
-                            if registration.after + 1.0 < registration.before
-                                && relative_improvement >= 0.12
-                                && registration.ecc.unwrap_or(1.0) >= 0.72
-                            {
-                                registration_correction_pixels(
-                                    &registration,
-                                    original_canonical.width(),
-                                    original_canonical.height(),
-                                )
-                            } else {
-                                0.0
-                            }
-                        })
-                        .unwrap_or(f64::INFINITY),
-                    None => f64::INFINITY,
-                };
-                let correction = structural_correction;
-                template_registration_maximum_suggested_correction =
-                    template_registration_maximum_suggested_correction.max(correction);
-                tracking_lock_score(correction, alignment)
+                match &structural_matcher {
+                    Some(matcher) => {
+                        structural_tx
+                            .send((
+                                std::sync::Arc::clone(matcher),
+                                std::sync::Arc::clone(&original_canonical),
+                                canonical_occluder.clone(),
+                            ))
+                            .context("structural registration worker stopped accepting work")?;
+                        pending_structural = Some((alignment, true));
+                    }
+                    None => pending_structural = Some((alignment, false)),
+                }
             }
-        } else {
-            1.0
-        };
+        }
 
         if !screen_canvas {
             for (lag_index, lag) in [1usize, 6, 12].into_iter().enumerate() {
@@ -630,33 +679,25 @@ pub fn run(
             })
             .collect();
         if sample.plaque_visibility >= 0.85 && sample.occluder_coverage < 0.04 {
-            let signature = title_difference_signature(
+            let signature = std::sync::Arc::new(title_difference_signature(
                 &delta,
                 &title_plane_support,
                 canonical_occluder.as_deref(),
                 pack.manifest.canonical_width,
                 pack.manifest.canonical_height,
-            )?;
+            )?);
             if let Some(matcher) = &title_plane_matcher {
                 title_plane_lock_count += 1;
-                if let Some(registration) = matcher.measure(&signature, 6) {
-                    let drift = registration_correction_pixels(
-                        &registration,
-                        signature.width(),
-                        signature.height(),
-                    );
-                    let score = (-drift / 1.75).exp().clamp(0.0, 1.0);
-                    title_plane_lock_sum += score;
-                    if drift > title_plane_maximum_drift {
-                        title_plane_maximum_drift = drift;
-                        title_plane_worst_frame = frame_index;
-                    }
-                } else {
-                    title_plane_maximum_drift = title_plane_maximum_drift.max(12.0);
-                    title_plane_worst_frame = frame_index;
-                }
+                title_tx
+                    .send((
+                        std::sync::Arc::clone(matcher),
+                        std::sync::Arc::clone(&signature),
+                    ))
+                    .context("title-plane registration worker stopped accepting work")?;
+                pending_title = true;
             } else {
-                title_plane_matcher = StructuralMatcher::new(&signature, &title_plane_support);
+                title_plane_matcher = StructuralMatcher::new(&signature, &title_plane_support)
+                    .map(std::sync::Arc::new);
             }
         }
         if let Some(previous) = &previous_delta {
@@ -685,6 +726,40 @@ pub fn run(
                 }
             }
         }
+        if let Some((alignment, dispatched)) = pending_structural {
+            let correction = if dispatched {
+                structural_result_rx
+                    .recv()
+                    .map_err(|_| anyhow::anyhow!("structural registration worker failed"))?
+            } else {
+                f64::INFINITY
+            };
+            template_registration_maximum_suggested_correction =
+                template_registration_maximum_suggested_correction.max(correction);
+            frame_tracking_score = tracking_lock_score(correction, alignment);
+        }
+        if pending_title {
+            let registration = title_result_rx
+                .recv()
+                .map_err(|_| anyhow::anyhow!("title-plane registration worker failed"))?;
+            if let Some(registration) = registration {
+                let drift = registration_correction_pixels(
+                    &registration,
+                    pack.manifest.canonical_width,
+                    pack.manifest.canonical_height,
+                );
+                let score = (-drift / 1.75).exp().clamp(0.0, 1.0);
+                title_plane_lock_sum += score;
+                if drift > title_plane_maximum_drift {
+                    title_plane_maximum_drift = drift;
+                    title_plane_worst_frame = frame_index;
+                }
+            } else {
+                title_plane_maximum_drift = title_plane_maximum_drift.max(12.0);
+                title_plane_worst_frame = frame_index;
+            }
+            pending_title = false;
+        }
         if first_delta.is_none() {
             first_delta = Some(delta.clone());
             first_seam_occluder = canonical_occluder.clone();
@@ -709,6 +784,10 @@ pub fn run(
             ),
         );
     }
+    drop(structural_tx);
+    drop(title_tx);
+    let _ = structural_worker.join();
+    let _ = title_worker.join();
     original_decoder.finish()?;
     if rendered_decoder.next_frame()?.is_some() {
         bail!("render contains frames after the source ended");
@@ -941,7 +1020,11 @@ pub fn run(
                 directory.display()
             )
         })?;
-        draw_quad(&mut frame, quad, Rgba::new(255, 220, 0, 255));
+        draw_quad(
+            std::sync::Arc::make_mut(&mut frame),
+            quad,
+            Rgba::new(255, 220, 0, 255),
+        );
         let path = directory.join("verification-worst-tracking-frame.png");
         save_surface(&frame, &path)?;
         Some(

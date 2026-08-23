@@ -17,6 +17,20 @@ Performance work is intentionally split from outcome-quality work. This pass aud
 - A forced scene rebuild reuses an existing automatic-foreground ML sequence only when
   its complete portable request identity and every lossless output validate. Scene-
   only iterations no longer initialize SAM/Cutie/VitMatte for an identical request.
+- Projective warping and canonical extraction share one fused resampling kernel, and
+  large warps parallelize across destination rows. Every output pixel depends only on
+  its own inputs, so any worker count produces bitwise-identical frames (pinned by
+  serial-versus-threaded equivalence tests).
+- Foreground restoration copies fully opaque source pixels instead of re-running
+  linear-light blending; the underlying encoded-level round trip is pinned as an
+  exact identity by a test.
+- Verification dispatches its two independent ECC registrations (structural surface
+  and rendered title plane) to resident worker threads that overlap the frame
+  pipeline. Jobs are pure functions of their inputs and results are consumed in
+  dispatch order, so every report value matches inline evaluation exactly.
+- The frame-invariant registration-support denominator is computed once per
+  verification instead of once per frame, and flow-history frames are shared through
+  reference-counted surfaces rather than deep-copied.
 
 These changes preserve the same frame count, geometry, effect timing, masks, and artifact identities. Linear-light, premultiplied-alpha compositing is a separate correctness fix, not presented as a speed optimization.
 
@@ -52,6 +66,19 @@ The hardened release build was measured on an Intel Core Ultra 7 255H (16 logica
 | Exhaustive verification of that render | 11.94 s | 349 MiB | all component scores 1.0 |
 
 The verifier numbers include every frame and pixel. The only verifier optimization in this pass was replacing repeated transfer-function evaluation with an exact precomputed alpha/channel-bound table; acceptance semantics were unchanged. Temporary benchmark outputs were removed after validation.
+
+## Measured improvement (2026-08-23)
+
+Interleaved before/after runs of the same binary pair on one machine (16 logical CPUs, Rust 1.95, FFmpeg 8.1.1, OpenCV 5.0.0; unprivileged scheduling with CPU pinning; `sync` before every timed run; minimum of 3 rounds). Workloads: lossless `gold-shine` render plus exhaustive verification of that same render, long canonical title text.
+
+| Workload (min of 3) | Before | After | Change |
+| --- | ---: | ---: | --- |
+| Render, physical plaque with foreground restoration, 1280×720×240 | 5.43 s | 4.49 s | −17% |
+| Render, injected plaque surface, 1280×720×240 | 9.30 s | 5.33 s | −43% |
+| Verify, physical plaque with foreground restoration | 66.92 s | 59.72 s | −11% |
+| Verify, injected plaque surface | 70.51 s | 58.72 s | −17% |
+
+Peak RSS was unchanged within noise. Every after-render decoded pixel stream hashed identically to its before-render counterpart, and full verification reports matched field-for-field (scores, bases, drifts, remedies), so artifact quality and acceptance semantics are untouched. Verification remains ECC-dominated (~89% of CPU); the remaining headroom would require changing registration semantics or deeper cross-frame pipelining and is deliberately deferred.
 
 After the typography regression fix, the exact long-title `Noto Serif`/`gold-shine`
 fit on the 990×680 Digifall canonical surface completes in about 4–6 seconds (16 seconds
