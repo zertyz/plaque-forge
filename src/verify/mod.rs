@@ -353,11 +353,18 @@ pub fn run(
                 .zip(rendered_frame.pixels().as_chunks::<4>().0.iter()),
         ) {
             if allowed_alpha < 255 {
-                let difference = (0..3)
-                    .map(|channel| {
-                        scene_channel_error(source[channel], rendered[channel], allowed_alpha)
-                    })
-                    .sum::<u64>();
+                let difference = if allowed_alpha == 0 {
+                    (source[0].abs_diff(rendered[0]).saturating_sub(1)
+                        + source[1].abs_diff(rendered[1]).saturating_sub(1)
+                        + source[2].abs_diff(rendered[2]).saturating_sub(1))
+                        as u64
+                } else {
+                    (0..3)
+                        .map(|channel| {
+                            scene_channel_error(source[channel], rendered[channel], allowed_alpha)
+                        })
+                        .sum::<u64>()
+                };
                 outside_error += difference;
                 outside_count += 3;
                 frame_outside_error += difference;

@@ -655,10 +655,14 @@ fn visible_structural_mask(
     {
         return visible;
     }
+    let max_x_bound = width - 1;
+    let max_y_bound = height - 1;
+
     for y in 1..height - 1 {
         for x in 1..width - 1 {
             let index = y * width + x;
-            if structural[index] <= 96 {
+            let struct_val = structural[index];
+            if struct_val <= 96 {
                 continue;
             }
             let mapped = alignment.transform(crate::model::PointF {
@@ -668,41 +672,41 @@ fn visible_structural_mask(
             let tx = template[index + 1] as f64 - template[index - 1] as f64;
             let ty = template[index + width] as f64 - template[index - width] as f64;
             let template_gradient = tx.hypot(ty);
+            let t_val = template[index] as f64;
+
             'search: for dy in -search_radius..=search_radius {
                 for dx in -search_radius..=search_radius {
-                    let sample_x = (mapped.x + f64::from(dx)).round();
-                    let sample_y = (mapped.y + f64::from(dy)).round();
-                    let Some(center) = sample_gray(current, width, height, sample_x, sample_y)
-                    else {
+                    let sx = (mapped.x + f64::from(dx)).round() as isize;
+                    let sy = (mapped.y + f64::from(dy)).round() as isize;
+                    if sx < 0 || sy < 0 || sx as usize > max_x_bound || sy as usize > max_y_bound {
                         continue;
-                    };
-                    let Some(left) = sample_gray(current, width, height, sample_x - 1.0, sample_y)
-                    else {
+                    }
+                    let sx = sx as usize;
+                    let sy = sy as usize;
+                    let center = current[sy * width + sx] as f64;
+                    let photometric_match = (t_val - center).abs() <= 42.0;
+                    if photometric_match {
+                        visible[index] = struct_val;
+                        break 'search;
+                    }
+
+                    if sx == 0 || sy == 0 || sx >= max_x_bound || sy >= max_y_bound {
                         continue;
-                    };
-                    let Some(right) = sample_gray(current, width, height, sample_x + 1.0, sample_y)
-                    else {
-                        continue;
-                    };
-                    let Some(top) = sample_gray(current, width, height, sample_x, sample_y - 1.0)
-                    else {
-                        continue;
-                    };
-                    let Some(bottom) =
-                        sample_gray(current, width, height, sample_x, sample_y + 1.0)
-                    else {
-                        continue;
-                    };
+                    }
+                    let left = current[sy * width + (sx - 1)] as f64;
+                    let right = current[sy * width + (sx + 1)] as f64;
+                    let top = current[(sy - 1) * width + sx] as f64;
+                    let bottom = current[(sy + 1) * width + sx] as f64;
+
                     let cx = right - left;
                     let cy = bottom - top;
                     let current_gradient = cx.hypot(cy);
                     let direction =
                         (tx * cx + ty * cy) / (template_gradient * current_gradient).max(1.0);
                     let ratio = current_gradient / template_gradient.max(1.0);
-                    let photometric_match = (template[index] as f64 - center).abs() <= 42.0;
                     let edge_match = direction >= 0.55 && (0.25..=4.0).contains(&ratio);
-                    if photometric_match || edge_match {
-                        visible[index] = structural[index];
+                    if edge_match {
+                        visible[index] = struct_val;
                         break 'search;
                     }
                 }
@@ -745,7 +749,16 @@ fn search_similarity(
             .multiply(Mat3::scale(scale, scale))
             .multiply(Mat3::translation(-center_x, -center_y))
     };
-    let before = registration_cost(template, current, width, height, points, Mat3::IDENTITY);
+    let mut err_buf = Vec::with_capacity(points.len());
+    let before = registration_cost_with_buf(
+        template,
+        current,
+        width,
+        height,
+        points,
+        Mat3::IDENTITY,
+        &mut err_buf,
+    );
     let mut best = StructuralRegistration {
         transform: Mat3::IDENTITY,
         before,
@@ -759,7 +772,15 @@ fn search_similarity(
         for dy in (-radius..=radius).step_by(2) {
             for dx in (-radius..=radius).step_by(2) {
                 let matrix = transform(dx as f64, dy as f64, scale);
-                let value = registration_cost(template, current, width, height, points, matrix);
+                let value = registration_cost_with_buf(
+                    template,
+                    current,
+                    width,
+                    height,
+                    points,
+                    matrix,
+                    &mut err_buf,
+                );
                 if value < best.after {
                     best = StructuralRegistration {
                         transform: matrix,
@@ -780,7 +801,15 @@ fn search_similarity(
             for dx_step in -4..=4 {
                 let dx = coarse_dx + dx_step as f64 * 0.25;
                 let matrix = transform(dx, dy, scale);
-                let value = registration_cost(template, current, width, height, points, matrix);
+                let value = registration_cost_with_buf(
+                    template,
+                    current,
+                    width,
+                    height,
+                    points,
+                    matrix,
+                    &mut err_buf,
+                );
                 if value < best.after {
                     best = StructuralRegistration {
                         transform: matrix,
@@ -804,6 +833,27 @@ fn registration_cost(
     transform: Mat3,
 ) -> f64 {
     let mut errors = Vec::with_capacity(points.len());
+    registration_cost_with_buf(
+        template,
+        current,
+        width,
+        height,
+        points,
+        transform,
+        &mut errors,
+    )
+}
+
+fn registration_cost_with_buf(
+    template: &[u8],
+    current: &[u8],
+    width: usize,
+    height: usize,
+    points: &[(usize, usize)],
+    transform: Mat3,
+    errors: &mut Vec<f64>,
+) -> f64 {
+    errors.clear();
     for &(x, y) in points {
         let mapped = transform.transform(crate::model::PointF {
             x: x as f64,
@@ -816,8 +866,17 @@ fn registration_cost(
     if errors.len() < points.len() / 3 {
         f64::INFINITY
     } else {
-        median_f64(errors)
+        median_f64_slice(errors)
     }
+}
+
+fn median_f64_slice(values: &mut [f64]) -> f64 {
+    if values.is_empty() {
+        return f64::INFINITY;
+    }
+    let middle = values.len() / 2;
+    let (_, median, _) = values.select_nth_unstable_by(middle, f64::total_cmp);
+    *median
 }
 
 fn luma_mat(data: &[u8], width: usize, height: usize) -> Result<Mat> {
@@ -862,15 +921,16 @@ fn mat3_from_warp(warp: &Mat) -> Result<Mat3> {
 }
 
 fn valid_correction(transform: Mat3, width: usize, height: usize, radius: i32) -> bool {
-    if transform.inverse().is_none() {
-        return false;
-    }
-    let maximum = f64::from(radius.max(0)) * 1.75 + 2.0;
-    correction_displacement(transform, width as f64, height as f64) <= maximum
+    let displacement =
+        correction_displacement(transform, (width.max(1)) as f64, (height.max(1)) as f64);
+    displacement <= f64::from(radius.max(2)) * 1.75
 }
 
 fn correction_displacement(transform: Mat3, width: f64, height: f64) -> f64 {
-    [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+    let max_x = (width - 1.0).max(0.0);
+    let max_y = (height - 1.0).max(0.0);
+    let corners = [(0.0, 0.0), (max_x, 0.0), (max_x, max_y), (0.0, max_y)];
+    corners
         .into_iter()
         .map(|(x, y)| {
             let mapped = transform.transform(crate::model::PointF { x, y });
@@ -880,6 +940,7 @@ fn correction_displacement(transform: Mat3, width: f64, height: f64) -> f64 {
         / 4.0
 }
 
+#[inline(always)]
 fn sample_gray(data: &[u8], width: usize, height: usize, x: f64, y: f64) -> Option<f64> {
     if x < 0.0
         || y < 0.0
@@ -894,8 +955,10 @@ fn sample_gray(data: &[u8], width: usize, height: usize, x: f64, y: f64) -> Opti
     let y1 = (y0 + 1).min(height - 1);
     let tx = x - x0 as f64;
     let ty = y - y0 as f64;
-    let a = data[y0 * width + x0] as f64 * (1.0 - tx) + data[y0 * width + x1] as f64 * tx;
-    let b = data[y1 * width + x0] as f64 * (1.0 - tx) + data[y1 * width + x1] as f64 * tx;
+    let row0 = y0 * width;
+    let row1 = y1 * width;
+    let a = data[row0 + x0] as f64 * (1.0 - tx) + data[row0 + x1] as f64 * tx;
+    let b = data[row1 + x0] as f64 * (1.0 - tx) + data[row1 + x1] as f64 * tx;
     Some(a * (1.0 - ty) + b * ty)
 }
 
@@ -962,15 +1025,6 @@ fn structural_area_score(area: f64) -> f64 {
     } else {
         (area / 0.003).clamp(0.0, 1.0)
     }
-}
-
-fn median_f64(mut values: Vec<f64>) -> f64 {
-    if values.is_empty() {
-        return f64::INFINITY;
-    }
-    let middle = values.len() / 2;
-    let (_, median, _) = values.select_nth_unstable_by(middle, f64::total_cmp);
-    *median
 }
 
 fn save_surface_png(surface: &Surface, path: &Path) -> Result<()> {
