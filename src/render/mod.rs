@@ -826,6 +826,15 @@ fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Resul
 
 #[cfg(test)]
 pub(crate) fn test_font() -> std::path::PathBuf {
+    // Reproducible rendering depends on a single, pinned font. Prefer the copy
+    // committed to the repository so the output is independent of which system
+    // fonts happen to be installed; extra fonts must not alter the result.
+    let pinned = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fonts")
+        .join("NotoSerif-Regular.ttf");
+    if pinned.is_file() {
+        return pinned;
+    }
     let candidates = [
         "/usr/share/fonts/noto/NotoSerif-Regular.ttf",
         "/usr/share/fonts/TTF/NotoSerif-Regular.ttf",
