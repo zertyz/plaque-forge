@@ -9,12 +9,19 @@ another model is ground-truth visual quality.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 MAX_U16 = 65535
 
@@ -29,7 +36,12 @@ def mask_paths(root: Path) -> list[Path]:
 
 
 def read_u16(path: Path) -> np.ndarray:
-    values = np.asarray(Image.open(path))
+    if cv2 is not None:
+        values = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+        if values is None:
+            values = np.asarray(Image.open(path))
+    else:
+        values = np.asarray(Image.open(path))
     if values.ndim == 3:
         values = values[..., -1]
     if values.dtype == np.uint8:
@@ -47,6 +59,50 @@ def percentile_from_histogram(histogram: np.ndarray, quantile: float, total: int
         return 0
     target = max(1, math.ceil(total * quantile))
     return int(np.searchsorted(np.cumsum(histogram, dtype=np.uint64), target, side="left"))
+
+
+def _compare_pair(
+    pair: tuple[Path, Path],
+) -> tuple[np.ndarray, int, int, int, int, int, int, int, int, int]:
+    left_path, right_path = pair
+    a = read_u16(left_path)
+    b = read_u16(right_path)
+    if a.shape != b.shape:
+        raise ValueError(
+            f"shape mismatch at {left_path.name}/{right_path.name}: {a.shape} vs {b.shape}"
+        )
+    if cv2 is not None:
+        diff = cv2.absdiff(a, b)
+    else:
+        diff = np.abs(a.astype(np.int32) - b.astype(np.int32)).astype(np.uint16)
+    counts = np.bincount(diff.ravel(), minlength=MAX_U16 + 1).astype(np.uint64)
+    pixels = diff.size
+    diff_u64 = diff.astype(np.uint64)
+    diff_flat = diff_u64.ravel()
+    absolute_sum = int(diff_flat.sum(dtype=np.uint64))
+    squared_sum = int(np.dot(diff_flat, diff_flat))
+    maximum = int(diff.max(initial=0))
+
+    a_binary = a >= 32768
+    b_binary = b >= 32768
+    inter = int(np.count_nonzero(a_binary & b_binary))
+    uni = int(np.count_nonzero(a_binary | b_binary))
+    dis = uni - inter
+    soft_a = int(np.count_nonzero((a > 0) & (a < MAX_U16)))
+    soft_b = int(np.count_nonzero((b > 0) & (b < MAX_U16)))
+
+    return (
+        counts,
+        pixels,
+        absolute_sum,
+        squared_sum,
+        maximum,
+        inter,
+        uni,
+        dis,
+        soft_a,
+        soft_b,
+    )
 
 
 def compare(left: Path, right: Path) -> dict:
@@ -68,30 +124,57 @@ def compare(left: Path, right: Path) -> dict:
     soft_left = 0
     soft_right = 0
 
-    for left_path, right_path in zip(left_paths, right_paths):
-        a = read_u16(left_path)
-        b = read_u16(right_path)
-        if a.shape != b.shape:
-            raise ValueError(
-                f"shape mismatch at {left_path.name}/{right_path.name}: {a.shape} vs {b.shape}"
-            )
-        diff = np.abs(a.astype(np.int32) - b.astype(np.int32)).astype(np.uint16)
-        counts = np.bincount(diff.ravel(), minlength=MAX_U16 + 1).astype(np.uint64)
-        histogram += counts
-        pixels += diff.size
-        absolute_sum += int(diff.astype(np.uint64).sum(dtype=np.uint64))
-        squared_sum += int(
-            np.square(diff.astype(np.uint64), dtype=np.uint64).sum(dtype=np.uint64)
-        )
-        maximum = max(maximum, int(diff.max(initial=0)))
+    pairs = list(zip(left_paths, right_paths))
+    max_workers = min(16, len(pairs), os.cpu_count() or 4) if len(pairs) > 1 else 1
 
-        a_binary = a >= 32768
-        b_binary = b >= 32768
-        intersection += int(np.logical_and(a_binary, b_binary).sum())
-        union += int(np.logical_or(a_binary, b_binary).sum())
-        disagreement += int(np.logical_xor(a_binary, b_binary).sum())
-        soft_left += int(np.logical_and(a > 0, a < MAX_U16).sum())
-        soft_right += int(np.logical_and(b > 0, b < MAX_U16).sum())
+    if max_workers > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for (
+                counts,
+                p_count,
+                abs_sum,
+                sq_sum,
+                max_val,
+                inter,
+                uni,
+                dis,
+                soft_a,
+                soft_b,
+            ) in pool.map(_compare_pair, pairs):
+                histogram += counts
+                pixels += p_count
+                absolute_sum += abs_sum
+                squared_sum += sq_sum
+                maximum = max(maximum, max_val)
+                intersection += inter
+                union += uni
+                disagreement += dis
+                soft_left += soft_a
+                soft_right += soft_b
+    else:
+        for pair in pairs:
+            (
+                counts,
+                p_count,
+                abs_sum,
+                sq_sum,
+                max_val,
+                inter,
+                uni,
+                dis,
+                soft_a,
+                soft_b,
+            ) = _compare_pair(pair)
+            histogram += counts
+            pixels += p_count
+            absolute_sum += abs_sum
+            squared_sum += sq_sum
+            maximum = max(maximum, max_val)
+            intersection += inter
+            union += uni
+            disagreement += dis
+            soft_left += soft_a
+            soft_right += soft_b
 
     mean_stored = absolute_sum / max(pixels, 1)
     rmse_stored = math.sqrt(squared_sum / max(pixels, 1))
