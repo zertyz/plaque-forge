@@ -1,6 +1,6 @@
 use crate::{
     color::Rgba,
-    geometry::{Point, Quad, homography},
+    geometry::{Quad, homography},
 };
 use anyhow::{Result, bail};
 use std::sync::LazyLock;
@@ -99,12 +99,17 @@ impl Surface {
         if mask.len() != self.width as usize * self.height as usize {
             bail!("restore mask dimensions do not match frame");
         }
-        let dst_chunks = self.pixels.as_chunks_mut::<4>().0;
-        let src_chunks = original.pixels.as_chunks::<4>().0;
-        for ((dst, src), &alpha) in dst_chunks.iter_mut().zip(src_chunks.iter()).zip(mask) {
-            if alpha == 0 {
-                continue;
-            }
+        for ((dst, src), &alpha) in self
+            .pixels
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(original.pixels.as_chunks::<4>().0.iter())
+            .zip(mask)
+        {
+            // A fully opaque source restored at full weight is an exact copy:
+            // the linear-light round trip is identity for every encoded level
+            // (pinned exhaustively by the restore fast-path test).
             if alpha == 255 && src[3] == 255 {
                 dst.copy_from_slice(src);
                 continue;
@@ -173,12 +178,20 @@ impl Surface {
         }
 
         for y in top..bottom {
+            let destination_row = &mut self.pixels
+                [y as usize * self.width as usize * 4..(y + 1) as usize * self.width as usize * 4];
+            let source_row = &source.pixels[(y - dy) as usize * source.width as usize * 4
+                ..(y - dy + 1) as usize * source.width as usize * 4];
             for x in left..right {
-                let sx = (x - dx) as u32;
-                let sy = (y - dy) as u32;
-                let pixel = source.pixel(sx, sy);
-                if pixel.a > 0 {
-                    self.blend_pixel(x, y, pixel, opacity);
+                let sx = ((x - dx) * 4) as usize;
+                let dx4 = (x * 4) as usize;
+                let pixel: [u8; 4] = source_row[sx..sx + 4].try_into().expect("RGBA slice");
+                if pixel[3] > 0 {
+                    blend_over(
+                        &mut destination_row[dx4..dx4 + 4],
+                        Rgba::new(pixel[0], pixel[1], pixel[2], pixel[3]),
+                        opacity,
+                    );
                 }
             }
         }
@@ -189,6 +202,20 @@ impl Surface {
         if opacity <= 0.0 {
             return Ok(());
         }
+        let workers = parallel_workers(destination_area(destination));
+        self.warp_blend_with_workers(source, destination, opacity, workers)
+    }
+
+    /// [`Surface::warp_blend`] with an explicit worker budget. Any worker count
+    /// must produce bitwise-identical output because every destination pixel is
+    /// computed independently by the same expression sequence.
+    pub(crate) fn warp_blend_with_workers(
+        &mut self,
+        source: &Surface,
+        destination: Quad,
+        opacity: f32,
+        workers: usize,
+    ) -> Result<()> {
         let source_quad = Quad::from_rect(
             0.0,
             0.0,
@@ -201,20 +228,28 @@ impl Surface {
         let top = min_y.floor().max(0.0) as i32;
         let right = max_x.ceil().min(self.width as f64 - 1.0) as i32;
         let bottom = max_y.ceil().min(self.height as f64 - 1.0) as i32;
-
-        for y in top..=bottom {
-            for x in left..=right {
-                let Some(mapped) = inverse.transform(Point::new(x as f64 + 0.5, y as f64 + 0.5))
-                else {
-                    continue;
-                };
-                if let Some(pixel) = source.sample_bilinear(mapped.x - 0.5, mapped.y - 0.5)
-                    && pixel.a > 0
-                {
-                    self.blend_pixel(x, y, pixel, opacity);
-                }
-            }
+        if left > right || top > bottom {
+            return Ok(());
         }
+        let self_width_bytes = self.width as usize * 4;
+        let job = ProjectiveResample {
+            source,
+            matrix: inverse.m,
+            transform_shift: 0.5,
+            sample_shift: -0.5,
+            left,
+            right,
+            mode: Resampling::Blend(opacity),
+        };
+        run_rows(
+            self,
+            top as u32,
+            bottom as u32 + 1,
+            workers,
+            |band, band_top| {
+                job.run(band, band_top, self_width_bytes);
+            },
+        );
         Ok(())
     }
 
@@ -225,6 +260,20 @@ impl Surface {
         width: u32,
         height: u32,
     ) -> Result<Self> {
+        let workers = parallel_workers(width as usize * height as usize);
+        Self::extract_quad_with_workers(frame, source_quad, width, height, workers)
+    }
+
+    /// [`Surface::extract_quad`] with an explicit worker budget. Any worker count
+    /// must produce bitwise-identical output because every canonical pixel is
+    /// computed independently by the same expression sequence.
+    pub(crate) fn extract_quad_with_workers(
+        frame: &Surface,
+        source_quad: Quad,
+        width: u32,
+        height: u32,
+        workers: usize,
+    ) -> Result<Self> {
         let canonical = Quad::from_rect(
             0.0,
             0.0,
@@ -233,18 +282,20 @@ impl Surface {
         );
         let to_frame = homography(canonical, source_quad)?;
         let mut result = Self::new(width, height);
-        let dest_slice = result.pixels.as_chunks_mut::<4>().0;
-
-        for y in 0..height {
-            let row_offset = y as usize * width as usize;
-            for x in 0..width {
-                let Some(mapped) = to_frame.transform(Point::new(x as f64, y as f64)) else {
-                    continue;
-                };
-                if let Some(pixel) = frame.sample_bilinear(mapped.x, mapped.y) {
-                    dest_slice[row_offset + x as usize] = pixel.as_array();
-                }
-            }
+        if height > 0 && width > 0 {
+            let row_bytes = width as usize * 4;
+            let job = ProjectiveResample {
+                source: frame,
+                matrix: to_frame.m,
+                transform_shift: 0.0,
+                sample_shift: 0.0,
+                left: 0,
+                right: width as i32 - 1,
+                mode: Resampling::Overwrite,
+            };
+            run_rows(&mut result, 0, height, workers, |band, band_top| {
+                job.run(band, band_top, row_bytes);
+            });
         }
         Ok(result)
     }
@@ -330,113 +381,6 @@ impl Surface {
         }
     }
 
-    #[inline(always)]
-    fn sample_bilinear(&self, x: f64, y: f64) -> Option<Rgba> {
-        if x < -0.5 || y < -0.5 || x > self.width as f64 - 0.5 || y > self.height as f64 - 0.5 {
-            return None;
-        }
-        let max_x = self.width.saturating_sub(1);
-        let max_y = self.height.saturating_sub(1);
-        let x = x.clamp(0.0, max_x as f64);
-        let y = y.clamp(0.0, max_y as f64);
-        let x0 = x.floor() as u32;
-        let y0 = y.floor() as u32;
-        let x1 = (x0 + 1).min(max_x);
-        let y1 = (y0 + 1).min(max_y);
-        let fx = (x - x0 as f64) as f32;
-        let fy = (y - y0 as f64) as f32;
-
-        let stride = self.width as usize * 4;
-        let row0 = y0 as usize * stride;
-        let row1 = y1 as usize * stride;
-        let i00 = row0 + x0 as usize * 4;
-        let i10 = row0 + x1 as usize * 4;
-        let i01 = row1 + x0 as usize * 4;
-        let i11 = row1 + x1 as usize * 4;
-
-        let p00 = &self.pixels[i00..i00 + 4];
-        let p10 = &self.pixels[i10..i10 + 4];
-        let p01 = &self.pixels[i01..i01 + 4];
-        let p11 = &self.pixels[i11..i11 + 4];
-
-        let a00 = p00[3];
-        let a10 = p10[3];
-        let a01 = p01[3];
-        let a11 = p11[3];
-
-        if (a00 | a10 | a01 | a11) == 0 {
-            return Some(Rgba::new(0, 0, 0, 0));
-        }
-
-        let w0 = (1.0 - fx) * (1.0 - fy);
-        let w1 = fx * (1.0 - fy);
-        let w2 = (1.0 - fx) * fy;
-        let w3 = fx * fy;
-
-        if a00 == 255 && a10 == 255 && a01 == 255 && a11 == 255 {
-            let r = linear_to_srgb(
-                srgb_to_linear(p00[0]) * w0
-                    + srgb_to_linear(p10[0]) * w1
-                    + srgb_to_linear(p01[0]) * w2
-                    + srgb_to_linear(p11[0]) * w3,
-            );
-            let g = linear_to_srgb(
-                srgb_to_linear(p00[1]) * w0
-                    + srgb_to_linear(p10[1]) * w1
-                    + srgb_to_linear(p01[1]) * w2
-                    + srgb_to_linear(p11[1]) * w3,
-            );
-            let b = linear_to_srgb(
-                srgb_to_linear(p00[2]) * w0
-                    + srgb_to_linear(p10[2]) * w1
-                    + srgb_to_linear(p01[2]) * w2
-                    + srgb_to_linear(p11[2]) * w3,
-            );
-            return Some(Rgba::new(r, g, b, 255));
-        }
-
-        let aw0 = (a00 as f32 / 255.0) * w0;
-        let aw1 = (a10 as f32 / 255.0) * w1;
-        let aw2 = (a01 as f32 / 255.0) * w2;
-        let aw3 = (a11 as f32 / 255.0) * w3;
-
-        let alpha = aw0 + aw1 + aw2 + aw3;
-        if alpha <= f32::EPSILON {
-            return Some(Rgba::new(0, 0, 0, 0));
-        }
-
-        let inv_alpha = 1.0 / alpha;
-        let r = linear_to_srgb(
-            (srgb_to_linear(p00[0]) * aw0
-                + srgb_to_linear(p10[0]) * aw1
-                + srgb_to_linear(p01[0]) * aw2
-                + srgb_to_linear(p11[0]) * aw3)
-                * inv_alpha,
-        );
-        let g = linear_to_srgb(
-            (srgb_to_linear(p00[1]) * aw0
-                + srgb_to_linear(p10[1]) * aw1
-                + srgb_to_linear(p01[1]) * aw2
-                + srgb_to_linear(p11[1]) * aw3)
-                * inv_alpha,
-        );
-        let b = linear_to_srgb(
-            (srgb_to_linear(p00[2]) * aw0
-                + srgb_to_linear(p10[2]) * aw1
-                + srgb_to_linear(p01[2]) * aw2
-                + srgb_to_linear(p11[2]) * aw3)
-                * inv_alpha,
-        );
-
-        Some(Rgba::new(
-            r,
-            g,
-            b,
-            (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
-        ))
-    }
-
-    #[inline(always)]
     fn index(&self, x: u32, y: u32) -> usize {
         (y as usize * self.width as usize + x as usize) * 4
     }
@@ -491,6 +435,179 @@ pub(crate) fn constrained_linear_mixture_error(known: u8, observed: u8, known_we
     } else {
         0
     }
+}
+
+/// Whether a resampled pixel overwrites the destination or is alpha-composited.
+#[derive(Clone, Copy)]
+enum Resampling {
+    Overwrite,
+    Blend(f32),
+}
+
+/// Areas below this many destination pixels stay on the calling thread; thread
+/// coordination would cost more than the parallelism saves.
+const PARALLEL_AREA_THRESHOLD: usize = 96 * 1024;
+
+fn parallel_workers(area: usize) -> usize {
+    if area < PARALLEL_AREA_THRESHOLD {
+        return 1;
+    }
+    std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+}
+
+fn destination_area(quad: Quad) -> usize {
+    let (min_x, min_y, max_x, max_y) = quad.bounds();
+    let width = (max_x - min_x).max(0.0).ceil() as usize;
+    let height = (max_y - min_y).max(0.0).ceil() as usize;
+    width.saturating_mul(height)
+}
+
+/// Applies `process` to contiguous row bands of `surface` between `top` and
+/// `bottom` (exclusive), optionally on scoped worker threads. Bands never overlap,
+/// and each pixel's value depends only on its own inputs, so any worker count
+/// yields identical bytes.
+fn run_rows(
+    surface: &mut Surface,
+    top: u32,
+    bottom: u32,
+    workers: usize,
+    process: impl Fn(&mut [u8], u32) + Send + Sync,
+) {
+    if bottom <= top {
+        return;
+    }
+    let row_bytes = surface.width as usize * 4;
+    let first_byte = top as usize * row_bytes;
+    let end_byte = bottom as usize * row_bytes;
+    let total_rows = (bottom - top) as usize;
+    let workers = workers.clamp(1, total_rows);
+    if workers == 1 {
+        process(&mut surface.pixels[first_byte..end_byte], top);
+        return;
+    }
+    let rows_per_band = total_rows.div_ceil(workers);
+    let mut rest = &mut surface.pixels[first_byte..end_byte];
+    let process = &process;
+    std::thread::scope(|scope| {
+        let mut band_top = top;
+        while band_top < bottom {
+            let band_rows = rows_per_band.min((bottom - band_top) as usize);
+            let (band, tail) = rest.split_at_mut(band_rows * row_bytes);
+            rest = tail;
+            scope.spawn(move || process(band, band_top));
+            band_top += band_rows as u32;
+        }
+    });
+}
+
+/// A projective resampling job over a destination rectangle: the authoritative
+/// implementation behind both [`Surface::warp_blend`] and [`Surface::extract_quad`].
+/// It preserves their historical per-pixel expression sequence exactly, including
+/// operation order, so results do not depend on how rows are distributed.
+struct ProjectiveResample<'a> {
+    source: &'a Surface,
+    matrix: [[f64; 3]; 3],
+    transform_shift: f64,
+    sample_shift: f64,
+    left: i32,
+    right: i32,
+    mode: Resampling,
+}
+
+impl ProjectiveResample<'_> {
+    fn run(&self, band: &mut [u8], band_top: u32, row_bytes: usize) {
+        let m = &self.matrix;
+        let first_column = self.left as usize * 4;
+        let span_end = (self.right as usize + 1) * 4;
+        for (row_offset, row) in band.chunks_mut(row_bytes).enumerate() {
+            let y = band_top as f64 + row_offset as f64 + self.transform_shift;
+            let mut x = self.left as f64 + self.transform_shift;
+            for destination_pixel in row[first_column..span_end].chunks_mut(4) {
+                let z = m[2][0] * x + m[2][1] * y + m[2][2];
+                if z.abs() >= 1e-12 {
+                    let sample_x = (m[0][0] * x + m[0][1] * y + m[0][2]) / z + self.sample_shift;
+                    let sample_y = (m[1][0] * x + m[1][1] * y + m[1][2]) / z + self.sample_shift;
+                    if let Some(sampled) = sample_bilinear_pixels(self.source, sample_x, sample_y) {
+                        match self.mode {
+                            Resampling::Overwrite => {
+                                destination_pixel.copy_from_slice(&sampled);
+                            }
+                            Resampling::Blend(opacity) => blend_over(
+                                destination_pixel,
+                                Rgba::new(sampled[0], sampled[1], sampled[2], sampled[3]),
+                                opacity,
+                            ),
+                        }
+                    }
+                }
+                x += 1.0;
+            }
+        }
+    }
+}
+
+#[inline]
+fn pixel_at(surface: &Surface, x: u32, y: u32) -> [u8; 4] {
+    let index = (y as usize * surface.width as usize + x as usize) * 4;
+    surface.pixels[index..index + 4]
+        .try_into()
+        .expect("RGBA slice")
+}
+
+/// The authoritative bilinear sampler: linear-light, premultiplied-alpha
+/// interpolation. `None` means the coordinate falls outside the half-pixel
+/// boundary; a fully transparent mixture is reported as transparent black.
+#[inline]
+fn sample_bilinear_pixels(surface: &Surface, x: f64, y: f64) -> Option<[u8; 4]> {
+    if x < -0.5 || y < -0.5 || x > surface.width as f64 - 0.5 || y > surface.height as f64 - 0.5 {
+        return None;
+    }
+    let clamped_x = x.clamp(0.0, surface.width.saturating_sub(1) as f64);
+    let clamped_y = y.clamp(0.0, surface.height.saturating_sub(1) as f64);
+    let x0 = clamped_x.floor() as u32;
+    let y0 = clamped_y.floor() as u32;
+    let x1 = (x0 + 1).min(surface.width - 1);
+    let y1 = (y0 + 1).min(surface.height - 1);
+    let fx = (clamped_x - x0 as f64) as f32;
+    let fy = (clamped_y - y0 as f64) as f32;
+    let p00 = pixel_at(surface, x0, y0);
+    let p10 = pixel_at(surface, x1, y0);
+    let p01 = pixel_at(surface, x0, y1);
+    let p11 = pixel_at(surface, x1, y1);
+    // Every fully transparent neighborhood mixes to transparent black; skipping
+    // the weight math yields exactly the same bytes as the general path below.
+    if (p00[3] | p10[3] | p01[3] | p11[3]) == 0 {
+        return Some([0, 0, 0, 0]);
+    }
+    let pixels = [p00, p10, p01, p11];
+    let weights = [
+        (1.0 - fx) * (1.0 - fy),
+        fx * (1.0 - fy),
+        (1.0 - fx) * fy,
+        fx * fy,
+    ];
+    let alpha = pixels
+        .iter()
+        .zip(weights)
+        .map(|(pixel, weight)| pixel[3] as f32 / 255.0 * weight)
+        .sum::<f32>();
+    let mut sampled = [0_u8; 4];
+    if alpha > f32::EPSILON {
+        for channel in 0..3 {
+            let premultiplied = pixels
+                .iter()
+                .zip(weights)
+                .map(|(pixel, weight)| {
+                    srgb_to_linear(pixel[channel]) * (pixel[3] as f32 / 255.0) * weight
+                })
+                .sum::<f32>();
+            sampled[channel] = linear_to_srgb(premultiplied / alpha);
+        }
+        sampled[3] = (alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+    Some(sampled)
 }
 
 fn blur_rgba_horizontal(
@@ -560,6 +677,7 @@ fn blur_rgba_vertical(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Point;
 
     #[test]
     fn extracting_a_quad_preserves_sampled_alpha() {
@@ -617,11 +735,11 @@ mod tests {
         source.set_pixel(0, 0, Rgba::new(255, 0, 0, 255));
         source.set_pixel(1, 0, Rgba::new(0, 0, 255, 0));
 
-        let middle = source.sample_bilinear(0.5, 0.0).unwrap();
-        assert_eq!(middle.r, 255);
-        assert_eq!(middle.g, 0);
-        assert_eq!(middle.b, 0);
-        assert!((127..=128).contains(&middle.a));
+        let middle = sample_bilinear_pixels(&source, 0.5, 0.0).unwrap();
+        assert_eq!(middle[0], 255);
+        assert_eq!(middle[1], 0);
+        assert_eq!(middle[2], 0);
+        assert!((127..=128).contains(&middle[3]));
     }
 
     #[test]
@@ -632,5 +750,159 @@ mod tests {
         assert_eq!(constrained_linear_mixture_error(32, 35, 255), 2);
         assert_eq!(constrained_linear_mixture_error(128, 0, 0), 0);
         assert_eq!(constrained_linear_mixture_error(128, 255, 0), 0);
+    }
+
+    /// Pseudo-random but fully deterministic RGBA content exercising many alpha,
+    /// chroma, and gradient combinations in warp/compositing equivalence tests.
+    fn patterned_surface(width: u32, height: u32, seed: u64) -> Surface {
+        let mut state = seed | 1;
+        let mut next = move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 33) as u8
+        };
+        let pixels = (0..width as usize * height as usize * 4)
+            .map(|_| next())
+            .collect();
+        Surface::from_rgba(width, height, pixels).unwrap()
+    }
+
+    fn assert_warp_equivalent_across_worker_counts(
+        source: &Surface,
+        destination: Quad,
+        opacity: f32,
+        canvas: (u32, u32),
+    ) {
+        let mut serial = Surface::new(canvas.0, canvas.1);
+        serial
+            .warp_blend_with_workers(source, destination, opacity, 1)
+            .expect("serial warp should succeed");
+        let mut parallel = Surface::new(canvas.0, canvas.1);
+        parallel
+            .warp_blend_with_workers(source, destination, opacity, 8)
+            .expect("parallel warp should succeed");
+        assert_eq!(
+            parallel.pixels(),
+            serial.pixels(),
+            "parallel warp diverged bitwise from serial warp"
+        );
+    }
+
+    #[test]
+    fn threaded_warp_is_bitwise_identical_to_serial_warp() {
+        let source = patterned_surface(97, 61, 0xDEADBEEF);
+        // Perspective-heavy quad crossing canvas edges exercises clipping,
+        // boundary sampling, and the transparent-sampling skip path together.
+        let quads = [
+            Quad::new(
+                Point::new(-30.0, 7.5),
+                Point::new(180.0, -12.0),
+                Point::new(150.0, 90.0),
+                Point::new(-18.0, 70.0),
+            ),
+            Quad::new(
+                Point::new(3.0, 2.0),
+                Point::new(50.25, 4.75),
+                Point::new(48.0, 44.5),
+                Point::new(1.5, 39.0),
+            ),
+        ];
+        for quad in quads {
+            for &opacity in &[0.0_f32, 0.37, 1.0] {
+                assert_warp_equivalent_across_worker_counts(&source, quad, opacity, (128, 80));
+            }
+        }
+    }
+
+    #[test]
+    fn threaded_extract_is_bitwise_identical_to_serial_extract() {
+        let frame = patterned_surface(211, 127, 0x5EED_1234);
+        let quads = [
+            Quad::new(
+                Point::new(9.5, 4.25),
+                Point::new(190.0, 1.0),
+                Point::new(185.0, 120.0),
+                Point::new(2.0, 118.0),
+            ),
+            Quad::from_rect(0.0, 0.0, 210.0, 126.0),
+        ];
+        for quad in quads {
+            let mut serial = Surface::extract_quad_with_workers(&frame, quad, 160, 100, 1).unwrap();
+            let parallel = Surface::extract_quad_with_workers(&frame, quad, 160, 100, 8).unwrap();
+            assert_eq!(
+                parallel.pixels(),
+                serial.pixels(),
+                "parallel extraction diverged bitwise from serial extraction"
+            );
+            serial.apply_alpha_mask(&vec![255_u8; 160 * 100]).unwrap();
+        }
+    }
+
+    #[test]
+    fn restore_fast_path_matches_general_source_over_blending_exactly() {
+        let mut original = Surface::new(256, 4);
+        let mut restored = Surface::new(256, 4);
+        let mut mask = Vec::with_capacity(256 * 4);
+        for alpha in 0..=255_u8 {
+            for row in 0..4_u32 {
+                let index = (row * 256 + alpha as u32) as usize;
+                original.set_pixel(
+                    alpha as u32,
+                    row,
+                    Rgba::new(alpha, 255 - alpha, alpha / 2, 255),
+                );
+                restored.set_pixel(
+                    alpha as u32,
+                    row,
+                    Rgba::new(
+                        255 - alpha,
+                        alpha,
+                        200,
+                        if alpha % 3 == 0 { 0 } else { 255 },
+                    ),
+                );
+                mask.push(if row == 3 {
+                    alpha.wrapping_add(17)
+                } else {
+                    alpha
+                });
+                let _ = index;
+            }
+        }
+        let reference = restored.clone();
+        let mut fast = restored.clone();
+        fast.restore_from_mask(&original, &mask).unwrap();
+
+        let mut expected = reference;
+        for ((dst, src), &alpha) in expected
+            .pixels
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(original.pixels.as_chunks::<4>().0.iter())
+            .zip(&mask)
+        {
+            blend_over(
+                dst,
+                Rgba::new(src[0], src[1], src[2], src[3]),
+                alpha as f32 / 255.0,
+            );
+        }
+        assert_eq!(
+            fast.pixels(),
+            expected.pixels(),
+            "restore_from_mask diverged from direct source-over blending"
+        );
+
+        // The opaque fast path is exact only because every encoded level survives
+        // the linear-light round trip; pin that property exhaustively.
+        for level in 0..=255_u8 {
+            assert_eq!(
+                linear_to_srgb(srgb_to_linear(level)),
+                level,
+                "linear round trip is not identity for level {level}"
+            );
+        }
     }
 }
