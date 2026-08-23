@@ -332,7 +332,7 @@ def extract_frames_cached(request):
             [
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-noautorotate",
                 "-i", str(request["source"]["path"]), "-start_number", "0",
-                "-c:v", "png", "-pix_fmt", "rgba", "-f", "image2", "-y",
+                "-c:v", "png", "-compression_level", "1", "-pix_fmt", "rgba", "-f", "image2", "-y",
                 str(staging / "%06d.png"),
             ],
             check=True,
@@ -798,7 +798,17 @@ def cutie_masks(request, frames, device, guides=None):
         output = {}
         with torch.inference_mode(), precision_context(torch, device, precision):
             for position, frame in enumerate(indices):
-                image = to_tensor(Image.open(frames[frame]).convert("RGB")).to(device).float()
+                if cv2 is not None:
+                    bgr = cv2.imread(str(frames[frame]), cv2.IMREAD_COLOR)
+                    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                    image = (
+                        torch.from_numpy(rgb.transpose((2, 0, 1)))
+                        .float()
+                        .div(255.0)
+                        .to(device)
+                    )
+                else:
+                    image = to_tensor(Image.open(frames[frame]).convert("RGB")).to(device).float()
                 correction = position == 0 or frame in prompt_frames
                 if correction:
                     source = (
@@ -915,21 +925,29 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
             support = cv2.dilate(
                 (probability >= 0.35).astype(np.uint8), kernel, iterations=3
             )
-        trimap = np.zeros(probability.shape, dtype=np.uint8)
-        trimap[support > 0] = 128
-        trimap[foreground > 0] = 255
-        image = Image.open(frame_path).convert("RGB")
         active = cv2.findNonZero(support)
         if active is None:
             output.append(np.zeros(probability.shape, dtype=np.float32))
             continue
+        trimap = np.zeros(probability.shape, dtype=np.uint8)
+        trimap[support > 0] = 128
+        trimap[foreground > 0] = 255
         x, y, width, height = cv2.boundingRect(active)
         margin = 32
         left = max(0, x - margin)
         top = max(0, y - margin)
-        right = min(image.width, x + width + margin)
-        bottom = min(image.height, y + height + margin)
-        crop = image.crop((left, top, right, bottom))
+        if cv2 is not None:
+            bgr = cv2.imread(str(frame_path), cv2.IMREAD_COLOR)
+            img_h, img_w = bgr.shape[:2]
+            right = min(img_w, x + width + margin)
+            bottom = min(img_h, y + height + margin)
+            crop_rgb = cv2.cvtColor(bgr[top:bottom, left:right], cv2.COLOR_BGR2RGB)
+            crop = Image.fromarray(crop_rgb)
+        else:
+            image = Image.open(frame_path).convert("RGB")
+            right = min(image.width, x + width + margin)
+            bottom = min(image.height, y + height + margin)
+            crop = image.crop((left, top, right, bottom))
         crop_trimap = Image.fromarray(trimap[top:bottom, left:right])
         inputs = processor(images=crop, trimaps=crop_trimap, return_tensors="pt")
         inputs = {key: value.to(device) for key, value in inputs.items()}
@@ -1480,33 +1498,31 @@ def constrain_to_authored_motion_envelope(request, probabilities):
         return probabilities
 
     prompts.sort(key=lambda prompt: prompt["frame"])
+    prompt_frames = np.array([p["frame"] for p in prompts], dtype=np.int32)
+    prompt_boxes = np.array([p["box_bounds"] for p in prompts], dtype=np.float64)
     height, width = np.asarray(probabilities[0]).shape
 
     def box_at(frame):
-        if frame <= prompts[0]["frame"]:
-            return np.asarray(prompts[0]["box_bounds"], dtype=np.float64)
-        if frame >= prompts[-1]["frame"]:
-            return np.asarray(prompts[-1]["box_bounds"], dtype=np.float64)
-        right = next(index for index, prompt in enumerate(prompts) if prompt["frame"] >= frame)
+        if frame <= prompt_frames[0]:
+            return prompt_boxes[0]
+        if frame >= prompt_frames[-1]:
+            return prompt_boxes[-1]
+        right = int(np.searchsorted(prompt_frames, frame, side="left"))
         left = right - 1
-        before = prompts[left]
-        after = prompts[right]
-        span = max(1, after["frame"] - before["frame"])
-        weight = (frame - before["frame"]) / span
-        return (
-            np.asarray(before["box_bounds"], dtype=np.float64) * (1.0 - weight)
-            + np.asarray(after["box_bounds"], dtype=np.float64) * weight
-        )
+        f_left, f_right = prompt_frames[left], prompt_frames[right]
+        span = max(1, f_right - f_left)
+        weight = (frame - f_left) / span
+        return prompt_boxes[left] * (1.0 - weight) + prompt_boxes[right] * weight
 
     constrained = []
     for frame, probability in enumerate(probabilities):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
         x, y, box_width, box_height = box_at(frame)
         margin = max(20.0, 0.10 * max(box_width, box_height))
-        left = max(0, int(np.floor(x - margin)))
-        top = max(0, int(np.floor(y - margin)))
-        right = min(width, int(np.ceil(x + box_width + margin)))
-        bottom = min(height, int(np.ceil(y + box_height + margin)))
+        left = max(0, int(x - margin))
+        top = max(0, int(y - margin))
+        right = min(width, int(x + box_width + margin + 0.9999))
+        bottom = min(height, int(y + box_height + margin + 0.9999))
         bounded = np.zeros_like(probability)
         bounded[top:bottom, left:right] = probability[top:bottom, left:right]
         constrained.append(bounded)
