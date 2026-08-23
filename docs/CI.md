@@ -10,7 +10,13 @@ Plaque Forge separates **validation** from **generated-artifact production**. Or
 - `needs_ml_analysis`: changes can alter ML-produced analysis artifacts.
 - `needs_ml_runtime`: Python worker/setup/dependency code changed and the runtime itself must be rebuilt/verified.
 
-This detector is an optimization only. It must prefer a false positive over missing a relevant gate.
+`./scripts/render_change_scope.sh BASE HEAD` emits a single conservative boolean:
+
+- `needs_render`: any change that may alter rendered output — the analysis inputs above, or paint/effect/material code, styles, fonts, plaques, textures, or the render entry points.
+
+Both detectors share one classification source in `scripts/change_scope_lib.sh` so their
+path rules cannot drift. This detector is an optimization only. It must prefer a false
+positive over missing a relevant gate.
 
 ## CI gates
 
@@ -47,6 +53,21 @@ That separation keeps “the commit passed” and “automation produced a new c
 The producer accepts JSON runner labels plus CPU/XPU setup/device inputs. This makes runner choice explicit instead of equating hardware with quality. Hosted CPU is operationally available; a prepared self-hosted XPU runner can be selected without changing the workflow. Repository settings must allow GitHub Actions to create pull requests for the PR step.
 
 The producer is manual by default. Enable automatic invocation only after choosing the canonical runner/profile from measured bake-offs; validation CI remains read-only.
+
+## Sample video producer
+
+`.github/workflows/sample-videos.yml` is an explicit producer that publishes showcase
+videos. On every push to `main` it runs `scripts/render_change_scope.sh` to decide whether
+rendered output may have changed; when it has, it renders every asset with
+`scripts/render_sample_videos.sh` (plaque surfaces with the golden `gold-shine` style,
+plaque-less surfaces with the built-in glow) and uploads `output/*.hevc.mkv` to the
+persistent `sample_videos` release, overwriting the previous assets.
+
+It holds `contents: write` only on the render job, runs on a dedicated
+`sample-videos-${{ github.ref }}` concurrency group with `cancel-in-progress`, and renders
+against the committed analysis caches (the same read-only assumption as validation CI). It
+does not mutate the branch and is not triggered by its own release tag, so it cannot
+recurse.
 
 ## Segmentation bake-off workflow
 

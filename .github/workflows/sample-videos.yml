@@ -1,0 +1,79 @@
+name: Sample videos
+
+# Publish auto-generated showcase videos to the persistent `sample_videos` release
+# whenever a push to main may change rendered output.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sample-videos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  change-scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      needs_render: ${{ steps.scope.outputs.needs_render }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect render-affecting changes
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: ./scripts/render_change_scope.sh "$BASE_SHA" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+
+  render:
+    needs: change-scope
+    if: needs.change-scope.outputs.needs_render == 'true'
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install render dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            clang \
+            ffmpeg \
+            fontconfig \
+            noto-fonts \
+            opencv \
+            pkgconf \
+            git \
+            rust
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+
+      - name: Render sample videos
+        run: ./scripts/render_sample_videos.sh
+
+      - name: Summarize rendered assets
+        if: always()
+        run: |
+          {
+            echo "## Sample videos"
+            echo
+            echo "Rendered \`$(ls -1 output/*.hevc.mkv 2>/dev/null | wc -l)\` video(s) for the \`sample_videos\` release."
+            echo
+            ls -1 output/*.hevc.mkv 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish sample videos to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sample_videos
+          name: Sample videos
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: output/*.hevc.mkv

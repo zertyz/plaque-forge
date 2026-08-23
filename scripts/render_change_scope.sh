@@ -6,6 +6,4 @@ source "$(dirname "$0")/change_scope_lib.sh"
 
 pf_classify_changes "${1:-}" "${2:-HEAD}"
 
-printf 'needs_analysis=%s\n' "$NEEDS_ANALYSIS"
-printf 'needs_ml_analysis=%s\n' "$NEEDS_ML_ANALYSIS"
-printf 'needs_ml_runtime=%s\n' "$NEEDS_ML_RUNTIME"
+printf 'needs_render=%s\n' "$NEEDS_RENDER"
