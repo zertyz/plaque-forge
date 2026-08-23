@@ -216,7 +216,12 @@ impl Surface {
     }
 
     pub fn alpha_mask(&self) -> Vec<u8> {
-        self.pixels.as_chunks::<4>().0.iter().map(|pixel| pixel[3]).collect()
+        self.pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[3])
+            .collect()
     }
 
     pub fn recolor(&mut self, color: Rgba) {
