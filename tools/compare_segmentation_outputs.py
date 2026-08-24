@@ -9,10 +9,8 @@ another model is ground-truth visual quality.
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import json
 import math
-import os
 from pathlib import Path
 
 import numpy as np
@@ -77,10 +75,15 @@ def _compare_pair(
         diff = np.abs(a.astype(np.int32) - b.astype(np.int32)).astype(np.uint16)
     counts = np.bincount(diff.ravel(), minlength=MAX_U16 + 1).astype(np.uint64)
     pixels = diff.size
-    diff_u64 = diff.astype(np.uint64)
-    diff_flat = diff_u64.ravel()
+    diff_flat = diff.ravel()
     absolute_sum = int(diff_flat.sum(dtype=np.uint64))
-    squared_sum = int(np.dot(diff_flat, diff_flat))
+    squared_sum = 0
+    # Avoid a full-frame uint64 copy (4x the uint16 diff buffer). Eight MiB
+    # chunks bound the temporary while retaining exact uint64 accumulation.
+    chunk_elements = (8 * 1024 * 1024) // np.dtype(np.uint64).itemsize
+    for start in range(0, diff_flat.size, chunk_elements):
+        chunk = diff_flat[start : start + chunk_elements].astype(np.uint64)
+        squared_sum += int(np.dot(chunk, chunk))
     maximum = int(diff.max(initial=0))
 
     a_binary = a >= 32768
@@ -124,57 +127,29 @@ def compare(left: Path, right: Path) -> dict:
     soft_left = 0
     soft_right = 0
 
-    pairs = list(zip(left_paths, right_paths))
-    max_workers = min(16, len(pairs), os.cpu_count() or 4) if len(pairs) > 1 else 1
-
-    if max_workers > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            for (
-                counts,
-                p_count,
-                abs_sum,
-                sq_sum,
-                max_val,
-                inter,
-                uni,
-                dis,
-                soft_a,
-                soft_b,
-            ) in pool.map(_compare_pair, pairs):
-                histogram += counts
-                pixels += p_count
-                absolute_sum += abs_sum
-                squared_sum += sq_sum
-                maximum = max(maximum, max_val)
-                intersection += inter
-                union += uni
-                disagreement += dis
-                soft_left += soft_a
-                soft_right += soft_b
-    else:
-        for pair in pairs:
-            (
-                counts,
-                p_count,
-                abs_sum,
-                sq_sum,
-                max_val,
-                inter,
-                uni,
-                dis,
-                soft_a,
-                soft_b,
-            ) = _compare_pair(pair)
-            histogram += counts
-            pixels += p_count
-            absolute_sum += abs_sum
-            squared_sum += sq_sum
-            maximum = max(maximum, max_val)
-            intersection += inter
-            union += uni
-            disagreement += dis
-            soft_left += soft_a
-            soft_right += soft_b
+    for pair in zip(left_paths, right_paths):
+        (
+            counts,
+            p_count,
+            abs_sum,
+            sq_sum,
+            max_val,
+            inter,
+            uni,
+            dis,
+            soft_a,
+            soft_b,
+        ) = _compare_pair(pair)
+        histogram += counts
+        pixels += p_count
+        absolute_sum += abs_sum
+        squared_sum += sq_sum
+        maximum = max(maximum, max_val)
+        intersection += inter
+        union += uni
+        disagreement += dis
+        soft_left += soft_a
+        soft_right += soft_b
 
     mean_stored = absolute_sum / max(pixels, 1)
     rmse_stored = math.sqrt(squared_sum / max(pixels, 1))

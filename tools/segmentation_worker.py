@@ -6,6 +6,7 @@ import hashlib
 import fcntl
 import importlib.metadata
 import json
+import math
 import os
 import resource
 import shutil
@@ -103,6 +104,54 @@ def file_sha256(path):
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def usable_cpu_count():
+    """Return CPUs this process can actually schedule on, not host CPU inventory."""
+    try:
+        affinity = os.sched_getaffinity(0)
+        if affinity:
+            return len(affinity)
+    except (AttributeError, OSError):
+        pass
+
+    process_cpu_count = getattr(os, "process_cpu_count", None)
+    if process_cpu_count is not None:
+        try:
+            count = process_cpu_count()
+            if count:
+                return max(1, int(count))
+        except OSError:
+            pass
+
+    return max(1, int(os.cpu_count() or 1))
+
+
+def parallel_worker_count(item_count, *, cpus_per_worker=1):
+    """Bound outer parallelism by the CPUs available to this process."""
+    if item_count <= 1:
+        return 1
+    cpus_per_worker = max(1, int(cpus_per_worker))
+    return max(1, min(int(item_count), usable_cpu_count() // cpus_per_worker))
+
+
+def opencv_parallel_worker_count(item_count):
+    """Avoid multiplying Python workers by OpenCV's own native thread pool."""
+    native_threads = 1
+    if cv2 is not None and hasattr(cv2, "getNumThreads"):
+        try:
+            native_threads = max(1, int(cv2.getNumThreads()))
+        except (TypeError, ValueError):
+            native_threads = 1
+    return parallel_worker_count(item_count, cpus_per_worker=native_threads)
+
+
+def sam2_loader_worker_count(frame_count):
+    """Keep parallel decode tensors below 25% of SAM2's destination tensor."""
+    if frame_count <= 1:
+        return 1
+    memory_bound = max(1, int(frame_count) // 4)
+    return min(parallel_worker_count(frame_count), memory_bound)
 
 
 def xpu_available(torch):
@@ -421,12 +470,24 @@ def probability_from_png(path):
     return encoded.astype(np.float32) / maximum
 
 
+def require_cv2_image(path, flags):
+    """Decode through OpenCV and report the path instead of failing later in cvtColor."""
+    if cv2 is None:
+        raise RuntimeError("OpenCV image decoding requested but OpenCV is unavailable")
+    image = cv2.imread(str(path), flags)
+    if image is None:
+        raise OSError(f"OpenCV failed to decode image: {path}")
+    return image
+
+
 def save_probability_png(path, probability):
     encoded = np.round(np.asarray(probability, dtype=np.float32).clip(0, 1) * 65535).astype(
         np.uint16
     )
     if cv2 is not None:
-        cv2.imwrite(str(path), encoded, [cv2.IMWRITE_PNG_COMPRESSION, 6])
+        written = cv2.imwrite(str(path), encoded, [cv2.IMWRITE_PNG_COMPRESSION, 6])
+        if not written:
+            raise OSError(f"OpenCV failed to write PNG: {path}")
     else:
         Image.fromarray(encoded).save(path, format="PNG", compress_level=6)
 
@@ -539,13 +600,29 @@ def sam2_masks(request, frames, device):
             tensor, h, w = sam2_misc._load_img_as_tensor(str(p), image_size)
             return idx, tensor, h, w
 
-        max_workers = min(16, len(png_paths), os.cpu_count() or 4)
+        max_workers = sam2_loader_worker_count(len(png_paths))
         if max_workers > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-                for idx, tensor, h, w in pool.map(_load_single, enumerate(png_paths)):
-                    images[idx] = tensor
-                    video_height = h
-                    video_width = w
+                path_iter = iter(enumerate(png_paths))
+                pending = set()
+                for _ in range(max_workers):
+                    try:
+                        pending.add(pool.submit(_load_single, next(path_iter)))
+                    except StopIteration:
+                        break
+                while pending:
+                    done, pending = concurrent.futures.wait(
+                        pending, return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    for future in done:
+                        idx, tensor, h, w = future.result()
+                        images[idx] = tensor
+                        video_height = h
+                        video_width = w
+                        try:
+                            pending.add(pool.submit(_load_single, next(path_iter)))
+                        except StopIteration:
+                            pass
         else:
             for index, path in enumerate(png_paths):
                 images[index], video_height, video_width = sam2_misc._load_img_as_tensor(
@@ -786,7 +863,7 @@ def cutie_masks(request, frames, device, guides=None):
     prompts = request["layer"]["prompts"]
     active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
     if device == "cpu":
-        torch.set_num_threads(min(8, len(os.sched_getaffinity(0))))
+        torch.set_num_threads(min(8, usable_cpu_count()))
     seed = min(prompt["frame"] for prompt in prompts)
     prompt_frames = {prompt["frame"] for prompt in prompts}
     source_width, source_height = Image.open(frames[0]).size
@@ -799,7 +876,7 @@ def cutie_masks(request, frames, device, guides=None):
         with torch.inference_mode(), precision_context(torch, device, precision):
             for position, frame in enumerate(indices):
                 if cv2 is not None:
-                    bgr = cv2.imread(str(frames[frame]), cv2.IMREAD_COLOR)
+                    bgr = require_cv2_image(frames[frame], cv2.IMREAD_COLOR)
                     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
                     image = (
                         torch.from_numpy(rgb.transpose((2, 0, 1)))
@@ -937,7 +1014,7 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
         left = max(0, x - margin)
         top = max(0, y - margin)
         if cv2 is not None:
-            bgr = cv2.imread(str(frame_path), cv2.IMREAD_COLOR)
+            bgr = require_cv2_image(frame_path, cv2.IMREAD_COLOR)
             img_h, img_w = bgr.shape[:2]
             right = min(img_w, x + width + margin)
             bottom = min(img_h, y + height + margin)
@@ -1009,12 +1086,20 @@ def stabilize_alpha(probabilities, frames, blend_strength=0.32, propagation_head
     segment = original[start : end + 1]
     active_frame_paths = frames[start : end + 1]
 
-    max_workers = min(16, len(active_frame_paths), os.cpu_count() or 4)
-    if max_workers > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            gray = list(pool.map(lambda p: cv2.imread(str(p), cv2.IMREAD_GRAYSCALE), active_frame_paths))
+    decode_workers = parallel_worker_count(len(active_frame_paths))
+    if decode_workers > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=decode_workers) as pool:
+            gray = list(
+                pool.map(
+                    lambda path: require_cv2_image(path, cv2.IMREAD_GRAYSCALE),
+                    active_frame_paths,
+                )
+            )
     else:
-        gray = [cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in active_frame_paths]
+        gray = [
+            require_cv2_image(path, cv2.IMREAD_GRAYSCALE)
+            for path in active_frame_paths
+        ]
 
     def _calc_flow_pair(frame_idx):
         g0 = gray[frame_idx]
@@ -1022,9 +1107,15 @@ def stabilize_alpha(probabilities, frames, blend_strength=0.32, propagation_head
         return frame_idx, (dense_flow(g0, g1), dense_flow(g1, g0))
 
     num_pairs = len(gray) - 1
-    if max_workers > 1 and num_pairs > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(max_workers, num_pairs)) as pool:
-            flows = [pair[1] for pair in sorted(pool.map(_calc_flow_pair, range(num_pairs)), key=lambda x: x[0])]
+    flow_workers = opencv_parallel_worker_count(num_pairs)
+    if flow_workers > 1 and num_pairs > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=flow_workers) as pool:
+            flows = [
+                pair[1]
+                for pair in sorted(
+                    pool.map(_calc_flow_pair, range(num_pairs)), key=lambda item: item[0]
+                )
+            ]
     else:
         flows = [
             (dense_flow(gray[frame], gray[frame + 1]), dense_flow(gray[frame + 1], gray[frame]))
@@ -1201,7 +1292,7 @@ def cached_cutie(request, frames, requested_device, guides=None, *, allow_xpu=Tr
         staging = cache_root / f".{key}.{os.getpid()}.incoming"
         shutil.rmtree(staging, ignore_errors=True)
         (staging / "masks").mkdir(parents=True, exist_ok=True)
-        max_workers = min(16, len(probabilities), os.cpu_count() or 4)
+        max_workers = parallel_worker_count(len(probabilities))
         if max_workers > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
                 list(
@@ -1277,7 +1368,7 @@ def cached_sam2(request, frames, requested_device):
         staging = cache_root / f".{key}.{os.getpid()}.incoming"
         shutil.rmtree(staging, ignore_errors=True)
         (staging / "masks").mkdir(parents=True, exist_ok=True)
-        max_workers = min(16, len(probabilities), os.cpu_count() or 4)
+        max_workers = parallel_worker_count(len(probabilities))
         if max_workers > 1:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
                 list(
@@ -1519,10 +1610,10 @@ def constrain_to_authored_motion_envelope(request, probabilities):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
         x, y, box_width, box_height = box_at(frame)
         margin = max(20.0, 0.10 * max(box_width, box_height))
-        left = max(0, int(x - margin))
-        top = max(0, int(y - margin))
-        right = min(width, int(x + box_width + margin + 0.9999))
-        bottom = min(height, int(y + box_height + margin + 0.9999))
+        left = max(0, math.floor(x - margin))
+        top = max(0, math.floor(y - margin))
+        right = min(width, math.ceil(x + box_width + margin))
+        bottom = min(height, math.ceil(y + box_height + margin))
         bounded = np.zeros_like(probability)
         bounded[top:bottom, left:right] = probability[top:bottom, left:right]
         constrained.append(bounded)
@@ -1715,7 +1806,7 @@ def write_output(request, output, probabilities, version):
         save_probability_png(mask_dir / f"{frame:06}.png", prob)
         return frame, conf, cov, soft
 
-    max_workers = min(16, len(probabilities), os.cpu_count() or 4)
+    max_workers = parallel_worker_count(len(probabilities))
     if max_workers > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             results = list(pool.map(_process_and_save_frame, enumerate(probabilities)))
