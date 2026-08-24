@@ -117,8 +117,7 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
     let safe_width = (bounds.2 - bounds.0 + 1).saturating_sub(2 * pad_x).max(1);
     let safe_height = (bounds.3 - bounds.1 + 1).saturating_sub(2 * pad_y).max(1);
 
-    let mut font_system =
-        FontSystem::new_with_fonts([fontdb::Source::File(font_path.to_path_buf())]);
+    let mut font_system = super::font_system::hermetic_font_system(font_path);
     let (family, requested_face) = discover_family(&font_system, font_path)?;
     let requested_weight = fontdb::Weight(style.font_weight());
     let raster_width = safe_width * supersampling;
@@ -889,8 +888,7 @@ fn shape_candidate(
         for glyph in run.glyphs {
             if glyph.glyph_id == 0 {
                 missing_glyphs += 1;
-            }
-            if glyph.font_id != context.requested_face {
+            } else if glyph.font_id != context.requested_face {
                 fallback_glyphs += 1;
             }
         }
@@ -1168,12 +1166,7 @@ mod tests {
     use super::{RenderRequest, render};
     use crate::application::{FitMode, TextAlign, VerticalAlign};
     use crate::render::effects::{DirectStyleOptions, Style};
-
-    fn test_font() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("fonts")
-            .join("NotoSerif-Regular.ttf")
-    }
+    use crate::render::font_system::pinned_test_font;
 
     fn default_test_style() -> Style {
         Style::direct(DirectStyleOptions {
@@ -1197,7 +1190,7 @@ mod tests {
         let height = 120;
         let mask = vec![255u8; width as usize * height as usize];
         let style = default_test_style();
-        let font = test_font();
+        let font = pinned_test_font();
 
         let result = render(RenderRequest {
             width,
@@ -1235,7 +1228,7 @@ mod tests {
         let height = 120;
         let mask = vec![255u8; width as usize * height as usize];
         let style = default_test_style();
-        let font = test_font();
+        let font = pinned_test_font();
 
         let result = render(RenderRequest {
             width,
@@ -1269,7 +1262,7 @@ mod tests {
         let height = 120;
         let mask = vec![255u8; width as usize * height as usize];
         let style = default_test_style();
-        let font = test_font();
+        let font = pinned_test_font();
         let requested = 18.0_f32;
 
         let result = render(RenderRequest {
@@ -1304,7 +1297,7 @@ mod tests {
         let height = 200;
         let mask = vec![255u8; width as usize * height as usize];
         let style = default_test_style();
-        let font = test_font();
+        let font = pinned_test_font();
 
         let centroid = |va: VerticalAlign| -> f64 {
             let result = render(RenderRequest {
@@ -1353,12 +1346,52 @@ mod tests {
     }
 
     #[test]
+    fn render_rejects_glyphs_missing_from_the_requested_font() {
+        // Noto Serif has no CJK glyphs. Rendering must fail with an explicit error
+        // instead of silently substituting whichever CJK font the workstation has,
+        // so the failure cannot depend on installed system fonts.
+        let width = 200;
+        let height = 120;
+        let mask = vec![255u8; width as usize * height as usize];
+        let style = default_test_style();
+        let font = pinned_test_font();
+
+        let result = render(RenderRequest {
+            width,
+            height,
+            mask: &mask,
+            text: "漢字 PLAQUE",
+            font_path: &font,
+            fit_mode: FitMode::Fixed,
+            requested_font_size: Some(18.0),
+            supersampling: 1,
+            target_fill: 0.80,
+            max_lines: 3,
+            padding_ratio: 0.03,
+            line_height_ratio: 1.08,
+            text_align: TextAlign::Center,
+            vertical_align: VerticalAlign::Center,
+            style: &style,
+        });
+
+        let Err(error) = result else {
+            panic!("text with glyphs missing from the font must be rejected, not substituted");
+        };
+        let message = error.to_string();
+        assert!(
+            message.starts_with("font")
+                && message.contains("cannot render the requested title deterministically"),
+            "rejection must cite the requested font and deterministic-render policy, got: {message}"
+        );
+    }
+
+    #[test]
     fn empty_text_is_rejected() {
         let width = 100;
         let height = 60;
         let mask = vec![255u8; width as usize * height as usize];
         let style = default_test_style();
-        let font = test_font();
+        let font = pinned_test_font();
 
         let result = render(RenderRequest {
             width,
@@ -1394,7 +1427,7 @@ mod tests {
             }
         }
         let style = default_test_style();
-        let font = test_font();
+        let font = pinned_test_font();
 
         let result = render(RenderRequest {
             width,
