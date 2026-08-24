@@ -53,14 +53,19 @@ jobs:
             git
             rust
 
+      - name: Reject stale analysis caches
+        run: ./scripts/check_analysis_cache.sh
+
       - name: Render and verify the sample-video set
         run: ./scripts/render_sample_videos.sh --previews
 
-      - name: Upload the sample-video batch
+      - name: Upload the sample-video batch and acceptance evidence
         uses: actions/upload-artifact@v7
         with:
           name: sample-videos-${{ github.run_id }}
-          path: output/sample_videos/
+          path: |
+            output/sample_videos/
+            output/validation/
           if-no-files-found: error
 
   publish-release:
@@ -92,7 +97,7 @@ jobs:
           - Styles: \`gold-shine\` for real plaque surfaces, \`classic-glow\` for plaque-less and background videos
           - Title: “plaque-forge: High Quality & Advanced Text Placing in Videos” · Font: Noto Serif · Fit: artistic
 
-          The four representative plaque-scene sentinels passed the lossless validation render and frame verification against their analysis caches before publication; the small MP4 files are browser-friendly previews of the showcase assets (the README loops are committed under `docs/media/`).
+          The four representative plaque-scene sentinels passed the lossless validation render and frame verification against their analysis caches before publication — each `*.lossless.verification.json` asset below is that sentinel's acceptance report. The small MP4 files are browser-friendly previews of the showcase assets (the README loops are committed under `docs/media/`).
 
           Reproduce locally:
 
@@ -114,15 +119,21 @@ jobs:
           # Flatten the per-style render directories into release asset names
           # like "<stem>.<style>.hevc.mkv"; only the playable artifacts ship.
           mkdir -p stage
-          for file in dist/*/*; do
+          for file in dist/sample_videos/*/*; do
             [[ -f "$file" ]] || continue
-            relative="${file#dist/}"
+            relative="${file#dist/sample_videos/}"
             style="${relative%%/*}"
             base="${relative#*/}"
             case "$base" in
               *.hevc.mkv|*.preview.mp4)
                 cp -- "$file" "stage/${base/.hevc./.$style.hevc.}" ;;
             esac
+          done
+
+          # Public acceptance evidence: one lossless-verification report per sentinel.
+          for report in dist/validation/*.lossless.verification.json; do
+            [[ -f "$report" ]] || continue
+            cp -- "$report" "stage/$(basename "$report")"
           done
 
           # Prune assets that are no longer part of the batch, then refresh everything.

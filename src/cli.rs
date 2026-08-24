@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum, builder::PossibleValue};
+use clap::{builder::PossibleValue, ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 use crate::{
     application::{
@@ -46,6 +46,8 @@ pub enum Command {
     HomologationCoverage(HomologationCoverageArgs),
     /// List the media available to this build.
     List(ListArgs),
+    /// Reject bundled assets whose analysis cache is stale, invalid, or missing.
+    CheckAnalysisCache(CheckAnalysisCacheArgs),
     /// Build a human-oriented HTML report from analysis and verification diagnostics.
     Review(ReviewArgs),
 }
@@ -451,6 +453,13 @@ pub struct HomologateArgs {
 
     #[command(flatten)]
     pub tools: ExternalToolArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct CheckAnalysisCacheArgs {
+    /// Directory holding the bundled <stem>.mp4 sources and analysis/<stem> caches.
+    #[arg(long, default_value = "assets")]
+    pub assets_dir: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -986,15 +995,13 @@ mod tests {
         assert!(Cli::try_parse_from(render_arguments(&[])).is_err());
         assert!(Cli::try_parse_from(render_arguments(&["--text", "Title"])).is_ok());
         assert!(Cli::try_parse_from(render_arguments(&["--text-file", "title.txt"])).is_ok());
-        assert!(
-            Cli::try_parse_from(render_arguments(&[
-                "--text",
-                "Title",
-                "--text-file",
-                "title.txt",
-            ]))
-            .is_err()
-        );
+        assert!(Cli::try_parse_from(render_arguments(&[
+            "--text",
+            "Title",
+            "--text-file",
+            "title.txt",
+        ]))
+        .is_err());
     }
 
     #[test]

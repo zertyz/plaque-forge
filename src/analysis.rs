@@ -393,3 +393,144 @@ pub fn sequence_path(pattern: &Path, frame: usize) -> PathBuf {
             .replace("%06d", &format!("{frame:06}")),
     )
 }
+
+/// Freshness of one bundled asset's analysis cache relative to the current build.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CacheFreshness {
+    Fresh,
+    Missing,
+    Invalid(String),
+    StaleAnalyzer { found: String },
+    SourceChanged,
+}
+
+/// One bundled asset's audit outcome.
+pub struct CacheAuditEntry {
+    pub stem: String,
+    pub freshness: CacheFreshness,
+}
+
+/// Classify a cache against the expected analyzer identity and source bytes.
+///
+/// Pure so tests can pin every staleness reason without TOML fixtures; the IO
+/// wrapper feeds it from `Analysis::open` and the actual source digest.
+fn classify_cache_freshness(
+    found_analyzer: Option<&str>,
+    found_source_sha256: Option<&str>,
+    actual_source_sha256: &str,
+    current_analyzer: &str,
+) -> CacheFreshness {
+    let Some(analyzer) = found_analyzer else {
+        return CacheFreshness::Missing;
+    };
+    if analyzer != current_analyzer {
+        return CacheFreshness::StaleAnalyzer {
+            found: analyzer.to_string(),
+        };
+    }
+    match found_source_sha256 {
+        Some(sha256) if sha256 == actual_source_sha256 => CacheFreshness::Fresh,
+        _ => CacheFreshness::SourceChanged,
+    }
+}
+
+/// Audit every `assets/*.mp4` stem's analysis cache without regenerating anything.
+pub fn audit_bundled_caches(assets_dir: &Path) -> Result<Vec<CacheAuditEntry>> {
+    let mut stems: Vec<String> = fs::read_dir(assets_dir)?
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("mp4"))
+        .map(|path| path.file_stem().unwrap().to_string_lossy().into_owned())
+        .collect();
+    if stems.is_empty() {
+        bail!("no input videos found in {}", assets_dir.display());
+    }
+    stems.sort();
+
+    let mut entries = Vec::new();
+    for stem in stems {
+        let freshness = match Analysis::open(assets_dir.join("analysis").join(&stem)) {
+            Err(error) => CacheFreshness::Invalid(format!("{error:#}")),
+            Ok(pack) => classify_cache_freshness(
+                Some(&pack.manifest.analyzer_build),
+                Some(&pack.manifest.source.sha256),
+                crate::digest::file_sha256(&assets_dir.join(format!("{stem}.mp4")))?.as_str(),
+                crate::build_info::ANALYZER_CACHE_VERSION,
+            ),
+        };
+        entries.push(CacheAuditEntry { stem, freshness });
+    }
+    Ok(entries)
+}
+
+/// Read-only CI gate: reject any bundled asset whose analysis cache is missing,
+/// invalid, stale, or was produced from different source bytes.
+pub fn run_check_analysis_cache(assets_dir: &Path) -> Result<()> {
+    let entries = audit_bundled_caches(assets_dir)?;
+    let mut rejected = Vec::new();
+    for entry in &entries {
+        let verdict = match &entry.freshness {
+            CacheFreshness::Fresh => continue,
+            CacheFreshness::Missing => "missing".to_string(),
+            CacheFreshness::Invalid(error) => format!("invalid: {error}"),
+            CacheFreshness::StaleAnalyzer { found } => {
+                format!(
+                    "stale analyzer {} (current {})",
+                    found,
+                    crate::build_info::ANALYZER_CACHE_VERSION
+                )
+            }
+            CacheFreshness::SourceChanged => {
+                "source video differs from the analyzed bytes".to_string()
+            }
+        };
+        println!("stale  {}  {}", entry.stem, verdict);
+        rejected.push(entry.stem.clone());
+    }
+    if rejected.is_empty() {
+        println!("all {} bundled analysis caches are fresh", entries.len());
+        return Ok(());
+    }
+    bail!(
+        "{} of {} bundled assets have stale or incomplete analysis caches\n\
+         help: regenerate them on the canonical ML machine with:\n\
+         \x20 ./scripts/analyze_assets.sh --force-ml {}",
+        rejected.len(),
+        entries.len(),
+        rejected.join(" ")
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build_info::ANALYZER_CACHE_VERSION as CURRENT;
+
+    #[test]
+    fn cache_freshness_classification_pins_every_staleness_reason() {
+        const OLD: &str = "surface-analysis-v10-ancient";
+        let source = "abc123";
+
+        assert_eq!(
+            classify_cache_freshness(Some(CURRENT), Some(source), source, CURRENT),
+            CacheFreshness::Fresh
+        );
+        assert_eq!(
+            classify_cache_freshness(Some(OLD), Some(source), source, CURRENT),
+            CacheFreshness::StaleAnalyzer {
+                found: OLD.to_string()
+            }
+        );
+        assert_eq!(
+            classify_cache_freshness(Some(CURRENT), Some("outdated"), source, CURRENT),
+            CacheFreshness::SourceChanged
+        );
+        assert_eq!(
+            classify_cache_freshness(Some(CURRENT), None, source, CURRENT),
+            CacheFreshness::SourceChanged
+        );
+        assert_eq!(
+            classify_cache_freshness(None, None, source, CURRENT),
+            CacheFreshness::Missing
+        );
+    }
+}

@@ -10,10 +10,38 @@ set -euo pipefail
 source "$(dirname "$0")/render_common.sh"
 
 SAMPLE_TEXT="${SAMPLE_TEXT:-plaque-forge: High Quality & Advanced Text Placing in Videos}"
-SAMPLE_FONT_FAMILY="${SAMPLE_FONT_FAMILY:-Noto Serif}"
+# Pinned to the repository reference font for reproducible published samples.
+SAMPLE_FONT="${SAMPLE_FONT:-$PF_ROOT/fonts/NotoSerif-Regular.ttf}"
 SAMPLE_FIT="${SAMPLE_FIT:-artistic}"
 
 PF_SAMPLE_DIR="output/sample_videos"
+
+# Showcase assets drive the MP4/WebP previews (visual variety across styles,
+# surfaces, and scene types).
+preview_cases=(
+  16_9_background_digifall
+  16_9_mountain_top_day_hummingbird_cloudy_plaque
+  16_9_scrapyard_iron_plaque_foreground_chains
+  16_9_swamp_wooden_plaque
+)
+
+# Acceptance sentinels are plaque scenes only: verify's untouched-scene
+# threshold presumes a mostly-static preserved region, which fully animated
+# background/plaque-less sources fail on HEVC encoder noise alone (their
+# compositing behavior is identical, so per-scene-class coverage is what the
+# default verification set represents). --verify-all opts into everything.
+verify_cases=(
+  16_9_swamp_wooden_plaque
+  16_9_scrapyard_iron_plaque_foreground_chains
+  9_16_swamp_wooden_plaque
+  9_16_scrappy_datacenter_holographic_plaque
+)
+
+declare -A is_preview_case=()
+for stem in "${preview_cases[@]}"; do is_preview_case["$stem"]=1; done
+
+declare -A is_verify_case=()
+for stem in "${verify_cases[@]}"; do is_verify_case["$stem"]=1; done
 
 usage() {
   cat <<'USAGE'
@@ -26,20 +54,21 @@ under output/sample_videos/<style>/.
 
 Options:
   --print-plan     Print the "<style>\\t<asset-stem>" plan and exit.
-  --previews       Also encode small H.264 MP4 previews for representative assets.
+  --showcase-only  Limit the plan to the showcase assets above.
+  --previews       Also encode small H.264 MP4 previews for showcase assets.
   --webp           Also encode animated WebP loops of the showcase assets
                    into docs/media/ for the README (a manual, committed refresh).
   --from-existing  Skip rendering/verification and only encode --previews/--webp
                    from previously rendered videos.
   --no-verify      Skip the per-asset verification pass entirely.
-  --verify-all     Verify every video instead of only the representative set.
+  --verify-all     Verify every video instead of only the sentinel set.
   --help           Show this help.
 
 By default the four representative plaque-scene sentinels pass through the
 lossless validation render (validate_assets.sh) before the batch is considered
 accepted; verify's untouched-scene thresholds presume lossless frames.
 
-Environment overrides: SAMPLE_TEXT, SAMPLE_FONT_FAMILY, SAMPLE_FIT.
+Environment overrides: SAMPLE_TEXT, SAMPLE_FONT, SAMPLE_FIT.
 USAGE
 }
 
@@ -56,6 +85,9 @@ print_plan() {
   local stem
   pf_asset_cases
   for stem in "${PF_CASES[@]}"; do
+    if $showcase_only && [[ -z "${is_preview_case[$stem]:-}" ]]; then
+      continue
+    fi
     printf '%s\t%s\n' "$(sample_style_for_stem "$stem")" "$stem"
   done | LC_ALL=C sort
 }
@@ -63,6 +95,7 @@ print_plan() {
 print_previews=false
 print_webp=false
 from_existing=false
+showcase_only=false
 verify_mode=representatives
 while (( $# )); do
   case "$1" in
@@ -70,6 +103,7 @@ while (( $# )); do
     --previews) print_previews=true; shift ;;
     --webp) print_webp=true; shift ;;
     --from-existing) from_existing=true; shift ;;
+    --showcase-only) showcase_only=true; shift ;;
     --no-verify) verify_mode=none; shift ;;
     --verify-all) verify_mode=all; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -83,28 +117,6 @@ if ! $from_existing; then
 fi
 mkdir -p "$PF_SAMPLE_DIR"
 
-# Showcase assets drive the MP4/WebP previews (visual variety across styles,
-# aspect ratios, and injected/physical surfaces).
-preview_cases=(
-  16_9_swamp_wooden_plaque
-  16_9_scrapyard_iron_plaque_foreground_chains
-  16_9_background_digifall
-  9_16_plaqueless_datacenter_lab
-)
-
-# Acceptance sentinels are plaque scenes only: verify's untouched-scene
-# threshold presumes a mostly-static preserved region, which fully animated
-# background/plaque-less sources fail on HEVC encoder noise alone (their
-# compositing behavior is identical, so per-scene-class coverage is what the
-# default verification set represents). --verify-all opts into everything.
-verify_cases=(
-  16_9_swamp_wooden_plaque
-  16_9_scrapyard_iron_plaque_foreground_chains
-  9_16_swamp_wooden_plaque
-  9_16_scrappy_datacenter_holographic_plaque
-)
-declare -A is_verify_case=()
-for stem in "${verify_cases[@]}"; do is_verify_case["$stem"]=1; done
 
 should_verify() {
   local stem="$1"
@@ -138,7 +150,7 @@ while IFS=$'\t' read -r style stem; do
   # nonzero so incomplete sets can never pass silently.
   if ! ./scripts/render_assets.sh \
     --text "$SAMPLE_TEXT" \
-    --font-family "$SAMPLE_FONT_FAMILY" \
+    --font "$SAMPLE_FONT" \
     --style-file "styles/$style.toml" \
     --fit "$SAMPLE_FIT" \
     --output-dir "$style_dir" \
@@ -154,7 +166,7 @@ while IFS=$'\t' read -r style stem; do
     # delivery HEVC itself is never the verification artifact.
     if ! ./scripts/validate_assets.sh \
       --text "$SAMPLE_TEXT" \
-      --font-family "$SAMPLE_FONT_FAMILY" \
+      --font "$SAMPLE_FONT" \
       --style-file "styles/$style.toml" \
       --fit "$SAMPLE_FIT" \
       "$stem" </dev/null; then

@@ -14,8 +14,8 @@ Rendered with one command per style — golden shine for real plaques, classic g
 
 | | |
 |---|---|
-| [![Golden shine on a wooden plaque](docs/media/16_9_swamp_wooden_plaque.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Foreground chains crossing the rendered title](docs/media/16_9_scrapyard_iron_plaque_foreground_chains.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
-| [![Classic glow over a text-free background](docs/media/16_9_background_digifall.classic-glow.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Portrait plaque-less scene with classic glow](docs/media/9_16_plaqueless_datacenter_lab.classic-glow.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
+| [![Classic glow over a text-free digital waterfall](docs/media/16_9_background_digifall.classic-glow.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Golden shine on a mountainside plaque under a cloudy sky](docs/media/16_9_mountain_top_day_hummingbird_cloudy_plaque.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
+| [![Foreground chains crossing the rendered title](docs/media/16_9_scrapyard_iron_plaque_foreground_chains.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Golden shine on a wooden plaque](docs/media/16_9_swamp_wooden_plaque.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
 
 The [sample videos release](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) carries the full set — every bundled asset in both aspect families, plus browser-friendly MP4 previews — regenerated automatically by CI whenever a push to `main` may change rendered output. Each video there was machine-verified against its analysis cache before publication.
 

@@ -1,0 +1,49 @@
+name: README loops
+
+# Manual refresh of the committed README WebP loops: renders only the showcase
+# assets with the pinned sample text/font/styles and uploads fresh loops as an
+# artifact. Committing them stays a human decision — this workflow never writes
+# to the repository.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readme-loops-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  loops:
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install render dependencies
+        uses: ./.github/actions/install-native-deps
+        with:
+          packages: |
+            clang
+            ffmpeg
+            fontconfig
+            noto-fonts
+            opencv
+            pkgconf
+            git
+            rust
+
+      - name: Render showcase assets and encode README loops
+        run: ./scripts/render_sample_videos.sh --showcase-only --webp --no-verify
+
+      - name: Upload refreshed loops
+        uses: actions/upload-artifact@v7
+        with:
+          name: readme-loops-${{ github.run_id }}
+          path: docs/media/
+          if-no-files-found: error

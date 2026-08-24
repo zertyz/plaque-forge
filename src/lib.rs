@@ -86,6 +86,7 @@ pub fn run() -> Result<()> {
         Command::Segment(args) => segmentation::run(args),
         Command::Verify(args) => application::verify(args.into()),
         Command::Homologate(args) => application::homologate(args.into()),
+        Command::CheckAnalysisCache(args) => analysis::run_check_analysis_cache(&args.assets_dir),
         Command::HomologationCoverage(args) => {
             let report = application::homologation_coverage(args.into())?;
             print_stdout(&serde_json::to_string_pretty(&report)?)

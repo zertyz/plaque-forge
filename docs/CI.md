@@ -17,6 +17,11 @@ This detector is an optimization only. It must prefer a false positive over miss
 The main workflow keeps the normal Rust/code gates and adds:
 
 1. **homologation-gate**: renders the deliberately small `ci = true` capability set and validates each exact human-accepted contract. The sentinels cover static fitting, reviewed projective motion, moving foreground/parallax, and retracting portrait occlusion.
+Every gate that renders also runs `./scripts/check_analysis_cache.sh` first, so a bundled
+asset whose cache is stale (older analyzer), invalid, missing, or out of sync with its source
+bytes fails the job immediately with the exact regeneration command instead of failing later
+inside an expensive render.
+
 2. **analysis-no-ml-gate**: runs the six captured regression witnesses through `analyze_assets.sh --force --no-ml`. This protects the promised no-Python degradation path and reviewed static-layer compatibility.
 3. **segmentation-runtime-gate**: on segmentation-tooling changes, installs/reuses a CPU-profile `/tmp/plaque-forge-python`, executes the complete setup smoke, and then repeats verification with Hugging Face and Transformers offline.
 
@@ -58,6 +63,8 @@ The producer is manual by default. Enable automatic invocation only after choosi
 - browser-friendly MP4 previews of representative assets accompany the full HEVC set so the README can stay lightweight.
 
 `scripts/render_sample_videos.sh` owns the style policy (gold shine for real plaques, classic glow otherwise) and is exercised by `tests/cli_workflows.rs`; the workflow is only its thin remote runner.
+
+`.github/workflows/readme-loops.yml` is a manual dispatch-only helper for the committed README loops: it renders only the showcase assets and uploads fresh WebP loops as an artifact. It never writes to the repository — downloading the artifact and committing the loops stays a human decision, so README changes always receive human review.
 
 ## Segmentation bake-off workflow
 
