@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{builder::PossibleValue, ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum, builder::PossibleValue};
 
 use crate::{
     application::{
@@ -844,6 +844,12 @@ impl Command {
                 textures(&index, &cache)?;
             }
             Command::List(_) | Command::Homologate(_) | Command::HomologationCoverage(_) => {}
+            Command::CheckAnalysisCache(args) => {
+                // The audit walks every bundled asset's source video and
+                // analysis pack below --assets-dir.
+                let _ = args;
+                index.extract_prefix(&cache, "assets/")?;
+            }
         }
         Ok(())
     }
@@ -995,13 +1001,15 @@ mod tests {
         assert!(Cli::try_parse_from(render_arguments(&[])).is_err());
         assert!(Cli::try_parse_from(render_arguments(&["--text", "Title"])).is_ok());
         assert!(Cli::try_parse_from(render_arguments(&["--text-file", "title.txt"])).is_ok());
-        assert!(Cli::try_parse_from(render_arguments(&[
-            "--text",
-            "Title",
-            "--text-file",
-            "title.txt",
-        ]))
-        .is_err());
+        assert!(
+            Cli::try_parse_from(render_arguments(&[
+                "--text",
+                "Title",
+                "--text-file",
+                "title.txt",
+            ]))
+            .is_err()
+        );
     }
 
     #[test]
