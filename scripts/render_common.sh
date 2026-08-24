@@ -104,7 +104,16 @@ pf_configure_render() {
     pf_die "use either --font/FONT or --font-family/FONT_FAMILY, not both"
   fi
   if [[ -z "$font" ]]; then
-    font="$(pf_font_match "${font_family:-DejaVu Sans}")"
+    # Default to the repository-pinned reference font so plain renders do not
+    # depend on whichever fonts fontconfig happens to prefer on this machine.
+    local bundled_font="$PF_ROOT/fonts/NotoSerif-Regular.ttf"
+    if [[ -n "$font_family" ]]; then
+      font="$(pf_font_match "$font_family")"
+    elif [[ -f "$bundled_font" ]]; then
+      font="$bundled_font"
+    else
+      font="$(pf_font_match "Noto Serif")"
+    fi
   fi
   [[ -n "$font" && -f "$font" ]] || pf_die "font file not found: ${font:-<none>}"
 
