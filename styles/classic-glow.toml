@@ -1,4 +1,7 @@
-version = 1
+version = 5
+
+[typography]
+weight = 600
 # Readable default plaque title: bright fill, dark separation, and an unmistakable halo.
 fill = "#F4FFFFFF"
 

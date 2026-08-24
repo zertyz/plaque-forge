@@ -1,4 +1,7 @@
-version = 3
+version = 5
+
+[typography]
+weight = 600
 fill = "#EAFBFFFF"
 
 [[effects]]

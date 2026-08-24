@@ -44,6 +44,7 @@ pub(crate) enum SurfaceEffect {
 
 #[derive(Clone, Copy, Debug)]
 pub struct DirectStyleOptions<'a> {
+    pub font_weight: u16,
     pub text_color: &'a str,
     pub stroke_color: &'a str,
     pub glow_color: &'a str,
@@ -229,9 +230,17 @@ pub(crate) enum AnimationEffect {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct TypographyFile {
+    #[serde(default = "default_font_weight")]
+    pub(crate) weight: u16,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct StyleFile {
     #[serde(default = "default_style_version")]
     pub(crate) version: u32,
+    #[serde(default)]
+    pub(crate) typography: Option<TypographyFile>,
     #[serde(default)]
     pub(crate) fill: Option<String>,
     #[serde(default)]
@@ -556,6 +565,10 @@ pub(crate) enum AnimationFile {
 
 pub(crate) fn default_style_version() -> u32 {
     1
+}
+
+pub(crate) fn default_font_weight() -> u16 {
+    600
 }
 pub(crate) fn default_shadow_x() -> f32 {
     0.035

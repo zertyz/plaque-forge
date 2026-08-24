@@ -8,11 +8,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use cosmic_text::{
-    Align, Attrs, Buffer, Color, Fallback, Family, FontSystem, Metrics, Shaping, SwashCache, Wrap,
-    fontdb,
+    Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Wrap, fontdb,
 };
 use image::{RgbaImage, imageops::FilterType};
-use unicode_script::Script;
 
 use crate::{
     application::{FitMode, TextAlign, VerticalAlign},
@@ -119,23 +117,10 @@ pub fn render(request: RenderRequest<'_>) -> Result<TextRender> {
     let safe_width = (bounds.2 - bounds.0 + 1).saturating_sub(2 * pad_x).max(1);
     let safe_height = (bounds.3 - bounds.1 + 1).saturating_sub(2 * pad_y).max(1);
 
-    let mut db = fontdb::Database::new();
-    db.load_font_source(fontdb::Source::File(font_path.to_path_buf()));
-    let locale = std::env::var("LC_ALL")
-        .or_else(|_| std::env::var("LANG"))
-        .unwrap_or_else(|_| String::from("en-US"));
-    let locale = locale
-        .split(['.', '@'])
-        .next()
-        .unwrap_or("en-US")
-        .replace('_', "-");
-    let mut font_system = FontSystem::new_with_locale_and_db_and_fallback(locale, db, NoFallback);
-    let (family, requested_face, _requested_weight) = discover_family(&font_system, font_path)?;
-    // The original renderer requested weight 600; keep that to stay byte-compatible
-    // with the committed golden masks. The font database is isolated to the
-    // requested font, so weight 600 selects the only available face (Regular)
-    // without pulling in any other installed family.
-    let requested_weight = fontdb::Weight(600);
+    let mut font_system =
+        FontSystem::new_with_fonts([fontdb::Source::File(font_path.to_path_buf())]);
+    let (family, requested_face) = discover_family(&font_system, font_path)?;
+    let requested_weight = fontdb::Weight(style.font_weight());
     let raster_width = safe_width * supersampling;
     let raster_height = safe_height * supersampling;
     let align = match text_align {
@@ -896,10 +881,6 @@ fn shape_candidate(
     let mut line_widths = Vec::new();
     let mut missing_glyphs = 0usize;
     let mut fallback_glyphs = 0usize;
-    // The font database is isolated to the requested font (see `render`), so every
-    // glyph must be drawn from `requested_face`. cosmic-text rewrites a face's
-    // `Source` from `File` to `SharedFile` while shaping, so comparing sources is
-    // unreliable; comparing the face id is exact and environment-independent.
     for run in buffer.layout_runs() {
         lines += 1;
         max_width = max_width.max(run.line_w);
@@ -908,7 +889,8 @@ fn shape_candidate(
         for glyph in run.glyphs {
             if glyph.glyph_id == 0 {
                 missing_glyphs += 1;
-            } else if glyph.font_id != context.requested_face {
+            }
+            if glyph.font_id != context.requested_face {
                 fallback_glyphs += 1;
             }
         }
@@ -999,31 +981,7 @@ fn clipping_summary(
     (clipped_pixels, clipped_bounds)
 }
 
-/// A `Fallback` that never substitutes another font.
-///
-/// cosmic-text's default `PlatformFallback` resolves substitute family names through
-/// fontconfig, which makes glyph selection depend on whatever fonts happen to be
-/// installed system-wide. For a deterministic renderer we want the requested font to
-/// be the only source of glyphs: if it lacks a glyph that is an error, not a silent
-/// substitution that differs from machine to machine.
-struct NoFallback;
-
-impl Fallback for NoFallback {
-    fn common_fallback(&self) -> &[&'static str] {
-        &[]
-    }
-    fn forbidden_fallback(&self) -> &[&'static str] {
-        &[]
-    }
-    fn script_fallback(&self, _script: Script, _locale: &str) -> &[&'static str] {
-        &[]
-    }
-}
-
-fn discover_family(
-    font_system: &FontSystem,
-    path: &Path,
-) -> Result<(String, fontdb::ID, fontdb::Weight)> {
+fn discover_family(font_system: &FontSystem, path: &Path) -> Result<(String, fontdb::ID)> {
     let face = font_system
         .db()
         .faces()
@@ -1034,7 +992,7 @@ fn discover_family(
         .first()
         .map(|(name, _)| name.clone())
         .context("font has no family name")?;
-    Ok((family, face.id, face.weight))
+    Ok((family, face.id))
 }
 
 fn mask_bounds(width: u32, height: u32, mask: &[u8]) -> Option<(u32, u32, u32, u32)> {
@@ -1207,13 +1165,19 @@ mod tests {
     // (a deterministic font + a simple writable mask), verifying layout behavior,
     // input validation, and mask containment without video or FFmpeg.
 
-    use super::super::test_font;
     use super::{RenderRequest, render};
     use crate::application::{FitMode, TextAlign, VerticalAlign};
     use crate::render::effects::{DirectStyleOptions, Style};
 
+    fn test_font() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fonts")
+            .join("NotoSerif-Regular.ttf")
+    }
+
     fn default_test_style() -> Style {
         Style::direct(DirectStyleOptions {
+            font_weight: 600,
             text_color: "#FFFFFFFF",
             stroke_color: "#000000FF",
             glow_color: "#00000000",

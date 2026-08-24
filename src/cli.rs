@@ -311,7 +311,7 @@ pub struct RenderArgs {
     #[arg(long)]
     pub font: PathBuf,
 
-    /// TOML text style. When set, it replaces the direct fill/stroke/glow/shadow paint flags.
+    /// TOML text style. When set, it replaces direct typography/fill/stroke/glow/shadow flags.
     #[arg(long)]
     pub style_file: Option<PathBuf>,
 
@@ -324,6 +324,10 @@ pub struct RenderArgs {
 
     #[arg(long)]
     pub font_size: Option<f32>,
+
+    /// OpenType/CSS font weight for direct (non-style-file) rendering.
+    #[arg(long, default_value_t = 600)]
+    pub font_weight: u16,
 
     #[arg(long, default_value_t = 4)]
     pub supersampling: u32,
@@ -543,6 +547,7 @@ impl RenderArgs {
             diagnostics: self.diagnostics,
             fit: self.fit,
             font_size: self.font_size,
+            font_weight: self.font_weight,
             supersampling: self.supersampling,
             target_fill: self.target_fill,
             max_lines: self.max_lines,
@@ -806,6 +811,7 @@ mod tests {
         );
 
         assert_eq!(actual.fit, expected.fit);
+        assert_eq!(actual.font_weight, expected.font_weight);
         assert_eq!(actual.supersampling, expected.supersampling);
         assert_eq!(actual.target_fill, expected.target_fill);
         assert_eq!(actual.max_lines, expected.max_lines);

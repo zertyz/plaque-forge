@@ -13,7 +13,7 @@ writable_bounds = [382.0, 92.0, 486.0, 115.0]
 [render]
 text = "Nós que aqui estamos, por vós esperamos!"
 style = "../../../styles/gold-shine.toml"
-style_sha256 = "c0c16a2398a7fa30329bc9626623db36e0cbd83d4c3ef6e6625677ac556b0c4a"
+style_sha256 = "58bdec1129a9812be071185d856b2c90776dcc2167932fbbbacf5141bfc02070"
 font_file = "NotoSerif-Regular.ttf"
 fit_mode = "artistic"
 resolved_text = "Nós que aqui estamos,\npor vós esperamos!"

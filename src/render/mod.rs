@@ -258,6 +258,7 @@ fn render_to(
     let style = effects::Style::load(
         args.style_file.as_deref(),
         effects::DirectStyleOptions {
+            font_weight: args.font_weight,
             text_color: &args.text_color,
             stroke_color: &args.stroke_color,
             glow_color: &args.glow_color,
@@ -825,56 +826,6 @@ fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Resul
 }
 
 #[cfg(test)]
-pub(crate) fn test_font() -> std::path::PathBuf {
-    // Reproducible rendering depends on a single, pinned font. Prefer the copy
-    // committed to the repository so the output is independent of which system
-    // fonts happen to be installed; extra fonts must not alter the result.
-    let pinned = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("fonts")
-        .join("NotoSerif-Regular.ttf");
-    if pinned.is_file() {
-        return pinned;
-    }
-    let candidates = [
-        "/usr/share/fonts/noto/NotoSerif-Regular.ttf",
-        "/usr/share/fonts/TTF/NotoSerif-Regular.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
-        "/usr/share/fonts/noto-serif/NotoSerif-Regular.ttf",
-        "/usr/share/fonts/google-noto-serif/NotoSerif-Regular.ttf",
-        "/usr/share/fonts/google-noto-serif-fonts/NotoSerif-Regular.ttf",
-    ];
-    for candidate in candidates {
-        let path = std::path::PathBuf::from(candidate);
-        if path.is_file() {
-            return path;
-        }
-    }
-    // Query fontconfig specifically for Noto Serif and ensure it does not fallback to another family
-    if let Ok(output) = std::process::Command::new("fc-match")
-        .args(["--format=%{family}|%{file}", "Noto Serif:style=Regular"])
-        .output()
-        && output.status.success()
-    {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Some((family, file)) = stdout.trim().split_once('|') {
-            let path = std::path::PathBuf::from(file.trim());
-            let family_trim = family.trim();
-            if (family_trim.eq_ignore_ascii_case("Noto Serif")
-                || family_trim.to_ascii_lowercase().starts_with("noto serif"))
-                && path.is_file()
-            {
-                return path;
-            }
-        }
-    }
-    panic!(
-        "Missing required test font: NotoSerif-Regular.ttf. Refusing to substitute a different font family. \
-         Please install the appropriate package for your system: \
-         'noto-fonts' (Arch Linux), 'fonts-noto-core' (Debian/Ubuntu), or 'google-noto-serif-fonts' (Fedora)."
-    );
-}
-
-#[cfg(test)]
 mod tests {
     use super::{analysis_occluders_are_renderable, evenly_spaced, validate_portable_encoder_args};
     use crate::scene::DepthMode;
@@ -928,8 +879,14 @@ mod tests {
 
     use std::{fs, path::Path};
 
-    use super::{effects, test_font, typography};
+    use super::{effects, typography};
     use crate::application::{FitMode, TextAlign, VerticalAlign};
+
+    fn pinned_test_font() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fonts")
+            .join("NotoSerif-Regular.ttf")
+    }
 
     fn mask_correlation(actual: &[u8], expected: &[u8]) -> f64 {
         if actual.len() != expected.len() || actual.is_empty() {
@@ -964,7 +921,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let styles_dir = root.join("styles");
         let fixtures_dir = root.join("tests/fixtures/style_masks");
-        let font = test_font();
+        let font = pinned_test_font();
         let width = 64_u32;
         let height = 48_u32;
         let mask = vec![255u8; width as usize * height as usize];
@@ -985,6 +942,7 @@ mod tests {
             let style = match effects::Style::load(
                 Some(&path),
                 effects::DirectStyleOptions {
+                    font_weight: 600,
                     text_color: "#FFFFFFFF",
                     stroke_color: "#000000FF",
                     glow_color: "#00000000",
