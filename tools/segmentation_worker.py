@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import concurrent.futures
 import gc
 import hashlib
 import fcntl
 import importlib.metadata
 import json
+import math
 import os
 import resource
 import shutil
@@ -102,6 +104,54 @@ def file_sha256(path):
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def usable_cpu_count():
+    """Return CPUs this process can actually schedule on, not host CPU inventory."""
+    try:
+        affinity = os.sched_getaffinity(0)
+        if affinity:
+            return len(affinity)
+    except (AttributeError, OSError):
+        pass
+
+    process_cpu_count = getattr(os, "process_cpu_count", None)
+    if process_cpu_count is not None:
+        try:
+            count = process_cpu_count()
+            if count:
+                return max(1, int(count))
+        except OSError:
+            pass
+
+    return max(1, int(os.cpu_count() or 1))
+
+
+def parallel_worker_count(item_count, *, cpus_per_worker=1):
+    """Bound outer parallelism by the CPUs available to this process."""
+    if item_count <= 1:
+        return 1
+    cpus_per_worker = max(1, int(cpus_per_worker))
+    return max(1, min(int(item_count), usable_cpu_count() // cpus_per_worker))
+
+
+def opencv_parallel_worker_count(item_count):
+    """Avoid multiplying Python workers by OpenCV's own native thread pool."""
+    native_threads = 1
+    if cv2 is not None and hasattr(cv2, "getNumThreads"):
+        try:
+            native_threads = max(1, int(cv2.getNumThreads()))
+        except (TypeError, ValueError):
+            native_threads = 1
+    return parallel_worker_count(item_count, cpus_per_worker=native_threads)
+
+
+def sam2_loader_worker_count(frame_count):
+    """Keep parallel decode tensors below 25% of SAM2's destination tensor."""
+    if frame_count <= 1:
+        return 1
+    memory_bound = max(1, int(frame_count) // 4)
+    return min(parallel_worker_count(frame_count), memory_bound)
 
 
 def xpu_available(torch):
@@ -331,7 +381,7 @@ def extract_frames_cached(request):
             [
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-noautorotate",
                 "-i", str(request["source"]["path"]), "-start_number", "0",
-                "-c:v", "png", "-pix_fmt", "rgba", "-f", "image2", "-y",
+                "-c:v", "png", "-compression_level", "1", "-pix_fmt", "rgba", "-f", "image2", "-y",
                 str(staging / "%06d.png"),
             ],
             check=True,
@@ -408,18 +458,38 @@ def exact_seed_mask(request, frame, size):
 
 def probability_from_png(path):
     """Load 8- or 16-bit grayscale PNG without quantizing it through PIL L mode."""
-    encoded = np.asarray(Image.open(path))
+    if cv2 is not None:
+        encoded = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+        if encoded is None:
+            encoded = np.asarray(Image.open(path))
+    else:
+        encoded = np.asarray(Image.open(path))
     if encoded.ndim == 3:
         encoded = encoded[..., 0]
     maximum = 65535.0 if encoded.dtype == np.uint16 or encoded.max(initial=0) > 255 else 255.0
     return encoded.astype(np.float32) / maximum
 
 
+def require_cv2_image(path, flags):
+    """Decode through OpenCV and report the path instead of failing later in cvtColor."""
+    if cv2 is None:
+        raise RuntimeError("OpenCV image decoding requested but OpenCV is unavailable")
+    image = cv2.imread(str(path), flags)
+    if image is None:
+        raise OSError(f"OpenCV failed to decode image: {path}")
+    return image
+
+
 def save_probability_png(path, probability):
     encoded = np.round(np.asarray(probability, dtype=np.float32).clip(0, 1) * 65535).astype(
         np.uint16
     )
-    Image.fromarray(encoded).save(path, format="PNG", compress_level=6)
+    if cv2 is not None:
+        written = cv2.imwrite(str(path), encoded, [cv2.IMWRITE_PNG_COMPRESSION, 6])
+        if not written:
+            raise OSError(f"OpenCV failed to write PNG: {path}")
+    else:
+        Image.fromarray(encoded).save(path, format="PNG", compress_level=6)
 
 
 def seed_mask(request, frame, size):
@@ -456,11 +526,15 @@ def cleanup_small_mask_defects(probability, max_area=16):
     if not binary.any():
         return probability
 
-    cleaned = binary.copy()
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
-    for component in range(1, count):
-        if int(stats[component, cv2.CC_STAT_AREA]) <= max_area:
-            cleaned[labels == component] = 0
+    if count <= 1:
+        return probability
+
+    areas = stats[:, cv2.CC_STAT_AREA]
+    lut = np.ones(count, dtype=np.uint8)
+    lut[0] = 0
+    lut[1:][areas[1:] <= max_area] = 0
+    cleaned = lut[labels]
 
     result = probability.copy()
     removed = (binary == 1) & (cleaned == 0)
@@ -520,10 +594,40 @@ def sam2_masks(request, frames, device):
             len(png_paths), 3, image_size, image_size, dtype=torch.float32
         )
         video_height = video_width = 0
-        for index, path in enumerate(png_paths):
-            images[index], video_height, video_width = sam2_misc._load_img_as_tensor(
-                str(path), image_size
-            )
+
+        def _load_single(index_path):
+            idx, p = index_path
+            tensor, h, w = sam2_misc._load_img_as_tensor(str(p), image_size)
+            return idx, tensor, h, w
+
+        max_workers = sam2_loader_worker_count(len(png_paths))
+        if max_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+                path_iter = iter(enumerate(png_paths))
+                pending = set()
+                for _ in range(max_workers):
+                    try:
+                        pending.add(pool.submit(_load_single, next(path_iter)))
+                    except StopIteration:
+                        break
+                while pending:
+                    done, pending = concurrent.futures.wait(
+                        pending, return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    for future in done:
+                        idx, tensor, h, w = future.result()
+                        images[idx] = tensor
+                        video_height = h
+                        video_width = w
+                        try:
+                            pending.add(pool.submit(_load_single, next(path_iter)))
+                        except StopIteration:
+                            pass
+        else:
+            for index, path in enumerate(png_paths):
+                images[index], video_height, video_width = sam2_misc._load_img_as_tensor(
+                    str(path), image_size
+                )
         mean = torch.tensor(img_mean, dtype=torch.float32)[:, None, None]
         std = torch.tensor(img_std, dtype=torch.float32)[:, None, None]
         if not offload_video_to_cpu:
@@ -759,7 +863,7 @@ def cutie_masks(request, frames, device, guides=None):
     prompts = request["layer"]["prompts"]
     active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
     if device == "cpu":
-        torch.set_num_threads(min(8, len(os.sched_getaffinity(0))))
+        torch.set_num_threads(min(8, usable_cpu_count()))
     seed = min(prompt["frame"] for prompt in prompts)
     prompt_frames = {prompt["frame"] for prompt in prompts}
     source_width, source_height = Image.open(frames[0]).size
@@ -771,7 +875,17 @@ def cutie_masks(request, frames, device, guides=None):
         output = {}
         with torch.inference_mode(), precision_context(torch, device, precision):
             for position, frame in enumerate(indices):
-                image = to_tensor(Image.open(frames[frame]).convert("RGB")).to(device).float()
+                if cv2 is not None:
+                    bgr = require_cv2_image(frames[frame], cv2.IMREAD_COLOR)
+                    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                    image = (
+                        torch.from_numpy(rgb.transpose((2, 0, 1)))
+                        .float()
+                        .div(255.0)
+                        .to(device)
+                    )
+                else:
+                    image = to_tensor(Image.open(frames[frame]).convert("RGB")).to(device).float()
                 correction = position == 0 or frame in prompt_frames
                 if correction:
                     source = (
@@ -888,21 +1002,29 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
             support = cv2.dilate(
                 (probability >= 0.35).astype(np.uint8), kernel, iterations=3
             )
-        trimap = np.zeros(probability.shape, dtype=np.uint8)
-        trimap[support > 0] = 128
-        trimap[foreground > 0] = 255
-        image = Image.open(frame_path).convert("RGB")
         active = cv2.findNonZero(support)
         if active is None:
             output.append(np.zeros(probability.shape, dtype=np.float32))
             continue
+        trimap = np.zeros(probability.shape, dtype=np.uint8)
+        trimap[support > 0] = 128
+        trimap[foreground > 0] = 255
         x, y, width, height = cv2.boundingRect(active)
         margin = 32
         left = max(0, x - margin)
         top = max(0, y - margin)
-        right = min(image.width, x + width + margin)
-        bottom = min(image.height, y + height + margin)
-        crop = image.crop((left, top, right, bottom))
+        if cv2 is not None:
+            bgr = require_cv2_image(frame_path, cv2.IMREAD_COLOR)
+            img_h, img_w = bgr.shape[:2]
+            right = min(img_w, x + width + margin)
+            bottom = min(img_h, y + height + margin)
+            crop_rgb = cv2.cvtColor(bgr[top:bottom, left:right], cv2.COLOR_BGR2RGB)
+            crop = Image.fromarray(crop_rgb)
+        else:
+            image = Image.open(frame_path).convert("RGB")
+            right = min(image.width, x + width + margin)
+            bottom = min(image.height, y + height + margin)
+            crop = image.crop((left, top, right, bottom))
         crop_trimap = Image.fromarray(trimap[top:bottom, left:right])
         inputs = processor(images=crop, trimaps=crop_trimap, return_tensors="pt")
         inputs = {key: value.to(device) for key, value in inputs.items()}
@@ -932,7 +1054,8 @@ def dense_flow(source, target):
 
 
 def warp_alpha(alpha, source_gray, target_gray, forward, backward):
-    y, x = np.mgrid[: target_gray.shape[0], : target_gray.shape[1]].astype(np.float32)
+    h, w = target_gray.shape[:2]
+    x, y = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
     map_x = x + backward[..., 0]
     map_y = y + backward[..., 1]
     warped = cv2.remap(alpha, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
@@ -961,11 +1084,43 @@ def stabilize_alpha(probabilities, frames, blend_strength=0.32, propagation_head
     start = max(0, active[0] - 1)
     end = min(len(original) - 1, active[-1] + 1)
     segment = original[start : end + 1]
-    gray = [cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in frames[start : end + 1]]
-    flows = [
-        (dense_flow(gray[frame], gray[frame + 1]), dense_flow(gray[frame + 1], gray[frame]))
-        for frame in range(len(gray) - 1)
-    ]
+    active_frame_paths = frames[start : end + 1]
+
+    decode_workers = parallel_worker_count(len(active_frame_paths))
+    if decode_workers > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=decode_workers) as pool:
+            gray = list(
+                pool.map(
+                    lambda path: require_cv2_image(path, cv2.IMREAD_GRAYSCALE),
+                    active_frame_paths,
+                )
+            )
+    else:
+        gray = [
+            require_cv2_image(path, cv2.IMREAD_GRAYSCALE)
+            for path in active_frame_paths
+        ]
+
+    def _calc_flow_pair(frame_idx):
+        g0 = gray[frame_idx]
+        g1 = gray[frame_idx + 1]
+        return frame_idx, (dense_flow(g0, g1), dense_flow(g1, g0))
+
+    num_pairs = len(gray) - 1
+    flow_workers = opencv_parallel_worker_count(num_pairs)
+    if flow_workers > 1 and num_pairs > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=flow_workers) as pool:
+            flows = [
+                pair[1]
+                for pair in sorted(
+                    pool.map(_calc_flow_pair, range(num_pairs)), key=lambda item: item[0]
+                )
+            ]
+    else:
+        flows = [
+            (dense_flow(gray[frame], gray[frame + 1]), dense_flow(gray[frame + 1], gray[frame]))
+            for frame in range(num_pairs)
+        ]
     forward = [segment[0]]
     for frame in range(1, len(segment)):
         flow, backward_flow = flows[frame - 1]
@@ -1137,8 +1292,20 @@ def cached_cutie(request, frames, requested_device, guides=None, *, allow_xpu=Tr
         staging = cache_root / f".{key}.{os.getpid()}.incoming"
         shutil.rmtree(staging, ignore_errors=True)
         (staging / "masks").mkdir(parents=True, exist_ok=True)
-        for frame, probability in enumerate(probabilities):
-            save_probability_png(staging / "masks" / f"{frame:06}.png", probability)
+        max_workers = parallel_worker_count(len(probabilities))
+        if max_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+                list(
+                    pool.map(
+                        lambda item: save_probability_png(
+                            staging / "masks" / f"{item[0]:06}.png", item[1]
+                        ),
+                        enumerate(probabilities),
+                    )
+                )
+        else:
+            for frame, probability in enumerate(probabilities):
+                save_probability_png(staging / "masks" / f"{frame:06}.png", probability)
         (staging / "cache.json").write_text(
             json.dumps(
                 {
@@ -1201,8 +1368,20 @@ def cached_sam2(request, frames, requested_device):
         staging = cache_root / f".{key}.{os.getpid()}.incoming"
         shutil.rmtree(staging, ignore_errors=True)
         (staging / "masks").mkdir(parents=True, exist_ok=True)
-        for frame, probability in enumerate(probabilities):
-            save_probability_png(staging / "masks" / f"{frame:06}.png", probability)
+        max_workers = parallel_worker_count(len(probabilities))
+        if max_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+                list(
+                    pool.map(
+                        lambda item: save_probability_png(
+                            staging / "masks" / f"{item[0]:06}.png", item[1]
+                        ),
+                        enumerate(probabilities),
+                    )
+                )
+        else:
+            for frame, probability in enumerate(probabilities):
+                save_probability_png(staging / "masks" / f"{frame:06}.png", probability)
         (staging / "cache.json").write_text(
             json.dumps(
                 {
@@ -1410,33 +1589,31 @@ def constrain_to_authored_motion_envelope(request, probabilities):
         return probabilities
 
     prompts.sort(key=lambda prompt: prompt["frame"])
+    prompt_frames = np.array([p["frame"] for p in prompts], dtype=np.int32)
+    prompt_boxes = np.array([p["box_bounds"] for p in prompts], dtype=np.float64)
     height, width = np.asarray(probabilities[0]).shape
 
     def box_at(frame):
-        if frame <= prompts[0]["frame"]:
-            return np.asarray(prompts[0]["box_bounds"], dtype=np.float64)
-        if frame >= prompts[-1]["frame"]:
-            return np.asarray(prompts[-1]["box_bounds"], dtype=np.float64)
-        right = next(index for index, prompt in enumerate(prompts) if prompt["frame"] >= frame)
+        if frame <= prompt_frames[0]:
+            return prompt_boxes[0]
+        if frame >= prompt_frames[-1]:
+            return prompt_boxes[-1]
+        right = int(np.searchsorted(prompt_frames, frame, side="left"))
         left = right - 1
-        before = prompts[left]
-        after = prompts[right]
-        span = max(1, after["frame"] - before["frame"])
-        weight = (frame - before["frame"]) / span
-        return (
-            np.asarray(before["box_bounds"], dtype=np.float64) * (1.0 - weight)
-            + np.asarray(after["box_bounds"], dtype=np.float64) * weight
-        )
+        f_left, f_right = prompt_frames[left], prompt_frames[right]
+        span = max(1, f_right - f_left)
+        weight = (frame - f_left) / span
+        return prompt_boxes[left] * (1.0 - weight) + prompt_boxes[right] * weight
 
     constrained = []
     for frame, probability in enumerate(probabilities):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
         x, y, box_width, box_height = box_at(frame)
         margin = max(20.0, 0.10 * max(box_width, box_height))
-        left = max(0, int(np.floor(x - margin)))
-        top = max(0, int(np.floor(y - margin)))
-        right = min(width, int(np.ceil(x + box_width + margin)))
-        bottom = min(height, int(np.ceil(y + box_height + margin)))
+        left = max(0, math.floor(x - margin))
+        top = max(0, math.floor(y - margin))
+        right = min(width, math.ceil(x + box_width + margin))
+        bottom = min(height, math.ceil(y + box_height + margin))
         bounded = np.zeros_like(probability)
         bounded[top:bottom, left:right] = probability[top:bottom, left:right]
         constrained.append(bounded)
@@ -1610,22 +1787,38 @@ def write_output(request, output, probabilities, version):
         0,
         len(probabilities) - 1,
     ]
-    for frame, probability in enumerate(probabilities):
-        probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
+
+    def _process_and_save_frame(item):
+        frame, probability = item
+        prob = np.asarray(probability, dtype=np.float32).clip(0, 1)
         if not active_start <= frame <= active_end:
-            probability = np.zeros_like(probability)
-        encoded = np.round(probability * 65535).astype(np.uint16)
+            prob = np.zeros_like(prob)
+        encoded = np.round(prob * 65535).astype(np.uint16)
         validation_alpha = np.round(encoded.astype(np.float64) * 255 / 65535).astype(np.uint8)
-        support = probability[encoded > 0]
-        confidences.append(
-            float(np.mean(2.0 * np.abs(support - 0.5))) if support.size else 0.0
+        support = prob[encoded > 0]
+        conf = float(np.mean(2.0 * np.abs(support - 0.5))) if support.size else 0.0
+        cov = (
+            float(np.count_nonzero(validation_alpha > 8) / encoded.size)
+            if active_start <= frame <= active_end
+            else None
         )
-        if active_start <= frame <= active_end:
-            coverages.append(float(np.count_nonzero(validation_alpha > 8) / encoded.size))
-        soft_edge_pixels += int(
-            np.count_nonzero((validation_alpha > 0) & (validation_alpha < 255))
-        )
-        save_probability_png(mask_dir / f"{frame:06}.png", probability)
+        soft = int(np.count_nonzero((validation_alpha > 0) & (validation_alpha < 255)))
+        save_probability_png(mask_dir / f"{frame:06}.png", prob)
+        return frame, conf, cov, soft
+
+    max_workers = parallel_worker_count(len(probabilities))
+    if max_workers > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            results = list(pool.map(_process_and_save_frame, enumerate(probabilities)))
+    else:
+        results = [_process_and_save_frame(item) for item in enumerate(probabilities)]
+
+    results.sort(key=lambda x: x[0])
+    for frame, conf, cov, soft in results:
+        confidences.append(conf)
+        if cov is not None:
+            coverages.append(cov)
+        soft_edge_pixels += soft
     backend = request["backend"]
     model = request["model"]
     artifact = (
