@@ -292,8 +292,8 @@ impl Style {
 
         for effect in &self.underlays {
             match *effect {
-                MaskEffect::Stroke { width_ratio, color } => {
-                    let radius = (font_size * width_ratio).round().max(0.0) as usize;
+                MaskEffect::Stroke { color, .. } => {
+                    let radius = effect.stroke_radius_px(font_size);
                     if radius == 0 || color.a == 0 {
                         continue;
                     }
@@ -327,34 +327,25 @@ impl Style {
                     let dy = (font_size * offset_y_ratio).round() as i32;
                     combined.blend_surface(&shadow, dx, dy, 1.0);
                 }
-                MaskEffect::Extrude {
-                    depth_ratio,
-                    angle_degrees,
-                    color,
-                } => {
-                    if depth_ratio <= 0.0 || color.a == 0 {
+                MaskEffect::Extrude { color, .. } => {
+                    if color.a == 0 {
                         continue;
                     }
-                    let depth = (font_size * depth_ratio).round().max(1.0) as i32;
-                    let angle = angle_degrees.to_radians();
-                    let dx = angle.cos();
-                    let dy = angle.sin();
+                    let Some(geometry) = effect.extrude_geometry(font_size) else {
+                        continue;
+                    };
                     let layer = Surface::from_alpha_mask(width, height, &alpha, color)?;
-                    for step in (1..=depth).rev() {
+                    for step in (1..=geometry.depth).rev() {
                         combined.blend_surface(
                             &layer,
-                            (dx * step as f32).round() as i32,
-                            (dy * step as f32).round() as i32,
+                            (geometry.dx * step as f32).round() as i32,
+                            (geometry.dy * step as f32).round() as i32,
                             1.0,
                         );
                     }
                 }
-                MaskEffect::ChromaticSplit {
-                    offset_ratio,
-                    red,
-                    cyan,
-                } => {
-                    let offset = (font_size * offset_ratio).round().max(0.0) as i32;
+                MaskEffect::ChromaticSplit { red, cyan, .. } => {
+                    let offset = effect.chromatic_offset_px(font_size);
                     if offset == 0 {
                         continue;
                     }
@@ -367,26 +358,20 @@ impl Style {
                         combined.blend_surface(&cyan_layer, offset, 0, 1.0);
                     }
                 }
-                MaskEffect::Trail {
-                    distance_ratio,
-                    copies,
-                    angle_degrees,
-                    color,
-                } => {
-                    if distance_ratio <= 0.0 || copies == 0 || color.a == 0 {
+                MaskEffect::Trail { copies, color, .. } => {
+                    if color.a == 0 {
                         continue;
                     }
-                    let distance = (font_size * distance_ratio).round().max(1.0);
-                    let angle = angle_degrees.to_radians();
-                    let dx = angle.cos();
-                    let dy = angle.sin();
+                    let Some(geometry) = effect.trail_geometry(font_size) else {
+                        continue;
+                    };
                     let layer = Surface::from_alpha_mask(width, height, &alpha, color)?;
                     for copy in (1..=copies).rev() {
                         let t = copy as f32 / copies as f32;
                         combined.blend_surface(
                             &layer,
-                            (dx * distance * t).round() as i32,
-                            (dy * distance * t).round() as i32,
+                            (geometry.dx * geometry.distance * t).round() as i32,
+                            (geometry.dy * geometry.distance * t).round() as i32,
                             0.25 + 0.55 * (1.0 - t),
                         );
                     }
@@ -403,31 +388,36 @@ impl Style {
                     width_ratio,
                     highlight,
                     shadow,
-                } => {
-                    let radius = (font_size * width_ratio).round().max(1.0) as i32;
-                    let (highlight_mask, shadow_mask) =
-                        directional_bevel_masks(&alpha, width as usize, height as usize, radius);
-                    let highlight_layer =
-                        Surface::from_alpha_mask(width, height, &highlight_mask, highlight)?;
-                    let shadow_layer =
-                        Surface::from_alpha_mask(width, height, &shadow_mask, shadow)?;
-                    combined.blend_surface(&highlight_layer, 0, 0, 1.0);
-                    combined.blend_surface(&shadow_layer, 0, 0, 1.0);
-                }
+                } => apply_relief_overlay(
+                    ReliefCanvas {
+                        combined: &mut combined,
+                        alpha: &alpha,
+                        width,
+                        height,
+                    },
+                    width_ratio,
+                    font_size,
+                    highlight,
+                    shadow,
+                    false,
+                )?,
                 OverlayEffect::Letterpress {
                     width_ratio,
                     highlight,
                     shadow,
-                } => {
-                    let radius = (font_size * width_ratio).round().max(1.0) as i32;
-                    let (top_left, bottom_right) =
-                        directional_bevel_masks(&alpha, width as usize, height as usize, radius);
-                    let inset_shadow = Surface::from_alpha_mask(width, height, &top_left, shadow)?;
-                    let inset_highlight =
-                        Surface::from_alpha_mask(width, height, &bottom_right, highlight)?;
-                    combined.blend_surface(&inset_shadow, 0, 0, 1.0);
-                    combined.blend_surface(&inset_highlight, 0, 0, 1.0);
-                }
+                } => apply_relief_overlay(
+                    ReliefCanvas {
+                        combined: &mut combined,
+                        alpha: &alpha,
+                        width,
+                        height,
+                    },
+                    width_ratio,
+                    font_size,
+                    highlight,
+                    shadow,
+                    true,
+                )?,
             }
         }
         Ok(combined)
@@ -446,8 +436,8 @@ impl Style {
 
         for effect in &self.underlays {
             match *effect {
-                MaskEffect::Stroke { width_ratio, .. } => {
-                    let radius = (font_size * width_ratio).round().max(0.0) as usize;
+                MaskEffect::Stroke { .. } => {
+                    let radius = effect.stroke_radius_px(font_size);
                     if radius > 0 {
                         let expanded =
                             dilate_alpha_circular(alpha, width as usize, height as usize, radius);
@@ -461,31 +451,22 @@ impl Style {
                         );
                     }
                 }
-                MaskEffect::Extrude {
-                    depth_ratio,
-                    angle_degrees,
-                    ..
-                } => {
-                    if depth_ratio <= 0.0 {
-                        continue;
-                    }
-                    let depth = (font_size * depth_ratio).round().max(1.0) as i32;
-                    let angle = angle_degrees.to_radians();
-                    let dx = angle.cos();
-                    let dy = angle.sin();
-                    for step in 1..=depth {
-                        alpha_over_shifted(
-                            &mut envelope,
-                            alpha,
-                            width as usize,
-                            height as usize,
-                            (dx * step as f32).round() as i32,
-                            (dy * step as f32).round() as i32,
-                        );
+                MaskEffect::Extrude { .. } => {
+                    if let Some(geometry) = effect.extrude_geometry(font_size) {
+                        for step in 1..=geometry.depth {
+                            alpha_over_shifted(
+                                &mut envelope,
+                                alpha,
+                                width as usize,
+                                height as usize,
+                                (geometry.dx * step as f32).round() as i32,
+                                (geometry.dy * step as f32).round() as i32,
+                            );
+                        }
                     }
                 }
-                MaskEffect::ChromaticSplit { offset_ratio, .. } => {
-                    let offset = (font_size * offset_ratio).round().max(0.0) as i32;
+                MaskEffect::ChromaticSplit { .. } => {
+                    let offset = effect.chromatic_offset_px(font_size);
                     if offset > 0 {
                         alpha_over_shifted(
                             &mut envelope,
@@ -505,22 +486,15 @@ impl Style {
                         );
                     }
                 }
-                MaskEffect::Trail {
-                    distance_ratio,
-                    copies,
-                    angle_degrees,
-                    ..
-                } => {
-                    if distance_ratio > 0.0 && copies > 0 {
-                        let distance = (font_size * distance_ratio).round().max(1.0);
-                        let angle = angle_degrees.to_radians();
+                MaskEffect::Trail { .. } => {
+                    if let Some(geometry) = effect.trail_geometry(font_size) {
                         alpha_over_shifted(
                             &mut envelope,
                             alpha,
                             width as usize,
                             height as usize,
-                            (angle.cos() * distance).round() as i32,
-                            (angle.sin() * distance).round() as i32,
+                            (geometry.dx * geometry.distance).round() as i32,
+                            (geometry.dy * geometry.distance).round() as i32,
                         );
                     }
                 }
@@ -786,7 +760,46 @@ impl Style {
         }
         Ok(current)
     }
+}
 
+/// Blend the two directional edge masks of a bevel-family overlay.
+///
+/// Raised (`bevel`) lights top/left edges; pressed (`letterpress`) swaps the
+/// color roles so edges read as inset. Blend order is preserved because the
+/// layers are translucent.
+/// Canvas geometry shared by the bevel-family overlays.
+struct ReliefCanvas<'a> {
+    combined: &'a mut Surface,
+    alpha: &'a [u8],
+    width: u32,
+    height: u32,
+}
+
+fn apply_relief_overlay(
+    canvas: ReliefCanvas<'_>,
+    width_ratio: f32,
+    font_size: f32,
+    highlight: Rgba,
+    shadow: Rgba,
+    letterpress: bool,
+) -> Result<()> {
+    let radius = (font_size * width_ratio).round().max(1.0) as i32;
+    let (top_left, bottom_right) = directional_bevel_masks(
+        canvas.alpha,
+        canvas.width as usize,
+        canvas.height as usize,
+        radius,
+    );
+    let first_color = if letterpress { shadow } else { highlight };
+    let second_color = if letterpress { highlight } else { shadow };
+    for (mask, color) in [(&top_left, first_color), (&bottom_right, second_color)] {
+        let layer = Surface::from_alpha_mask(canvas.width, canvas.height, mask, color)?;
+        canvas.combined.blend_surface(&layer, 0, 0, 1.0);
+    }
+    Ok(())
+}
+
+impl Style {
     fn paint_fill(&self, base: &Surface, supersampling: u32) -> Result<Surface> {
         if let Some(texture) = &self.texture {
             return advanced::paint_texture(

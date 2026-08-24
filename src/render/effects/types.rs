@@ -148,6 +148,79 @@ pub(crate) enum MaskEffect {
     },
 }
 
+/// Geometry of an extruded mask layer: step depth plus unit direction.
+pub(crate) struct ExtrudeGeometry {
+    pub depth: i32,
+    pub dx: f32,
+    pub dy: f32,
+}
+
+/// Displacement geometry of a motion trail: reach in pixels plus unit direction.
+pub(crate) struct TrailGeometry {
+    pub distance: f32,
+    pub dx: f32,
+    pub dy: f32,
+}
+
+impl MaskEffect {
+    /// Effect sizes scale with the fitted font size; each helper fixes the
+    /// rounding/clamping rule shared by painting and fit-envelope derivation.
+    pub(crate) fn stroke_radius_px(&self, font_size: f32) -> usize {
+        match *self {
+            MaskEffect::Stroke { width_ratio, .. } => {
+                (font_size * width_ratio).round().max(0.0) as usize
+            }
+            _ => 0,
+        }
+    }
+
+    pub(crate) fn extrude_geometry(&self, font_size: f32) -> Option<ExtrudeGeometry> {
+        match *self {
+            MaskEffect::Extrude {
+                depth_ratio,
+                angle_degrees,
+                ..
+            } if depth_ratio > 0.0 => {
+                let angle = angle_degrees.to_radians();
+                Some(ExtrudeGeometry {
+                    depth: (font_size * depth_ratio).round().max(1.0) as i32,
+                    dx: angle.cos(),
+                    dy: angle.sin(),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn chromatic_offset_px(&self, font_size: f32) -> i32 {
+        match *self {
+            MaskEffect::ChromaticSplit { offset_ratio, .. } => {
+                (font_size * offset_ratio).round().max(0.0) as i32
+            }
+            _ => 0,
+        }
+    }
+
+    pub(crate) fn trail_geometry(&self, font_size: f32) -> Option<TrailGeometry> {
+        match *self {
+            MaskEffect::Trail {
+                distance_ratio,
+                copies,
+                angle_degrees,
+                ..
+            } if distance_ratio > 0.0 && copies > 0 => {
+                let angle = angle_degrees.to_radians();
+                Some(TrailGeometry {
+                    distance: (font_size * distance_ratio).round().max(1.0),
+                    dx: angle.cos(),
+                    dy: angle.sin(),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum OverlayEffect {
     Bevel {

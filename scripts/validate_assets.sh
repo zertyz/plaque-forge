@@ -6,7 +6,7 @@ source "$(dirname "$0")/render_common.sh"
 pf_configure_render "$@"
 
 cd "$PF_ROOT"
-cargo build --release --quiet
+pf_build_release
 mkdir -p output/validation
 
 for name in "${PF_CASES[@]}"; do

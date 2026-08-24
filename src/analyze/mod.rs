@@ -6,7 +6,6 @@ pub(crate) mod tracking;
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
-use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     analysis::{
@@ -1210,13 +1209,13 @@ fn apply_surface_intent(
     }
     extraction.content_mask = writable.clone();
     extraction.cavity_area = area;
-    save_luma_mask(
+    crate::image_io::save_luma_png(
         width,
         height,
         &writable,
         &output_root.join("content-mask.png"),
     )?;
-    save_luma_mask(
+    crate::image_io::save_luma_png(
         width,
         height,
         &writable,
@@ -1249,22 +1248,14 @@ fn apply_declared_writable_region(
     }
     extraction.content_mask = mask.clone();
     extraction.cavity_area = area;
-    save_luma_mask(width, height, &mask, &output_root.join("content-mask.png"))?;
-    save_luma_mask(
+    crate::image_io::save_luma_png(width, height, &mask, &output_root.join("content-mask.png"))?;
+    crate::image_io::save_luma_png(
         width,
         height,
         &mask,
         &diagnostics.join("declared-writable-mask.png"),
     )?;
     Ok(())
-}
-
-fn save_luma_mask(width: u32, height: u32, mask: &[u8], path: &Path) -> Result<()> {
-    let image: GrayImage = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, mask.to_vec())
-        .context("invalid writable-region mask dimensions")?;
-    image
-        .save(path)
-        .with_context(|| format!("failed to save writable-region mask {}", path.display()))
 }
 
 fn same_file(a: &Path, b: &Path) -> Result<()> {

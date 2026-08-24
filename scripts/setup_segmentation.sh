@@ -2,7 +2,8 @@
 set -euo pipefail
 
 root="/tmp/plaque-forge-python"
-repo="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+repo="$PF_ROOT"
 reinstall=false
 verify_only=false
 requested_torch_profile="${PLAQUE_FORGE_TORCH_PROFILE:-}"

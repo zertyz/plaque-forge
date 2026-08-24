@@ -5,7 +5,7 @@ pub mod typography;
 use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
-use image::{GrayImage, ImageBuffer, Luma, RgbaImage, imageops::FilterType};
+use image::{RgbaImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -23,6 +23,50 @@ use crate::{
 
 pub const RENDER_MANIFEST_SCHEMA_VERSION: u32 = 4;
 pub const DECISION_TRACE_SCHEMA_VERSION: u32 = 2;
+
+/// The artifact identities a render manifest certifies, recomputed from the
+/// exact current bytes. Consumers compare these against their own acceptance
+/// policies; this loader only establishes what the bytes currently are.
+pub struct RenderProvenance {
+    pub manifest_path: std::path::PathBuf,
+    pub manifest: RenderManifest,
+    pub rendered_sha256: String,
+    pub analysis_manifest_sha256: String,
+    pub analysis_inputs_sha256: String,
+    pub render_manifest_sha256: String,
+}
+
+/// Load the render manifest published beside a rendered video, gate its schema
+/// version, and recompute every digest it certifies.
+pub fn load_render_provenance(rendered: &Path, pack: &Analysis) -> Result<RenderProvenance> {
+    let manifest_path = rendered.with_extension("render-manifest.json");
+    let manifest_bytes = fs::read(&manifest_path)
+        .with_context(|| format!("failed to read render manifest {}", manifest_path.display()))?;
+    let manifest: RenderManifest = serde_json::from_slice(&manifest_bytes).with_context(|| {
+        format!(
+            "failed to parse render manifest {}",
+            manifest_path.display()
+        )
+    })?;
+    anyhow::ensure!(
+        manifest.schema_version == RENDER_MANIFEST_SCHEMA_VERSION,
+        "unsupported render manifest schema {}; expected {}",
+        manifest.schema_version,
+        RENDER_MANIFEST_SCHEMA_VERSION
+    );
+    let analysis_inputs_sha256 =
+        pack.render_inputs_sha256(manifest.used_analysis_occluder_masks)?;
+    Ok(RenderProvenance {
+        analysis_manifest_sha256: crate::digest::file_sha256(
+            &pack.root.join(crate::analysis::MANIFEST_FILE),
+        )?,
+        rendered_sha256: crate::digest::file_sha256(rendered)?,
+        analysis_inputs_sha256,
+        render_manifest_sha256: crate::digest::bytes_sha256(&manifest_bytes),
+        manifest_path,
+        manifest,
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -306,7 +350,7 @@ fn render_to(
         );
     }
     let canonical_text_mask_path = args.output.with_extension("text-mask.png");
-    save_luma(
+    crate::image_io::save_luma_png(
         text_render.layer.width(),
         text_render.layer.height(),
         &text_render.layer.alpha_mask(),
@@ -360,7 +404,7 @@ fn render_to(
         .filter(|layer| layer.role == crate::scene::LayerRole::Foreground)
         .count();
     let mut frame_index = 0usize;
-    let diagnostic_indices = evenly_spaced(info.frames, 12);
+    let diagnostic_indices = crate::stats::evenly_spaced(info.frames, 12);
     let mut diagnostic_frames = Vec::with_capacity(diagnostic_indices.len());
     let static_presented = (!style.has_frame_variation()).then(|| text_render.layer.clone());
     let dynamic_target = text_render.metrics.resolved_text.clone();
@@ -780,28 +824,6 @@ fn validate_portable_encoder_args(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn save_luma(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
-    let image: GrayImage = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, data.to_vec())
-        .context("invalid canonical text mask")?;
-    image
-        .save(path)
-        .with_context(|| format!("failed to save canonical text mask {}", path.display()))?;
-    Ok(())
-}
-
-fn evenly_spaced(frames: usize, count: usize) -> Vec<usize> {
-    if frames == 0 || count == 0 {
-        return Vec::new();
-    }
-    let count = count.min(frames);
-    if count == 1 {
-        return vec![0];
-    }
-    (0..count)
-        .map(|index| index * (frames - 1) / (count - 1))
-        .collect()
-}
-
 fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Result<()> {
     let Some(first) = frames.first() else {
         bail!("cannot create a render contact sheet without frames");
@@ -828,8 +850,9 @@ fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use super::{analysis_occluders_are_renderable, evenly_spaced, validate_portable_encoder_args};
+    use super::{analysis_occluders_are_renderable, validate_portable_encoder_args};
     use crate::scene::DepthMode;
+    use crate::stats::evenly_spaced;
 
     #[test]
     fn diagnostic_indices_are_bounded_and_include_endpoints() {

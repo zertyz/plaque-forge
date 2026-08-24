@@ -48,6 +48,17 @@ The producer accepts JSON runner labels plus CPU/XPU setup/device inputs. This m
 
 The producer is manual by default. Enable automatic invocation only after choosing the canonical runner/profile from measured bake-offs; validation CI remains read-only.
 
+## Sample-video producer
+
+`.github/workflows/sample-videos.yml` is the trusted producer for the public sample set. On every push to `main` whose paths can change rendered output (`src/`, styles, fonts, bundled assets, render scripts), it re-renders every bundled asset with the sample title, runs the lossless validation render plus frame verification for representative plaque-scene sentinels (fully animated background sources are excluded because the untouched-scene threshold presumes lossless frames), and republishes the rolling pre-release tagged `sample_videos` (on GitHub under *Releases*):
+
+- rendering runs read-only under `contents: read`; only the separate publish job holds narrow `contents: write`;
+- acceptance (per-asset verification) completes before anything is published;
+- release notes record the exact source commit and producing run;
+- browser-friendly MP4 previews of representative assets accompany the full HEVC set so the README can stay lightweight.
+
+`scripts/render_sample_videos.sh` owns the style policy (gold shine for real plaques, classic glow otherwise) and is exercised by `tests/cli_workflows.rs`; the workflow is only its thin remote runner.
+
 ## Segmentation bake-off workflow
 
 `segmentation-bakeoff.yml` is a manual measurement workflow. It runs the represented

@@ -13,6 +13,7 @@ Common options:
   --font PATH                 Font file.
   --font-family PATTERN       Resolve a font with fontconfig instead of the
                               bundled default (fonts/NotoSerif-Regular.ttf).
+  --output-dir DIR            Delivery directory for the rendered videos (default: output).
   --max-lines N               Maximum automatic line count.
   --padding RATIO             Inset from the writable region.
   --stroke-width RATIO        Outline width relative to font size.
@@ -30,6 +31,24 @@ matching environment variables documented in scripts/render_common.sh.
 USAGE
 }
 
+# Extract --output-dir before the shared parser so the delivery directory can
+# vary (for example the sample-video producer) without touching render options.
+output_dir="output"
+forward=()
+while (( $# )); do
+  case "$1" in
+    --output-dir)
+      (( $# >= 2 )) || { printf 'error: --output-dir requires a value\n' >&2; exit 2; }
+      output_dir="$2"; shift 2 ;;
+    *) forward+=("$1"); shift ;;
+  esac
+done
+if (( ${#forward[@]} )); then
+  set -- "${forward[@]}"
+else
+  set --
+fi
+
 set +e
 pf_configure_render "$@"
 status=$?
@@ -41,8 +60,8 @@ if (( status != 0 )); then
 fi
 
 cd "$PF_ROOT"
-cargo build --release --quiet
-mkdir -p output
+pf_build_release
+mkdir -p "$output_dir"
 
 encoder_args=(
   --encoder-arg=-c:v --encoder-arg=libx265
@@ -57,7 +76,7 @@ failures=0
 rendered=0
 for name in "${PF_CASES[@]}"; do
   input="assets/$name.mp4"
-  final="output/$name.hevc.mkv"
+  final="$output_dir/$name.hevc.mkv"
 
   [[ -f "$input" ]] || { printf 'input video not found: %s\n' "$input" >&2; exit 1; }
 

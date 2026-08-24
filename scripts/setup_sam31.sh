@@ -2,7 +2,8 @@
 set -euo pipefail
 
 root="${PLAQUE_FORGE_SAM31_ROOT:-/tmp/plaque-forge-sam31}"
-repo="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+repo="$PF_ROOT"
 ref="${PLAQUE_FORGE_SAM31_REF:-main}"
 reinstall=false
 verify_only=false

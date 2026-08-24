@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/common.sh"
+cd "$PF_ROOT"
 
 # These are the six concrete non-ML regression witnesses captured in August 2026:
 # four prompted layers must be skippable/reusable in --no-ml mode, while two
