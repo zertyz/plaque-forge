@@ -106,6 +106,7 @@ impl Style {
                 format_color(dark)
             ),
         }];
+        parts.insert(0, format!("typography(weight={})", self.font_weight()));
         if let Some(texture) = &self.texture {
             parts.push(format!(
                 "image-texture(path={},sha256={},tile={},scale={:.3},offset=({:.3},{:.3}))",
@@ -985,6 +986,7 @@ mod tests {
 
     fn default_direct_options() -> DirectStyleOptions<'static> {
         DirectStyleOptions {
+            font_weight: 600,
             text_color: "#FFFFFFFF",
             stroke_color: "#000000FF",
             glow_color: "#00000000",
@@ -1001,6 +1003,7 @@ mod tests {
     fn flat_fill_produces_uniform_color_in_opaque_region() {
         let base = synthetic_glyph_surface(32, 32);
         let style = Style::direct(DirectStyleOptions {
+            font_weight: 600,
             text_color: "#FF0000FF",
             ..default_direct_options()
         })

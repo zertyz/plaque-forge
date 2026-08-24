@@ -14,7 +14,7 @@ trajectory_sha256 = "f1b3f9f6f4cd16c4de9a26c9dfc09b9080573660bf7dfd06a058246bd25
 [render]
 text = "Seeing what others cannot see!"
 style = "../../../styles/gold-shine.toml"
-style_sha256 = "c0c16a2398a7fa30329bc9626623db36e0cbd83d4c3ef6e6625677ac556b0c4a"
+style_sha256 = "58bdec1129a9812be071185d856b2c90776dcc2167932fbbbacf5141bfc02070"
 font_file = "NotoSerif-Regular.ttf"
 fit_mode = "artistic"
 resolved_text = "Seeing what\nothers\ncannot see!"

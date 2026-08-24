@@ -114,11 +114,25 @@ Notable presets:
 - `typewriter`
 - `particle-dissolve`
 
-## Style schema version 4
+## Style schema version 5
 
-Versions 1 through 3 remain accepted. Version 4 adds layout transforms, external
-textures, character-state animations, particle convergence, animated distortion, and
-plaque-surface effects.
+Versions 1 through 4 remain accepted. Version 5 adds explicit typography properties so
+font-face choices are part of the style rather than renderer constants. Existing styles
+retain the historical weight of 600:
+
+```toml
+version = 5
+
+[typography]
+weight = 600
+```
+
+`weight` follows the OpenType/CSS numeric range `1..=1000`. Styles from versions 1
+through 4, and direct CLI styling that omits `--font-weight`, remain backward-compatible
+at weight 600.
+
+Version 4 introduced layout transforms, external textures, character-state animations,
+particle convergence, animated distortion, and plaque-surface effects.
 
 ### Arc / orbital layout
 

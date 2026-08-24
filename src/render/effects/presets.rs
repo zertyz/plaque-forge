@@ -11,12 +11,13 @@ use super::{
     types::{
         AnimationEffect, AnimationFile, DirectStyleOptions, EffectFile, FillStyle, LayoutEffect,
         LayoutFile, MaskEffect, MaterialFile, OverlayEffect, StyleFile, SurfaceEffect,
-        SurfaceEffectFile, TextureMaterial,
+        SurfaceEffectFile, TextureMaterial, default_font_weight,
     },
 };
 
 #[derive(Clone, Debug)]
 pub struct Style {
+    font_weight: u16,
     pub(crate) fill: FillStyle,
     pub(crate) texture: Option<TextureMaterial>,
     pub(crate) layouts: Vec<LayoutEffect>,
@@ -26,11 +27,22 @@ pub struct Style {
     pub(crate) animations: Vec<AnimationEffect>,
 }
 
+fn validate_font_weight(weight: u16) -> Result<()> {
+    if !(1..=1000).contains(&weight) {
+        bail!("font weight must be between 1 and 1000");
+    }
+    Ok(())
+}
+
 impl Style {
     /// Construct a style directly from CLI-equivalent options without a file.
     #[cfg(test)]
     pub fn direct(options: DirectStyleOptions<'_>) -> Result<Self> {
         Self::load(None, options)
+    }
+
+    pub(crate) fn font_weight(&self) -> u16 {
+        self.font_weight
     }
 
     pub fn has_frame_variation(&self) -> bool {
@@ -43,6 +55,7 @@ impl Style {
         }
 
         let DirectStyleOptions {
+            font_weight,
             text_color,
             stroke_color,
             glow_color,
@@ -54,6 +67,7 @@ impl Style {
             shadow_color,
         } = direct;
 
+        validate_font_weight(font_weight)?;
         if glow_radius > 64 {
             bail!("--glow-radius must be between 0 and 64");
         }
@@ -102,6 +116,7 @@ impl Style {
         }
 
         Ok(Self {
+            font_weight,
             fill: FillStyle::Flat(Rgba::parse(text_color).context("invalid --text-color")?),
             texture: None,
             layouts: Vec::new(),
@@ -117,12 +132,20 @@ impl Style {
             .with_context(|| format!("failed to read text style {}", path.display()))?;
         let parsed: StyleFile = toml::from_str(&source)
             .with_context(|| format!("invalid text style TOML {}", path.display()))?;
-        if !matches!(parsed.version, 1..=4) {
+        if !matches!(parsed.version, 1..=5) {
             bail!(
-                "unsupported text style version {}; this build supports versions 1 through 4",
+                "unsupported text style version {}; this build supports versions 1 through 5",
                 parsed.version
             );
         }
+        if parsed.version < 5 && parsed.typography.is_some() {
+            bail!("text style typography options require version = 5");
+        }
+        let font_weight = parsed
+            .typography
+            .as_ref()
+            .map_or_else(default_font_weight, |typography| typography.weight);
+        validate_font_weight(font_weight)?;
 
         let uses_v2_features = parsed.material.is_some()
             || !parsed.animations.is_empty()
@@ -191,7 +214,7 @@ impl Style {
         }
         if parsed.version < 4 && uses_v4_features {
             bail!(
-                "text style uses layout, texture, character, particle, or plaque-surface features that require version = 4"
+                "text style uses layout, texture, character, particle, or plaque-surface features that require version >= 4"
             );
         }
         if parsed.fill.is_some() && parsed.material.is_some() {
@@ -725,6 +748,7 @@ impl Style {
         }
 
         Ok(Self {
+            font_weight,
             fill,
             texture,
             layouts,

@@ -132,6 +132,8 @@ pub struct RenderRequest {
     pub diagnostics: Option<PathBuf>,
     pub fit: FitMode,
     pub font_size: Option<f32>,
+    /// OpenType/CSS font weight used when no style file overrides direct style options.
+    pub font_weight: u16,
     pub supersampling: u32,
     pub target_fill: f32,
     pub max_lines: usize,
@@ -251,6 +253,7 @@ impl RenderRequest {
             diagnostics: None,
             fit: FitMode::Artistic,
             font_size: None,
+            font_weight: 600,
             supersampling: 4,
             target_fill: 0.94,
             max_lines: 5,

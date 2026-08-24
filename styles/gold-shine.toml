@@ -1,4 +1,7 @@
-version = 2
+version = 5
+
+[typography]
+weight = 600
 
 [material]
 type = "gold"

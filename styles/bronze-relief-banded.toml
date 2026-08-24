@@ -1,5 +1,8 @@
 # Banded bronze/gold relief with warm depth, dark separation, bevel and moving shine.
-version = 2
+version = 5
+
+[typography]
+weight = 600
 
 [material]
 type = "gold"
