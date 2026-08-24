@@ -5,6 +5,12 @@ edition = "2024"
 description = "Analyze, render, and verify moving title plaques in video"
 license = "MIT"
 
+[features]
+# Embed the repository media (videos, analysis caches, scenes, styles,
+# plaques, textures, curated fonts) so listings and workflows read only
+# internal data plus system fonts. Produces a large binary; off by default.
+bundle-media = []
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
@@ -31,6 +37,7 @@ unicode-script = "0.5"
 approx = "0.5"
 
 [build-dependencies]
+anyhow = "1.0"
 sha2 = "0.11"
 
 [profile.release]

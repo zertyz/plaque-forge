@@ -78,6 +78,52 @@ jobs:
       - name: Reject new RustSec findings
         run: ./scripts/audit_dependencies.sh
 
+  bundle-media-gate:
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install native dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            clang \
+            ffmpeg \
+            fontconfig \
+            noto-fonts \
+            opencv \
+            pkgconf \
+            git \
+            rust
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+
+      - name: Exercise embedded listings against repository truth
+        run: |
+          cargo build --features bundle-media
+          binary=target/debug/plaque-forge
+          # Every style program is listed, and nothing else.
+          diff <(ls styles/*.toml | sed -e 's|styles/||' -e 's|\.toml$||' | sort) \
+               <($binary list styles | sed 's/^  //' | sort)
+          # Curated fonts lead, marked, in curated_fonts order.
+          test "$(head -n 1 < <($binary list fonts))" = "  *NotoSerif-Regular"
+          # Plaque metadata comes straight from the catalog.
+          test "$($binary list plaques | wc -l)" -eq "$(grep -c '^\[\[plaques\]\]' assets/plaques/catalog.toml)"
+
+      - name: Prove a bundled workflow materializes and consumes its media
+        env:
+          PLAQUE_FORGE_BUNDLE_CACHE: ${{ runner.temp }}/bundle-cache
+        run: |
+          # The analysis cache arrives from inside the binary, so --if-needed
+          # must succeed purely on materialized data plus installed tools.
+          target/debug/plaque-forge analyze \
+            --input assets/moving-holographic-plaque.mp4 \
+            --source-is-text-free --if-needed
+          test -f "$PLAQUE_FORGE_BUNDLE_CACHE/assets/analysis/moving-holographic-plaque/manifest.toml"
+
   homologation-gate:
     needs: code-gate
     runs-on: ubuntu-24.04

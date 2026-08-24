@@ -26,6 +26,9 @@
 //!   dynamics.
 //! - **Homologation (`homologation`)**: Executable acceptance contracts protecting
 //!   previously accepted geometry, typography, provenance, and foreground ordering.
+//! - **Media (`media`)**: One catalog contract listing videos, styles, plaques,
+//!   textures, and fonts either from repository directories or, under the
+//!   `bundle-media` feature, from data embedded inside the binary.
 //! - **Safety & Staging (`staged_output`)**: Lease-held atomic file staging preventing
 //!   partial or corrupted destination artifacts.
 
@@ -44,6 +47,7 @@ pub mod homologation;
 mod image_io;
 pub mod infrastructure;
 mod layers;
+pub mod media;
 pub mod model;
 mod portable_path;
 mod progress;
@@ -67,7 +71,12 @@ use cli::{Cli, Command};
 /// Keeping dispatch in the library gives the binary and integration tests one
 /// module graph instead of compiling a second copy of shared modules.
 pub fn run() -> Result<()> {
+    #[cfg(feature = "bundle-media")]
+    let mut cli = Cli::parse();
+    #[cfg(not(feature = "bundle-media"))]
     let cli = Cli::parse();
+    #[cfg(feature = "bundle-media")]
+    cli.command.materialize_embedded_media()?;
     match cli.command {
         Command::CreateScene(args) => scene_commands::create(args),
         Command::PlaceSurface(args) => scene_commands::place_surface(args),
@@ -78,8 +87,16 @@ pub fn run() -> Result<()> {
         Command::Homologate(args) => application::homologate(args.into()),
         Command::HomologationCoverage(args) => {
             let report = application::homologation_coverage(args.into())?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            Ok(())
+            print_stdout(&serde_json::to_string_pretty(&report)?)
+        }
+        Command::List(args) => {
+            let json = args.json;
+            let inventory = application::list(args.into(), production_media_catalog()?.as_ref())?;
+            if json {
+                print_stdout(&serde_json::to_string_pretty(&inventory)?)
+            } else {
+                cli::print_media_inventory(&inventory)
+            }
         }
         Command::Review(args) => review::run(args),
         Command::Render(args) => {
@@ -98,5 +115,30 @@ pub fn run() -> Result<()> {
             }
             application::render(args.into_request(analysis, output))
         }
+    }
+}
+
+/// Media source for this build: embedded data under `bundle-media`,
+/// repository directories otherwise.
+fn production_media_catalog() -> Result<Box<dyn media::MediaCatalog>> {
+    #[cfg(feature = "bundle-media")]
+    {
+        Ok(Box::new(media::bundled::BundledMedia::production()))
+    }
+    #[cfg(not(feature = "bundle-media"))]
+    {
+        Ok(Box::new(media::FilesystemCatalog::production()?))
+    }
+}
+
+/// Print a finished report, tolerating a closed downstream pipe (`| head`).
+fn print_stdout(text: &str) -> Result<()> {
+    use std::io::Write;
+
+    let mut out = std::io::stdout().lock();
+    match writeln!(out, "{text}") {
+        Ok(()) => out.flush().map_err(Into::into),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }

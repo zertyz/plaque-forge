@@ -4,8 +4,9 @@ use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum, builder::PossibleValue
 
 use crate::{
     application::{
-        AnalyzeRequest, FitMode, HomologateRequest, HomologationCoverageRequest, ProgressMode,
-        RenderRequest, TextAlign, TitleSource, VerifyRequest, VerticalAlign,
+        AnalyzeRequest, FitMode, HomologateRequest, HomologationCoverageRequest, ListRequest,
+        MediaInventory, MediaKind, ProgressMode, RenderRequest, TextAlign, TitleSource,
+        VerifyRequest, VerticalAlign,
     },
     writable_region::ResolvedWritableRegion,
 };
@@ -43,6 +44,8 @@ pub enum Command {
     Homologate(HomologateArgs),
     /// Audit which behavioral capability classes have homologated sentinels.
     HomologationCoverage(HomologationCoverageArgs),
+    /// List the media available to this build.
+    List(ListArgs),
     /// Build a human-oriented HTML report from analysis and verification diagnostics.
     Review(ReviewArgs),
 }
@@ -471,6 +474,23 @@ pub struct HomologationCoverageArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ListArgs {
+    /// Which media kind to list.
+    #[arg(value_enum, default_value_t = MediaKind::All)]
+    pub kind: MediaKind,
+
+    /// Print a machine-readable JSON inventory instead of plain text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+impl From<ListArgs> for ListRequest {
+    fn from(args: ListArgs) -> Self {
+        Self { kind: args.kind }
+    }
+}
+
+#[derive(Debug, Args)]
 pub struct ReviewArgs {
     #[arg(long)]
     pub analysis: PathBuf,
@@ -663,6 +683,17 @@ impl_value_enum!(
         ProgressMode::Never => "never",
     ]
 );
+impl_value_enum!(
+    MediaKind,
+    [
+        MediaKind::Videos => "videos",
+        MediaKind::Styles => "styles",
+        MediaKind::Plaques => "plaques",
+        MediaKind::Textures => "textures",
+        MediaKind::Fonts => "fonts",
+        MediaKind::All => "all",
+    ]
+);
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum PlacementSpace {
@@ -672,9 +703,254 @@ pub enum PlacementSpace {
     ScreenCanvas,
 }
 
+/// Read-path adaptation for bundled builds.
+///
+/// `bundle-media` binaries carry their media internally while the rendering
+/// pipeline still consumes real files, so every read-side argument that names
+/// a canonical repository location (`assets/…`, `styles/…`, `fonts/…`) is
+/// rewritten onto an extracted mirror before its workflow runs. Write paths,
+/// external executables, and homologation evidence (deliberately on-disk only)
+/// are left untouched.
+#[cfg(feature = "bundle-media")]
+impl Command {
+    pub(crate) fn materialize_embedded_media(&mut self) -> anyhow::Result<()> {
+        use crate::media::bundled::production_materializer;
+        use crate::media::index::Materializer;
+
+        fn file(
+            index: &EmbeddedIndexAlias,
+            cache: &Materializer,
+            raw: &mut PathBuf,
+        ) -> anyhow::Result<()> {
+            *raw = index.remap_file(cache, raw)?;
+            Ok(())
+        }
+
+        fn optional(
+            index: &EmbeddedIndexAlias,
+            cache: &Materializer,
+            raw: &mut Option<PathBuf>,
+        ) -> anyhow::Result<()> {
+            if let Some(path) = raw {
+                file(index, cache, path)?;
+            }
+            Ok(())
+        }
+
+        /// Remap an explicit analysis-directory argument onto the mirror.
+        fn directory(
+            index: &EmbeddedIndexAlias,
+            cache: &Materializer,
+            raw: &mut PathBuf,
+        ) -> anyhow::Result<()> {
+            if let Some(relative) = index.normalize_relative(raw) {
+                let prefix = format!("{relative}/");
+                index.extract_prefix(cache, &prefix)?;
+                *raw = cache.root().join(&prefix);
+            }
+            Ok(())
+        }
+
+        /// Remap one source-video argument and pre-extract its scene intent
+        /// plus analysis cache so derived default paths resolve inside the
+        /// mirror without further lookups.
+        fn video(
+            index: &EmbeddedIndexAlias,
+            cache: &Materializer,
+            input: &mut PathBuf,
+        ) -> anyhow::Result<()> {
+            let embedded = index.lookup(input).map(|asset| asset.path);
+            file(index, cache, input)?;
+            if let Some(relative) = embedded {
+                let stem = relative
+                    .strip_prefix("assets/")
+                    .and_then(|rest| rest.strip_suffix(".mp4"))
+                    .unwrap_or(relative);
+                index.extract_prefix(cache, &format!("assets/scenes/{stem}/"))?;
+                index.extract_prefix(cache, &format!("assets/analysis/{stem}/"))?;
+            }
+            Ok(())
+        }
+
+        fn scene_intent(
+            index: &EmbeddedIndexAlias,
+            cache: &Materializer,
+            input: &mut PathBuf,
+            scene: &mut Option<PathBuf>,
+        ) -> anyhow::Result<()> {
+            video(index, cache, input)?;
+            optional(index, cache, scene)
+        }
+
+        type EmbeddedIndexAlias = crate::media::index::EmbeddedIndex;
+
+        let index = crate::media::bundled::index();
+        let cache = production_materializer()?;
+        match self {
+            Command::CreateScene(args) => video(&index, &cache, &mut args.input)?,
+            Command::PlaceSurface(args) => {
+                video(&index, &cache, &mut args.input)?;
+                file(&index, &cache, &mut args.image)?;
+            }
+            Command::Analyze(args) => {
+                scene_intent(&index, &cache, &mut args.input, &mut args.scene)?
+            }
+            Command::ExportTrajectory(args) => directory(&index, &cache, &mut args.analysis)?,
+            Command::Segment(args) => {
+                scene_intent(&index, &cache, &mut args.input, &mut args.scene)?
+            }
+            Command::Render(args) => {
+                let render: &mut RenderArgs = args;
+                scene_intent(&index, &cache, &mut render.input, &mut render.scene)?;
+                if let Some(analysis) = render.analysis.as_mut() {
+                    directory(&index, &cache, analysis)?;
+                }
+                file(&index, &cache, &mut render.font)?;
+                optional(&index, &cache, &mut render.style_file)?;
+                optional(&index, &cache, &mut render.text_file)?;
+            }
+            Command::Verify(args) => {
+                directory(&index, &cache, &mut args.analysis)?;
+                file(&index, &cache, &mut args.rendered)?;
+                optional(&index, &cache, &mut args.original)?;
+            }
+            // Homologation evidence stays an on-disk responsibility.
+            Command::Homologate(_) | Command::HomologationCoverage(_) => {}
+            Command::Review(args) => {
+                directory(&index, &cache, &mut args.analysis)?;
+                optional(&index, &cache, &mut args.scene)?;
+                optional(&index, &cache, &mut args.verification)?;
+            }
+            Command::List(_) => {}
+        }
+        Ok(())
+    }
+}
+
+/// Plain-text presentation of a media inventory.
+/// Single-kind inventories list bare entries; combined inventories add
+/// section headers. Curated fonts keep their `*` marker in every mode. A
+/// closed downstream pipe (for example `list fonts | head`) ends the listing
+/// successfully instead of failing the command.
+pub(crate) fn print_media_inventory(inventory: &MediaInventory) -> anyhow::Result<()> {
+    use std::io::Write;
+
+    fn line(out: &mut impl Write, text: &str) -> anyhow::Result<()> {
+        match writeln!(out, "{text}") {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    let mut out = std::io::stdout().lock();
+    let populated = [
+        !inventory.videos.is_empty(),
+        !inventory.styles.is_empty(),
+        !inventory.plaques.is_empty(),
+        !inventory.textures.is_empty(),
+        !inventory.fonts.is_empty(),
+    ];
+    let combined = populated.into_iter().filter(|present| *present).count() > 1;
+
+    if !inventory.videos.is_empty() {
+        if combined {
+            line(&mut out, "videos:")?;
+        }
+        for video in &inventory.videos {
+            line(&mut out, &format!("  {}", video.stem))?;
+        }
+    }
+    if !inventory.styles.is_empty() {
+        if combined {
+            line(&mut out, "styles:")?;
+        }
+        for style in &inventory.styles {
+            line(&mut out, &format!("  {}", style.name))?;
+        }
+    }
+    if !inventory.plaques.is_empty() {
+        if combined {
+            line(&mut out, "plaques:")?;
+        }
+        for plaque in &inventory.plaques {
+            line(
+                &mut out,
+                &format!(
+                    "  {}\t{}\t{}\t{}x{}",
+                    plaque.id,
+                    plaque.name,
+                    plaque.video_aspect,
+                    plaque.pixel_size[0],
+                    plaque.pixel_size[1]
+                ),
+            )?;
+        }
+    }
+    if !inventory.textures.is_empty() {
+        if combined {
+            line(&mut out, "textures:")?;
+        }
+        for texture in &inventory.textures {
+            line(&mut out, &format!("  {}", texture.name))?;
+        }
+    }
+    if !inventory.fonts.is_empty() {
+        if combined {
+            line(&mut out, "fonts:")?;
+        }
+        for font in &inventory.fonts {
+            let marker = if font.curated { "*" } else { " " };
+            line(&mut out, &format!("  {marker}{}", font.label))?;
+        }
+    }
+    match out.flush() {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_defaults_to_every_kind_in_plain_text() {
+        let cli = Cli::try_parse_from(["plaque-forge", "list"]).unwrap();
+        let Command::List(args) = cli.command else {
+            panic!("list arguments produced a different command")
+        };
+        assert_eq!(
+            args.kind,
+            MediaKind::All,
+            "bare `list` must cover every kind"
+        );
+        assert!(!args.json, "plain text is the default presentation");
+    }
+
+    #[test]
+    fn list_accepts_every_media_kind_and_the_json_flag() {
+        for (name, expected) in [
+            ("videos", MediaKind::Videos),
+            ("styles", MediaKind::Styles),
+            ("plaques", MediaKind::Plaques),
+            ("textures", MediaKind::Textures),
+            ("fonts", MediaKind::Fonts),
+            ("all", MediaKind::All),
+        ] {
+            let cli = Cli::try_parse_from(["plaque-forge", "list", name, "--json"]).unwrap();
+            let Command::List(args) = cli.command else {
+                panic!("{name} arguments produced a different command")
+            };
+            assert_eq!(args.kind, expected, "kind {name} must parse");
+            assert!(args.json, "--json must be accepted beside any kind");
+        }
+        assert!(
+            Cli::try_parse_from(["plaque-forge", "list", "textures-only"]).is_err(),
+            "unknown kinds must be rejected"
+        );
+    }
 
     fn render_arguments(title: &[&str]) -> Vec<String> {
         [

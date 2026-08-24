@@ -6,38 +6,15 @@ use std::{
     path::{Component, Path},
 };
 
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use support::repository_root;
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PlaqueCatalog {
-    schema_version: u32,
-    plaques: Vec<PlaqueEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PlaqueEntry {
-    id: String,
-    name: String,
-    video_aspect: String,
-    path: String,
-    pixel_size: [u32; 2],
-    writable_inset: [f64; 4],
-    sha256: String,
-}
-
 #[test]
 fn plaque_catalog_is_complete_portable_and_matches_the_pngs() {
     let catalog_path = repository_root().join("assets/plaques/catalog.toml");
-    let catalog: PlaqueCatalog = toml::from_str(
-        &fs::read_to_string(&catalog_path)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", catalog_path.display())),
-    )
-    .expect("plaque catalog is invalid TOML");
+    let catalog = plaque_forge::media::plaques::PlaqueCatalog::load(&catalog_path)
+        .unwrap_or_else(|error| panic!("{} is invalid: {error:#}", catalog_path.display()));
     assert_eq!(catalog.schema_version, 1);
     assert!(!catalog.plaques.is_empty());
 
