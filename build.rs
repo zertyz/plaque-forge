@@ -155,6 +155,9 @@ struct CuratedEmbedding {
     repository_file: bool,
     bundle_path: String,
     sha256: String,
+    /// Family name fontconfig answered at build time; listing labels prefer it
+    /// over re-resolving the pattern on whichever machine runs the binary.
+    resolved_family: Option<String>,
 }
 
 /// Resolve every curated entry into something embeddable: repository files
@@ -167,7 +170,7 @@ fn curated_entries(root: &Path, entries: &mut BTreeMap<String, PathBuf>) -> Vec<
     let curated = curated::parse_curated_fonts(&source).unwrap_or_else(|error| panic!("{error:#}"));
 
     let mut embeddings = Vec::new();
-    let mut resolved_paths: BTreeMap<String, (String, String)> = BTreeMap::new();
+    let mut resolved_paths: BTreeMap<String, (String, String, String)> = BTreeMap::new();
     for font in curated {
         match font {
             curated::CuratedFont::Repository { path } => {
@@ -177,40 +180,49 @@ fn curated_entries(root: &Path, entries: &mut BTreeMap<String, PathBuf>) -> Vec<
                     "curated repository font {} is missing",
                     absolute.display()
                 );
+                // Pinned files are bundle entries like any other media so a
+                // bundled binary can serve their exact bytes anywhere.
+                insert_entry(entries, path.clone(), absolute.clone());
                 embeddings.push(CuratedEmbedding {
                     pattern: path.clone(),
                     repository_file: true,
                     bundle_path: path.clone(),
                     sha256: file_sha256(&absolute),
+                    resolved_family: None,
                 });
             }
             curated::CuratedFont::Family { pattern } => {
-                if let Some((bundle_path, sha256)) = resolved_paths.get(&pattern.to_lowercase()) {
+                if let Some((bundle_path, sha256, family)) =
+                    resolved_paths.get(&pattern.to_lowercase())
+                {
                     embeddings.push(CuratedEmbedding {
                         pattern,
                         repository_file: false,
                         bundle_path: bundle_path.clone(),
                         sha256: sha256.clone(),
+                        resolved_family: Some(family.clone()),
                     });
                     continue;
                 }
-                let resolved = fc_match(&pattern);
-                let extension = resolved
+                let matched = fc_match(&pattern);
+                let extension = matched
+                    .file
                     .extension()
                     .and_then(|value| value.to_str())
                     .unwrap_or("ttf");
                 let bundle_path = format!("fonts/resolved/{}.{}", slugify(&pattern), extension);
-                let sha256 = file_sha256(&resolved);
-                insert_entry(entries, bundle_path.clone(), resolved.clone());
+                let sha256 = file_sha256(&matched.file);
+                insert_entry(entries, bundle_path.clone(), matched.file);
                 resolved_paths.insert(
                     pattern.to_lowercase(),
-                    (bundle_path.clone(), sha256.clone()),
+                    (bundle_path.clone(), sha256.clone(), matched.family.clone()),
                 );
                 embeddings.push(CuratedEmbedding {
                     pattern,
                     repository_file: false,
                     bundle_path,
                     sha256,
+                    resolved_family: Some(matched.family),
                 });
             }
         }
@@ -218,9 +230,15 @@ fn curated_entries(root: &Path, entries: &mut BTreeMap<String, PathBuf>) -> Vec<
     embeddings
 }
 
-fn fc_match(pattern: &str) -> PathBuf {
+struct MatchedFont {
+    file: PathBuf,
+    /// Primary family name fontconfig reports for the matched file.
+    family: String,
+}
+
+fn fc_match(pattern: &str) -> MatchedFont {
     let output = std::process::Command::new("fc-match")
-        .args(["-f", "%{file}\n", pattern])
+        .args(["-f", "%{file}\n%{family}\n", pattern])
         .output()
         .unwrap_or_else(|error| {
             panic!("bundle-media resolves curated family {pattern:?} through fontconfig: {error}")
@@ -230,7 +248,9 @@ fn fc_match(pattern: &str) -> PathBuf {
         "fc-match failed for curated family {pattern:?}: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let file = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    let file = lines.next().unwrap_or_default().trim().to_string();
     assert!(
         !file.is_empty(),
         "fontconfig resolved curated family {pattern:?} to no file"
@@ -241,7 +261,16 @@ fn fc_match(pattern: &str) -> PathBuf {
         "fontconfig resolved curated family {pattern:?} to missing file {}",
         path.display()
     );
-    path
+    // `%{family}` may report several comma-separated names; the first is
+    // fontconfig's canonical answer for this pattern.
+    let reported = lines.next().unwrap_or_default();
+    let primary = reported.split(',').next().unwrap_or_default().trim();
+    let family = if primary.is_empty() {
+        pattern.to_string()
+    } else {
+        primary.to_string()
+    };
+    MatchedFont { file: path, family }
 }
 
 fn slugify(pattern: &str) -> String {
@@ -281,17 +310,25 @@ fn relative_string(root: &Path, path: &Path) -> String {
 }
 
 fn emit_bundle(root: &Path, entries: BTreeMap<String, PathBuf>, curated: Vec<CuratedEmbedding>) {
+    // Content digests bind the bundle identity to exact artifact bytes, so an
+    // equal-length edit can never reuse a stale blob or a stale cache.
+    let content_hashes: Vec<String> = entries
+        .values()
+        .map(|absolute| file_sha256(absolute))
+        .collect();
     let mut identity = Sha256::new();
-    identity.update(b"plaque-forge.bundle-media/1\0");
-    for (relative, absolute) in &entries {
+    identity.update(b"plaque-forge.bundle-media/2\0");
+    for ((relative, absolute), sha256) in entries.iter().zip(&content_hashes) {
         identity.update(relative.as_bytes());
         identity.update(0u8.to_le_bytes());
         identity.update((fs::metadata(absolute).expect("bundle metadata").len()).to_le_bytes());
+        identity.update(0u8.to_le_bytes());
+        identity.update(sha256.as_bytes());
     }
     let bundle_id = hex(&identity.finalize());
 
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
-    let blob_length = prepare_blob(&out_dir, root, &entries);
+    let blob_length = prepare_blob(&out_dir, root, &entries, &content_hashes);
 
     // Only offset tables pass through rustc; the bytes themselves arrive via
     // the linked object file produced by `ld -r -b binary`.
@@ -323,12 +360,13 @@ fn emit_bundle(root: &Path, entries: BTreeMap<String, PathBuf>, curated: Vec<Cur
     ));
     for font in &curated {
         generated.push_str(&format!(
-            "    {} {{ pattern: {:?}, repository_file: {}, bundle_path: {:?}, sha256: {:?} }},\n",
+            "    {} {{ pattern: {:?}, repository_file: {}, bundle_path: {:?}, sha256: {:?}, resolved_family: {:?} }},\n",
             index_type("CuratedFontEmbedding"),
             font.pattern,
             font.repository_file,
             font.bundle_path,
-            font.sha256
+            font.sha256,
+            font.resolved_family,
         ));
     }
     generated.push_str("];\n");
@@ -337,9 +375,10 @@ fn emit_bundle(root: &Path, entries: BTreeMap<String, PathBuf>, curated: Vec<Cur
     fs::write(&destination, generated)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", destination.display()));
 
-    // Hand the object straight to every link of this package.
+    // Link the payload object into this package's binary only: test and
+    // benchmark executables compile the kilobyte tables but never the blob.
     println!(
-        "cargo:rustc-link-arg={}",
+        "cargo:rustc-link-arg-bin=plaque-forge={}",
         out_dir.join("bundle_blob.o").display()
     );
     println!(
@@ -351,19 +390,22 @@ fn emit_bundle(root: &Path, entries: BTreeMap<String, PathBuf>, curated: Vec<Cur
 
 /// Ensure `OUT_DIR/bundle_blob.bin` and its linked object cover exactly the
 /// current embedded inputs, skipping both expensive steps when a previous
-/// run already recorded success for this exact input set. The marker sidecar
-/// is written only after the object exists, so a crash never leaves the pair
-/// half-built while claiming freshness.
-fn prepare_blob(out_dir: &Path, root: &Path, entries: &BTreeMap<String, PathBuf>) -> u64 {
+/// run already recorded success for this exact input set. The freshness
+/// marker covers file names *and* content digests, so an equal-length edit
+/// always regenerates the payload. The marker sidecar is written only after
+/// the object exists, so a crash never leaves the pair half-built while
+/// claiming freshness.
+fn prepare_blob(
+    out_dir: &Path,
+    root: &Path,
+    entries: &BTreeMap<String, PathBuf>,
+    content_hashes: &[String],
+) -> u64 {
     let mut digest = Sha256::new();
-    for absolute in entries.values() {
-        digest.update(
-            fs::metadata(absolute)
-                .expect("bundle metadata")
-                .len()
-                .to_le_bytes(),
-        );
+    for (absolute, sha256) in entries.values().zip(content_hashes) {
         digest.update(absolute.to_string_lossy().as_bytes());
+        digest.update(0u8.to_le_bytes());
+        digest.update(sha256.as_bytes());
     }
     let inputs_digest = hex(&digest.finalize());
     let sidecar = out_dir.join("bundle_blob.inputs");

@@ -48,8 +48,9 @@ Noto Serif                    system family; bundle embeds fc-match's answer
 
 Repository entries must be plain `fonts/<file>` paths. Bundles built on
 machines with different fontconfig answers are therefore not byte-identical;
-each embedded system font records its digest in the generated manifest so
-drift is detectable.
+each embedded system font records its resolved family name and byte digest in
+the generated tables so drift is detectable and listings match the embedded
+bytes instead of re-resolving on whichever machine runs the binary.
 
 ## Running workflows from a bundled binary
 
@@ -57,13 +58,16 @@ The rendering pipeline (OpenCV capture, ffmpeg, texture loading) consumes real
 file paths, so bundled builds materialize exactly the embedded files a command
 touches into a cache directory mirroring the repository layout
 (`${XDG_CACHE_HOME:-~/.cache}/plaque-forge/materialized/<bundle-id>/`,
-override with `PLAQUE_FORGE_BUNDLE_CACHE`). Read-side arguments naming
-canonical locations (`assets/…`, `styles/…`, `fonts/…`) resolve to internal
-data even when a checkout also exists on disk; paths outside those roots pass
-through untouched. Write paths (renders, reports, diagnostics) stay wherever
-you point them. Derived locations follow the rewritten input, so scene intent,
-analysis caches, and any freshly regenerated analysis live inside the same
-mirror during a bundled session.
+override with `PLAQUE_FORGE_BUNDLE_CACHE`). The bundle id covers embedded file
+names *and* content digests, so an edited asset — even at unchanged byte
+length — gets a fresh cache and never serves stale extractions. Read-side
+arguments naming canonical locations (`assets/…`, `styles/…`, `fonts/…`)
+resolve to internal data even when a checkout also exists on disk; paths
+outside those roots pass through untouched. Write paths (renders, reports,
+diagnostics) stay wherever you point them. Derived locations follow the
+rewritten input, so scene intent, analysis caches, style textures, and any
+freshly regenerated analysis live inside the same mirror during a bundled
+session.
 
 ## Build cost
 
@@ -72,17 +76,17 @@ dependencies, and feature-gated code compiles out entirely.
 
 The payload never passes through rustc. The build script concatenates every
 embedded file into one raw blob, converts it into a relocatable object file
-with plain binutils (`ld -r -b binary`), and adds that object to the link;
-only kilobytes of path/offset tables are compiled. Compiler memory is
-therefore independent of media size — the ~400MB bundle builds fine on a
-944MB-RAM machine once swap covers the linker's working set (~6 minutes
-debug-profile wall time measured). A bundled release build adds LTO time on
-top; the resulting debug binary is ~460MB.
+with plain binutils (`ld -r -b binary`), and adds that object to the binary's
+link only — test and benchmark executables compile the kilobyte tables but
+never link the payload. Compiler memory is therefore independent of media size
+— the ~400MB bundle builds fine on a 944MB-RAM machine once swap covers the
+linker's working set (~6 minutes debug-profile wall time measured). A bundled
+release build adds LTO time on top; the resulting debug binary is ~460MB.
 
 Two practical notes: switching link flags rebuilds the dependency graph, so
 keep bundled builds in their own target directory
 (`CARGO_TARGET_DIR=target/bundle`); and both the blob and its object are
-regenerated only when the embedded inputs actually change (content-hash
-guard), so repeated `check`/`clippy` runs under `--all-features` skip the
-multi-hundred-megabyte preparation entirely — those commands compile only
-the kilobyte tables and never link the payload.
+regenerated only when the embedded inputs actually change (a freshness marker
+over file names and content digests), so repeated `check`/`clippy` runs under
+`--all-features` skip the multi-hundred-megabyte preparation entirely — those
+commands compile only the kilobyte tables and never link the payload.

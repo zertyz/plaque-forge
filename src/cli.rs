@@ -784,8 +784,26 @@ impl Command {
 
         type EmbeddedIndexAlias = crate::media::index::EmbeddedIndex;
 
+        // `list` reads only generated tables, and homologation commands stay
+        // an on-disk responsibility: neither may create a materialization
+        // cache as a side effect.
+        if matches!(
+            self,
+            Command::List(_) | Command::Homologate(_) | Command::HomologationCoverage(_)
+        ) {
+            return Ok(());
+        }
+
         let index = crate::media::bundled::index();
         let cache = production_materializer()?;
+
+        /// Materialize every embedded style texture; style programs reference
+        /// them relative to their own file inside the mirror.
+        fn textures(index: &EmbeddedIndexAlias, cache: &Materializer) -> anyhow::Result<()> {
+            index.extract_prefix(cache, "assets/textures/")?;
+            Ok(())
+        }
+
         match self {
             Command::CreateScene(args) => video(&index, &cache, &mut args.input)?,
             Command::PlaceSurface(args) => {
@@ -800,7 +818,7 @@ impl Command {
                 scene_intent(&index, &cache, &mut args.input, &mut args.scene)?
             }
             Command::Render(args) => {
-                let render: &mut RenderArgs = args;
+                let render = args;
                 scene_intent(&index, &cache, &mut render.input, &mut render.scene)?;
                 if let Some(analysis) = render.analysis.as_mut() {
                     directory(&index, &cache, analysis)?;
@@ -808,22 +826,31 @@ impl Command {
                 file(&index, &cache, &mut render.font)?;
                 optional(&index, &cache, &mut render.style_file)?;
                 optional(&index, &cache, &mut render.text_file)?;
+                textures(&index, &cache)?;
             }
             Command::Verify(args) => {
                 directory(&index, &cache, &mut args.analysis)?;
                 file(&index, &cache, &mut args.rendered)?;
                 optional(&index, &cache, &mut args.original)?;
             }
-            // Homologation evidence stays an on-disk responsibility.
-            Command::Homologate(_) | Command::HomologationCoverage(_) => {}
             Command::Review(args) => {
                 directory(&index, &cache, &mut args.analysis)?;
                 optional(&index, &cache, &mut args.scene)?;
                 optional(&index, &cache, &mut args.verification)?;
+                textures(&index, &cache)?;
             }
-            Command::List(_) => {}
+            Command::List(_) | Command::Homologate(_) | Command::HomologationCoverage(_) => {}
         }
         Ok(())
+    }
+}
+
+/// Write one line to stdout, tolerating a closed downstream pipe (`| head`).
+pub(crate) fn write_stdout_line(out: &mut impl std::io::Write, text: &str) -> anyhow::Result<()> {
+    match writeln!(out, "{text}") {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -834,14 +861,6 @@ impl Command {
 /// successfully instead of failing the command.
 pub(crate) fn print_media_inventory(inventory: &MediaInventory) -> anyhow::Result<()> {
     use std::io::Write;
-
-    fn line(out: &mut impl Write, text: &str) -> anyhow::Result<()> {
-        match writeln!(out, "{text}") {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-            Err(error) => Err(error.into()),
-        }
-    }
 
     let mut out = std::io::stdout().lock();
     let populated = [
@@ -855,26 +874,26 @@ pub(crate) fn print_media_inventory(inventory: &MediaInventory) -> anyhow::Resul
 
     if !inventory.videos.is_empty() {
         if combined {
-            line(&mut out, "videos:")?;
+            write_stdout_line(&mut out, "videos:")?;
         }
         for video in &inventory.videos {
-            line(&mut out, &format!("  {}", video.stem))?;
+            write_stdout_line(&mut out, &format!("  {}", video.stem))?;
         }
     }
     if !inventory.styles.is_empty() {
         if combined {
-            line(&mut out, "styles:")?;
+            write_stdout_line(&mut out, "styles:")?;
         }
         for style in &inventory.styles {
-            line(&mut out, &format!("  {}", style.name))?;
+            write_stdout_line(&mut out, &format!("  {}", style.name))?;
         }
     }
     if !inventory.plaques.is_empty() {
         if combined {
-            line(&mut out, "plaques:")?;
+            write_stdout_line(&mut out, "plaques:")?;
         }
         for plaque in &inventory.plaques {
-            line(
+            write_stdout_line(
                 &mut out,
                 &format!(
                     "  {}\t{}\t{}\t{}x{}",
@@ -889,19 +908,19 @@ pub(crate) fn print_media_inventory(inventory: &MediaInventory) -> anyhow::Resul
     }
     if !inventory.textures.is_empty() {
         if combined {
-            line(&mut out, "textures:")?;
+            write_stdout_line(&mut out, "textures:")?;
         }
         for texture in &inventory.textures {
-            line(&mut out, &format!("  {}", texture.name))?;
+            write_stdout_line(&mut out, &format!("  {}", texture.name))?;
         }
     }
     if !inventory.fonts.is_empty() {
         if combined {
-            line(&mut out, "fonts:")?;
+            write_stdout_line(&mut out, "fonts:")?;
         }
         for font in &inventory.fonts {
             let marker = if font.curated { "*" } else { " " };
-            line(&mut out, &format!("  {marker}{}", font.label))?;
+            write_stdout_line(&mut out, &format!("  {marker}{}", font.label))?;
         }
     }
     match out.flush() {

@@ -1,11 +1,13 @@
 # Curated fonts for `plaque-forge list fonts` and for the `bundle-media` build.
 #
-# One entry per line; blank lines and `#` comments are ignored. Entries resolve
-# in this order in every font listing, each printed with a `*` prefix:
+# One entry per line; blank lines and lines starting with `#` are ignored.
+# `#` never starts a comment mid-line: trailing text is part of the entry,
+# because family names may contain it. Entries resolve in this order in every
+# font listing, each printed with a `*` prefix:
 #   - `fonts/<file>`  repository-pinned font file (embedded verbatim by bundle-media)
 #   - anything else   system fontconfig family name; `bundle-media` embeds the
 #                     file that the building machine's `fc-match` resolves for it,
-#                     recording its SHA-256 as provenance
+#                     recording its SHA-256 and family name as provenance
 #
 # Keep this list small: each entry becomes an embedded file in bundled builds.
 # Script-specific Noto families (Noto Sans Devanagari, Noto Serif Tamil, ...)

@@ -1,7 +1,6 @@
 //! Media catalog backed by a repository checkout on disk.
 
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -10,7 +9,9 @@ use super::contract::{
     FontListing, MediaCatalog, PlaqueListing, StyleListing, TextureListing, VideoListing,
 };
 use super::curated::{CuratedFont, parse_curated_fonts};
-use super::fonts::{FamilyIndex, SystemFonts, compose_font_list};
+use super::fonts::{
+    CuratedListingItem, FamilyIndex, SystemFonts, compose_curated_labels, compose_font_list,
+};
 use super::plaques::PlaqueCatalog;
 
 /// Location of the curated font list inside the styles directory.
@@ -50,32 +51,18 @@ impl FilesystemCatalog {
         })
     }
 
-    /// Display labels for curated entries, in curated-file order.
-    ///
-    /// A pinned file lists under its file stem; a family pattern lists under
-    /// its canonical resolved family name (the raw pattern when this machine
-    /// has no matching face). Cross-kind label collisions keep their first
-    /// occurrence so every listed entry stays unambiguous.
-    fn curated_labels(&self) -> Vec<String> {
-        let mut labels = Vec::new();
-        let mut seen = BTreeSet::new();
-        for entry in &self.curated {
-            let label = match entry {
-                CuratedFont::Repository { path } => Path::new(path)
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or(path)
-                    .to_string(),
-                CuratedFont::Family { pattern } => self
-                    .families
-                    .match_pattern(pattern)
-                    .unwrap_or_else(|| pattern.clone()),
-            };
-            if seen.insert(label.to_lowercase()) {
-                labels.push(label);
-            }
-        }
-        labels
+    /// Display inputs for curated entries, in curated-file order, shaped for
+    /// the shared composition rule in [`super::fonts`].
+    fn curated_items(&self) -> Vec<CuratedListingItem<'_>> {
+        self.curated
+            .iter()
+            .map(|entry| CuratedListingItem {
+                pattern: entry.label(),
+                repository_file: matches!(entry, CuratedFont::Repository { .. }),
+                bundle_path: entry.label(),
+                resolved_family: None,
+            })
+            .collect()
     }
 
     fn sorted_stems(&self, directory: &str, extension: &str) -> Result<Vec<String>> {
@@ -148,7 +135,7 @@ impl MediaCatalog for FilesystemCatalog {
 
     fn fonts(&self) -> Result<Vec<FontListing>> {
         Ok(compose_font_list(
-            &self.curated_labels(),
+            &compose_curated_labels(self.curated_items(), self.families.as_ref()),
             self.families.as_ref(),
         ))
     }

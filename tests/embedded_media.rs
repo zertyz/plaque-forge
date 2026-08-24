@@ -36,12 +36,21 @@ static CURATED: &[CuratedFontEmbedding] = &[
         repository_file: true,
         bundle_path: "fonts/Pin.ttf",
         sha256: "pin-digest",
+        resolved_family: None,
     },
     CuratedFontEmbedding {
         pattern: "Curated One",
         repository_file: false,
         bundle_path: "fonts/resolved/curated-one.ttf",
         sha256: "resolved-digest",
+        resolved_family: None,
+    },
+    CuratedFontEmbedding {
+        pattern: "Build-Time Name",
+        repository_file: false,
+        bundle_path: "fonts/resolved/build-time-name.ttf",
+        sha256: "recorded-digest",
+        resolved_family: Some("Recorded Only"),
     },
 ];
 
@@ -64,6 +73,11 @@ fn synthetic_index() -> EmbeddedIndex {
         push("assets/plaques/catalog.toml", CATALOG, &mut blob);
         push("assets/textures/zinc.png", TEXTURE, &mut blob);
         push("fonts/Pin.ttf", PIN_FONT, &mut blob);
+        push(
+            "fonts/resolved/build-time-name.ttf",
+            RESOLVED_FONT,
+            &mut blob,
+        );
         push("fonts/resolved/curated-one.ttf", RESOLVED_FONT, &mut blob);
         push("styles/gold.toml", STYLE, &mut blob);
     }
@@ -107,13 +121,16 @@ fn listings_mirror_the_embedded_layout() {
         vec![
             (true, "Pin".to_string()),
             (true, "Curated One".to_string()),
+            (true, "Recorded Only".to_string()),
             (false, "Alpha".to_string()),
         ],
         view.fonts
             .iter()
             .map(|font| (font.curated, font.label.clone()))
             .collect::<Vec<_>>(),
-        "curated entries lead in file order and are excluded from system names"
+        "curated entries lead in file order: pinned files by stem, unrecorded \
+         families by runtime resolution or raw pattern, recorded build-time \
+         families by their recorded name; all are excluded from system names"
     );
 }
 
@@ -198,7 +215,7 @@ fn prefix_extraction_and_remaps_cover_the_workflow_surface() {
     );
 
     let extracted = index.extract_prefix(&cache, "fonts/").unwrap();
-    assert_eq!(2, extracted.len(), "both embedded fonts extract");
+    assert_eq!(3, extracted.len(), "every embedded font extracts");
     assert!(extracted.iter().all(|path| path.starts_with(cache.root())));
 
     let remapped = index

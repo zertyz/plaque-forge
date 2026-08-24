@@ -7,13 +7,14 @@
 //! compiler nothing regardless of media size. This keeps the entire behavior
 //! surface testable with tiny synthetic indexes.
 
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use super::contract::{FontListing, PlaqueListing, StyleListing, TextureListing, VideoListing};
-use super::fonts::{FamilyIndex, compose_font_list};
+use super::fonts::{
+    CuratedListingItem, FamilyIndex, compose_curated_labels, compose_font_list, path_stem,
+};
 use super::plaques::PlaqueCatalog;
 
 /// Canonical repository roots that a bundled build serves internally.
@@ -41,6 +42,10 @@ pub struct CuratedFontEmbedding {
     pub bundle_path: &'static str,
     /// SHA-256 of the embedded bytes (build-machine resolution provenance).
     pub sha256: &'static str,
+    /// Family name fontconfig answered on the building machine; listing
+    /// labels prefer it over re-resolving on whichever machine runs. `None`
+    /// for pinned repository files, which list under their file stem.
+    pub resolved_family: Option<&'static str>,
 }
 
 /// Read-only view of one binary's embedded media.
@@ -161,29 +166,25 @@ impl EmbeddedIndex {
         }
     }
 
-    /// Curated labels following the filesystem contract: pinned files list
-    /// under their file stem, family patterns under the canonical name this
-    /// machine resolves for them (the raw pattern as fallback).
+    /// Curated labels through the shared composition contract: recorded
+    /// build-time families win, then this machine's resolution, then the raw
+    /// pattern so an unresolvable entry never silently disappears.
     fn curated_labels(&self, index: &dyn FamilyIndex) -> Vec<String> {
-        let mut labels = Vec::new();
-        let mut seen = BTreeSet::new();
-        for embedding in self.curated_fonts {
-            let label = if embedding.repository_file {
-                stem_of(embedding.bundle_path)
-            } else {
-                index
-                    .match_pattern(embedding.pattern)
-                    .unwrap_or_else(|| embedding.pattern.to_string())
-            };
-            if seen.insert(label.to_lowercase()) {
-                labels.push(label);
-            }
-        }
-        labels
+        compose_curated_labels(
+            self.curated_fonts
+                .iter()
+                .map(|embedding| CuratedListingItem {
+                    pattern: embedding.pattern,
+                    repository_file: embedding.repository_file,
+                    bundle_path: embedding.bundle_path,
+                    resolved_family: embedding.resolved_family,
+                }),
+            index,
+        )
     }
 
     fn sorted_stems<'a>(&self, assets: impl Iterator<Item = &'a EmbeddedAsset>) -> Vec<String> {
-        let mut stems: Vec<String> = assets.map(|asset| stem_of(asset.path)).collect();
+        let mut stems: Vec<String> = assets.map(|asset| path_stem(asset.path)).collect();
         stems.sort();
         stems.dedup();
         stems
@@ -249,16 +250,6 @@ pub struct MediaInventoryView {
     pub plaques: Vec<PlaqueListing>,
     pub textures: Vec<TextureListing>,
     pub fonts: Vec<FontListing>,
-}
-
-use std::path::Component;
-
-fn stem_of(path: &str) -> String {
-    Path::new(path)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or(path)
-        .to_string()
 }
 
 impl Materializer {

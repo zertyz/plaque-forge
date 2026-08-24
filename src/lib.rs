@@ -136,9 +136,6 @@ fn print_stdout(text: &str) -> Result<()> {
     use std::io::Write;
 
     let mut out = std::io::stdout().lock();
-    match writeln!(out, "{text}") {
-        Ok(()) => out.flush().map_err(Into::into),
-        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(error) => Err(error.into()),
-    }
+    cli::write_stdout_line(&mut out, text)?;
+    out.flush().map_err(Into::into)
 }

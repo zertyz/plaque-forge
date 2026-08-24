@@ -8,12 +8,14 @@
 //! embedded; it remains an on-disk, CI-gated responsibility over a repository
 //! checkout.
 
+use std::sync::Arc;
+
 use anyhow::Result;
 
 use super::contract::{
     FontListing, MediaCatalog, PlaqueListing, StyleListing, TextureListing, VideoListing,
 };
-use super::fonts::SystemFonts;
+use super::fonts::{FamilyIndex, SystemFonts};
 use super::index::{EmbeddedIndex, Materializer};
 
 include!(concat!(env!("OUT_DIR"), "/bundled_media.rs"));
@@ -50,38 +52,38 @@ pub fn index() -> EmbeddedIndex {
 }
 
 /// Lists media from the data carried inside this binary.
-pub struct BundledMedia;
+pub struct BundledMedia {
+    families: Arc<dyn FamilyIndex>,
+}
 
 impl BundledMedia {
+    /// One system-font scan per process, shared by every listing request.
     pub fn production() -> Self {
-        Self
-    }
-
-    fn families() -> SystemFonts {
-        SystemFonts::load()
+        Self {
+            families: Arc::new(SystemFonts::load()),
+        }
     }
 }
 
 impl MediaCatalog for BundledMedia {
     fn videos(&self) -> Result<Vec<VideoListing>> {
-        Ok(index().inventory(&BundledMedia::families())?.videos)
+        Ok(index().inventory(self.families.as_ref())?.videos)
     }
 
     fn styles(&self) -> Result<Vec<StyleListing>> {
-        Ok(index().inventory(&BundledMedia::families())?.styles)
+        Ok(index().inventory(self.families.as_ref())?.styles)
     }
 
     fn textures(&self) -> Result<Vec<TextureListing>> {
-        Ok(index().inventory(&BundledMedia::families())?.textures)
+        Ok(index().inventory(self.families.as_ref())?.textures)
     }
 
     fn plaques(&self) -> Result<Vec<PlaqueListing>> {
-        Ok(index().inventory(&BundledMedia::families())?.plaques)
+        Ok(index().inventory(self.families.as_ref())?.plaques)
     }
 
     fn fonts(&self) -> Result<Vec<FontListing>> {
-        let system = SystemFonts::load();
-        Ok(index().inventory(&system)?.fonts)
+        Ok(index().inventory(self.families.as_ref())?.fonts)
     }
 }
 

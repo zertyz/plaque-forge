@@ -1,9 +1,11 @@
-//! System font discovery shared by every media backend.
+//! System font discovery and curated-label composition shared by every media
+//! backend.
 //!
 //! Installed faces are read through fontdb, which is already in the dependency
 //! graph for typography; no additional crates are pulled in.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use cosmic_text::fontdb::{self, Style};
 
@@ -109,4 +111,54 @@ pub(crate) fn compose_font_list(
         });
     }
     listings
+}
+
+/// File stem of a listing path, shared by every media backend.
+pub(crate) fn path_stem(path: &str) -> String {
+    Path::new(path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+/// One curated-font entry as seen by a catalog backend, shaped for shared
+/// labeling so both backends compose display names through one rule.
+pub(crate) struct CuratedListingItem<'a> {
+    /// Pattern exactly as written in the curated list.
+    pub pattern: &'a str,
+    /// True when the entry pins a repository file below `fonts/`.
+    pub repository_file: bool,
+    /// Bundle-relative location of the embedded bytes (repository entries).
+    pub bundle_path: &'a str,
+    /// Family name recorded when the entry was embedded, if any.
+    pub resolved_family: Option<&'a str>,
+}
+
+/// Display labels for curated entries, in curated-list order.
+///
+/// A pinned file lists under its file stem; a family entry lists under its
+/// recorded build-time name when one exists, then under this machine's
+/// resolution, then under the raw pattern. Cross-kind label collisions keep
+/// their first occurrence so every listed entry stays unambiguous.
+pub(crate) fn compose_curated_labels<'a>(
+    items: impl IntoIterator<Item = CuratedListingItem<'a>>,
+    families: &dyn FamilyIndex,
+) -> Vec<String> {
+    let mut labels = Vec::new();
+    let mut seen = BTreeSet::new();
+    for item in items {
+        let label = if item.repository_file {
+            path_stem(item.bundle_path)
+        } else {
+            item.resolved_family
+                .map(str::to_string)
+                .or_else(|| families.match_pattern(item.pattern))
+                .unwrap_or_else(|| item.pattern.to_string())
+        };
+        if seen.insert(label.to_lowercase()) {
+            labels.push(label);
+        }
+    }
+    labels
 }
