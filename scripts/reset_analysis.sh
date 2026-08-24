@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+root="$PF_ROOT"
 analysis_root="$root/assets/analysis"
 confirm=false
 

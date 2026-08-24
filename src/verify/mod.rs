@@ -22,8 +22,9 @@ use crate::{
     image_io::{load_luma, load_rgba},
     layers::{ForegroundReader, merge_mask},
     progress::ProgressReporter,
-    render::{RENDER_MANIFEST_SCHEMA_VERSION, RenderManifest},
+    render::RenderManifest,
     scene::SurfaceSpace,
+    stats::percentile,
     surface::Surface,
     video::{self, Decoder},
 };
@@ -165,27 +166,17 @@ pub fn run(
         );
     }
     verify_color_metadata(&original_info, &rendered_info)?;
-    let manifest_path = args.rendered.with_extension("render-manifest.json");
-    let manifest_bytes = fs::read(&manifest_path)
-        .with_context(|| format!("failed to read render manifest {}", manifest_path.display()))?;
-    let manifest: RenderManifest = serde_json::from_slice(&manifest_bytes)?;
-    if manifest.schema_version != RENDER_MANIFEST_SCHEMA_VERSION {
-        bail!(
-            "unsupported render manifest schema {}; expected {}",
-            manifest.schema_version,
-            RENDER_MANIFEST_SCHEMA_VERSION
-        );
-    }
     let source_sha256 = crate::digest::file_sha256(&original)?;
-    let rendered_sha256 = crate::digest::file_sha256(&args.rendered)?;
-    let analysis_manifest_sha256 =
-        crate::digest::file_sha256(&pack.root.join(crate::analysis::MANIFEST_FILE))?;
-    let analysis_inputs_sha256 =
-        pack.render_inputs_sha256(manifest.used_analysis_occluder_masks)?;
-    let render_manifest_sha256 = crate::digest::bytes_sha256(&manifest_bytes);
+    let provenance = crate::render::load_render_provenance(&args.rendered, &pack)?;
+    let manifest_path = provenance.manifest_path.clone();
+    let analysis_manifest_sha256 = provenance.analysis_manifest_sha256.clone();
+    let analysis_inputs_sha256 = provenance.analysis_inputs_sha256;
+    let render_manifest_sha256 = provenance.render_manifest_sha256;
+    let rendered_sha256 = provenance.rendered_sha256;
+    let manifest = provenance.manifest;
     if source_sha256 != pack.manifest.source.sha256
         || manifest.source_sha256 != source_sha256
-        || manifest.analysis_manifest_sha256 != analysis_manifest_sha256
+        || manifest.analysis_manifest_sha256 != provenance.analysis_manifest_sha256
         || manifest.analysis_inputs_sha256 != analysis_inputs_sha256
         || manifest.rendered_sha256 != rendered_sha256
         || manifest.frames != rendered_info.frames
@@ -1351,15 +1342,6 @@ fn tracking_inertia(model: &str) -> Option<f64> {
         .next()?
         .parse()
         .ok()
-}
-
-fn percentile(values: &mut [f64], quantile: f64) -> f64 {
-    values.sort_by(f64::total_cmp);
-    if values.is_empty() {
-        return f64::INFINITY;
-    }
-    let index = ((values.len() - 1) as f64 * quantile.clamp(0.0, 1.0)).round() as usize;
-    values[index]
 }
 
 fn save_surface(surface: &Surface, path: &Path) -> Result<()> {

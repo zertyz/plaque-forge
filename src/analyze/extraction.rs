@@ -6,13 +6,14 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use image::{GrayImage, ImageBuffer, Luma, RgbaImage};
+use image::RgbaImage;
 use opencv::{
     core::{self, Mat, Scalar},
     prelude::*,
     video::{self as cv_video, ECCParametersTrait},
 };
 
+use crate::image_io::save_luma_png;
 use crate::{
     geometry::{Point, Quad},
     model::{Mat3, MotionSample, RectF},
@@ -23,6 +24,7 @@ use crate::{
 };
 
 use super::tracking;
+use crate::stats::{evenly_spaced, median};
 
 pub struct ExtractionResult {
     /// Robust canonical plaque observation used for diagnostics and structural locking.
@@ -866,17 +868,8 @@ fn registration_cost_with_buf(
     if errors.len() < points.len() / 3 {
         f64::INFINITY
     } else {
-        median_f64_slice(errors)
+        median(errors)
     }
-}
-
-fn median_f64_slice(values: &mut [f64]) -> f64 {
-    if values.is_empty() {
-        return f64::INFINITY;
-    }
-    let middle = values.len() / 2;
-    let (_, median, _) = values.select_nth_unstable_by(middle, f64::total_cmp);
-    *median
 }
 
 fn luma_mat(data: &[u8], width: usize, height: usize) -> Result<Mat> {
@@ -1004,15 +997,6 @@ fn peak(values: &[f64], start: usize, end: usize) -> Option<usize> {
     (start..end).max_by(|&a, &b| values[a].total_cmp(&values[b]))
 }
 
-fn evenly_spaced(frames: usize, count: usize) -> Vec<usize> {
-    if count <= 1 {
-        return vec![0];
-    }
-    (0..count)
-        .map(|index| index * (frames - 1) / (count - 1))
-        .collect()
-}
-
 fn cavity_area_score(area: f64) -> f64 {
     (1.0 - ((area - 0.56).abs() / 0.56)).clamp(0.0, 1.0)
 }
@@ -1033,15 +1017,6 @@ fn save_surface_png(surface: &Surface, path: &Path) -> Result<()> {
     image
         .save(path)
         .with_context(|| format!("failed to save RGBA image {}", path.display()))?;
-    Ok(())
-}
-
-fn save_luma_png(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
-    let image: GrayImage = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, data.to_vec())
-        .context("invalid luma surface")?;
-    image
-        .save(path)
-        .with_context(|| format!("failed to save grayscale image {}", path.display()))?;
     Ok(())
 }
 

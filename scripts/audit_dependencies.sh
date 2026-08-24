@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/common.sh"
+cd "$PF_ROOT"
 
 if ! command -v cargo-audit >/dev/null 2>&1; then
   printf '%s\n' \

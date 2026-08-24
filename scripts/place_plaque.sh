@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+ROOT="$PF_ROOT"
 
 usage() {
   cat <<'USAGE'
@@ -37,7 +38,7 @@ input="$ROOT/assets/$name.mp4"
 [[ -f "$image" ]] || { printf 'plaque PNG not found: %s\n' "$image" >&2; exit 1; }
 
 cd "$ROOT"
-cargo build --release --quiet
+pf_build_release
 exec target/release/plaque-forge place-plaque \
   --input "$input" \
   --image "$image" \

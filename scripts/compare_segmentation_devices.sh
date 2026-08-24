@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+root="$PF_ROOT"
 device_a="cpu"
 device_b="xpu"
 profile="canonical"
@@ -49,7 +50,7 @@ scene="$root/assets/scenes/$asset/scene.toml"
 [[ -x "$root/tools/segmentation-worker" ]] || { printf 'segmentation runtime missing\n' >&2; exit 1; }
 
 cd "$root"
-cargo build --release --quiet
+pf_build_release
 run_root="/tmp/plaque-forge/segmentation-drift/$asset/$layer"
 rm -rf -- "$run_root"
 mkdir -p "$run_root"

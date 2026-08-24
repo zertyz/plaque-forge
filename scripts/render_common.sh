@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 # Shared option parsing for the high-level rendering and validation commands.
 
-PF_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-pf_die() {
-  printf 'error: %s\n' "$*" >&2
-  exit 2
-}
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 pf_font_match() {
   local family="$1"
@@ -19,17 +14,6 @@ pf_append_env_option() {
   if [[ -n "$value" ]]; then
     PF_RENDER_OPTIONS+=("$flag" "$value")
   fi
-}
-
-pf_all_cases() {
-  local input
-  PF_CASES=()
-  shopt -s nullglob
-  for input in "$PF_ROOT"/assets/*.mp4; do
-    PF_CASES+=("$(basename "$input" .mp4)")
-  done
-  shopt -u nullglob
-  (( ${#PF_CASES[@]} > 0 )) || pf_die "no input videos found in $PF_ROOT/assets"
 }
 
 pf_configure_render() {
@@ -140,6 +124,6 @@ pf_configure_render() {
   if (( ${#cases[@]} )); then
     PF_CASES=("${cases[@]}")
   else
-    pf_all_cases
+    pf_asset_cases
   fi
 }

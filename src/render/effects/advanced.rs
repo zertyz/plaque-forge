@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 
+use super::filters::dilate_alpha_circular;
 use crate::{color::Rgba, surface::Surface};
 
 pub(super) fn arc_warp(source: &Surface, sweep_degrees: f32, radius_scale: f32) -> Surface {
@@ -302,7 +303,7 @@ pub(super) fn laser_burn_overlay(
     validate_mask(plaque, glyph_mask)?;
     let w = plaque.width() as usize;
     let h = plaque.height() as usize;
-    let expanded = dilate(glyph_mask, w, h, edge_width.max(1) as usize);
+    let expanded = dilate_alpha_circular(glyph_mask, w, h, edge_width.max(1) as usize);
     let mut out = Surface::new(plaque.width(), plaque.height());
     for y in 0..h {
         for x in 0..w {
@@ -446,34 +447,6 @@ fn validate_mask(surface: &Surface, mask: &[u8]) -> Result<()> {
         bail!("surface-effect mask dimensions do not match plaque canvas");
     }
     Ok(())
-}
-
-fn dilate(source: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
-    if radius == 0 {
-        return source.to_vec();
-    }
-    let mut out = vec![0u8; source.len()];
-    for y in 0..height {
-        for x in 0..width {
-            let mut m = 0u8;
-            for oy in -(radius as i32)..=radius as i32 {
-                for ox in -(radius as i32)..=radius as i32 {
-                    if ox * ox + oy * oy > (radius * radius) as i32 {
-                        continue;
-                    }
-                    m = m.max(sample_mask(
-                        source,
-                        width,
-                        height,
-                        x as i32 + ox,
-                        y as i32 + oy,
-                    ));
-                }
-            }
-            out[y * width + x] = m;
-        }
-    }
-    out
 }
 
 fn sample_mask(source: &[u8], width: usize, height: usize, x: i32, y: i32) -> u8 {

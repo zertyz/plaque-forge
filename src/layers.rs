@@ -6,7 +6,6 @@
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
-use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     analysis::{Analysis, CONTENT_MASK_FILE, LAYERS_DIR, LayerAsset, sequence_path},
@@ -200,7 +199,7 @@ pub fn build_tracking_exclusions(
                 exclude_outside_surface_support(&mut combined, &support);
             }
         }
-        save_mask(
+        crate::image_io::save_luma_png(
             width,
             height,
             &combined,
@@ -350,7 +349,7 @@ pub fn package(
         packed.push(layer);
     }
     if !inputs.is_empty() {
-        save_mask(
+        crate::image_io::save_luma_png(
             canonical_width,
             canonical_height,
             content_mask,
@@ -713,14 +712,6 @@ pub(crate) fn apply_matte_policy(mask: &mut [u8], matte: LayerMatte) {
             (smooth * 255.0).round() as u8
         };
     }
-}
-
-fn save_mask(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
-    let image: GrayImage = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, data.to_vec())
-        .context("invalid layer mask")?;
-    image
-        .save(path)
-        .with_context(|| format!("failed to save layer mask {}", path.display()))
 }
 
 fn max_union(output: &mut [u8], input: &[u8]) {

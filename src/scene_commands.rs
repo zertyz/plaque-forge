@@ -118,7 +118,7 @@ pub fn place_surface(args: PlaceSurfaceArgs) -> Result<()> {
         );
     }
 
-    let info = video::probe(&args.ffprobe, &args.input)
+    let info = video::probe(&args.tools.ffprobe, &args.input)
         .with_context(|| format!("failed to probe input video {}", args.input.display()))?;
     info.ensure_supported_compositing_color()?;
     if !info.constant_frame_rate {
@@ -129,7 +129,7 @@ pub fn place_surface(args: PlaceSurfaceArgs) -> Result<()> {
         .with_context(|| format!("failed to decode plaque image {}", args.image.display()))?
         .to_rgba8();
     let bounds = if args.bounds.is_empty() {
-        let samples = placement_samples(&args.ffmpeg, &args.input, &info)?;
+        let samples = placement_samples(&args.tools.ffmpeg, &args.input, &info)?;
         let proposal = propose_quiet_placement(
             &samples,
             info.width,
@@ -223,7 +223,7 @@ pub fn place_surface(args: PlaceSurfaceArgs) -> Result<()> {
     let staged_preview = if let Some(preview) = &preview {
         let staged_preview = staged.path().join("placement-preview.png");
         write_placement_preview(
-            &args.ffmpeg,
+            &args.tools.ffmpeg,
             &args.input,
             &info,
             &staged_image,

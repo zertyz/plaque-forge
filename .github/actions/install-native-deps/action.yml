@@ -1,0 +1,20 @@
+name: Install native dependencies
+description: >-
+  Install the Arch Linux packages Plaque Forge needs inside a CI container and
+  mark the workspace safe for git operations.
+inputs:
+  packages:
+    description: Pacman package list (one or more lines) passed to --needed.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install native dependencies
+      shell: bash
+      run: |
+        pacman -Syu --noconfirm --needed \
+          ${{ inputs.packages }}
+
+    - name: Mark the workspace as a safe directory
+      shell: bash
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
