@@ -34,7 +34,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: archlinux:latest
-    timeout-minutes: 40
+    # check.sh plus the bundled-media checks below, which include one
+    # legitimate pure-Rust analysis rebuild and one render.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -43,9 +45,14 @@ jobs:
       - name: Install native dependencies
         run: |
           pacman -Syu --noconfirm --needed \
+            binutils \
             clang \
+            coreutils \
+            diffutils \
             ffmpeg \
             fontconfig \
+            grep \
+            lld \
             noto-fonts \
             opencv \
             pkgconf \
@@ -53,11 +60,76 @@ jobs:
             python-numpy \
             python-pillow \
             git \
-            rust
+            rust \
+            sed
           git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
 
       - name: Run deterministic code gate
         run: ./scripts/check.sh
+
+      # check.sh builds every target with --all-features, so the debug binary
+      # already carries embedded media; the checks below reuse it instead of
+      # recompiling the whole dependency graph on a separate runner.
+      - name: Exercise embedded listings against repository truth
+        run: |
+          binary=target/debug/plaque-forge
+          # Every style program is listed, and nothing else.
+          diff <(ls styles/*.toml | sed -e 's|styles/||' -e 's|\.toml$||' | sort) \
+               <($binary list styles | sed 's/^  //' | sort)
+          # Curated fonts lead, marked, in curated_fonts order.
+          test "$(head -n 1 < <($binary list fonts))" = "  *NotoSerif-Regular"
+          # Plaque metadata comes straight from the catalog.
+          test "$($binary list plaques | wc -l)" -eq "$(grep -c '^\[\[plaques\]\]' assets/plaques/catalog.toml)"
+
+      - name: Prove a bundled workflow materializes and consumes its media
+        env:
+          PLAQUE_FORGE_BUNDLE_CACHE: ${{ runner.temp }}/bundle-cache
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          binary=target/debug/plaque-forge
+
+          # The analysis cache arrives from inside the binary, so --if-needed
+          # must succeed purely on materialized data plus installed tools.
+          # One pure-Rust rebuild is expected here: the committed caches carry
+          # ML-worker provenance, and this workerless environment resolves a
+          # segmentation config of none, which legitimately reads as stale.
+          $binary analyze \
+            --input assets/moving-holographic-plaque.mp4 \
+            --source-is-text-free --if-needed
+
+          # Extraction lives under a per-bundle-identity directory; locate the
+          # manifest through the mirror layout instead of hardcoding it.
+          manifests=("$PLAQUE_FORGE_BUNDLE_CACHE"/*/assets/analysis/moving-holographic-plaque/manifest.toml)
+          if (( ${#manifests[@]} != 1 )); then
+            printf 'expected exactly one materialized analysis manifest, found %d\n' "${#manifests[@]}" >&2
+            exit 1
+          fi
+
+          # The persisted mirror must satisfy the next --if-needed invocation
+          # without any recomputation.
+          second=$($binary analyze \
+            --input assets/moving-holographic-plaque.mp4 \
+            --source-is-text-free --if-needed 2>&1)
+          if grep -q 'stale' <<<"$second"; then
+            printf 'second --if-needed run rebuilt anyway:\n%s\n' "$second" >&2
+            exit 1
+          fi
+
+          # Style programs reference textures relative to their own file inside
+          # the mirror; rendering one proves textures materialize with them.
+          $binary render \
+            --input assets/moving-holographic-plaque.mp4 \
+            --font fonts/NotoSerif-Regular.ttf \
+            --style-file styles/texture-mapped.toml \
+            --text 'bundled gate' \
+            --output "$PLAQUE_FORGE_BUNDLE_CACHE/gate-render.mkv" \
+            --progress never
+          textures=("$PLAQUE_FORGE_BUNDLE_CACHE"/*/assets/textures/gilded-marble.png)
+          if (( ${#textures[@]} != 1 )); then
+            printf 'expected the materialized style texture, found %d\n' "${#textures[@]}" >&2
+            exit 1
+          fi
 
   dependency-audit:
     runs-on: ubuntu-24.04

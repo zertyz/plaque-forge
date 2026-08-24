@@ -143,20 +143,24 @@ To remove obsolete pre-0.8 partial directories and completed worker request file
 
 Generated manifests use only portable relative paths. Incompatible caches are rejected and must be regenerated; they are never silently relabelled.
 
+## Self-contained builds
+
+Everything in this section is inert unless you opt in: `plaque-forge list` works from repository directories, and no media is compiled into the binary by default. With `--features bundle-media`, the source videos, analysis caches, scenes, styles, plaques, textures, and the curated fonts are linked into a single self-sufficient binary (system fonts stay external). See [Bundled media](docs/BUNDLING.md) for what is embedded, the curated font format, build cost, and limitations.
+
 ## Repository map
 
 ```text
 src/                         Rust implementation (`application` is the programmatic API and service boundary)
 scripts/                     high-level setup/analyze/render/review operations
 tools/                       optional external-tool adapters
-styles/                      reusable typography/material/effect programs
+styles/                      reusable typography/material/effect programs + curated font list
 assets/*.mp4                 source videos
 assets/plaques/              reusable injected plaque images
 assets/scenes/<name>/        sparse human intent + small reviewed source masks
 assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
 assets/homologation/<name>/   reviewed regression contracts + sparse visual evidence
 output/                      rendered videos and quality-report index
-docs/                        architecture and advanced workflows
+docs/                        architecture and advanced workflows (bundling: docs/BUNDLING.md)
 ```
 
-The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md).
+The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md) · [Bundled media](docs/BUNDLING.md).

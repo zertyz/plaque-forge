@@ -384,3 +384,75 @@ pub fn homologation_coverage(
     }
     Ok(report)
 }
+
+/// Media kind selector for the inventory workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Videos,
+    Styles,
+    Plaques,
+    Textures,
+    Fonts,
+    All,
+}
+
+/// Request the media inventory from a catalog backend.
+#[derive(Debug, Clone, Copy)]
+pub struct ListRequest {
+    pub kind: MediaKind,
+}
+
+impl ListRequest {
+    /// List every media kind the build can name.
+    pub fn all() -> Self {
+        Self {
+            kind: MediaKind::All,
+        }
+    }
+}
+
+/// Serializable media inventory; sections stay empty when not requested.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct MediaInventory {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub videos: Vec<crate::media::VideoListing>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub styles: Vec<crate::media::StyleListing>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub plaques: Vec<crate::media::PlaqueListing>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub textures: Vec<crate::media::TextureListing>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fonts: Vec<crate::media::FontListing>,
+}
+
+impl MediaInventory {
+    fn with(kind: MediaKind, catalog: &dyn crate::media::MediaCatalog) -> Result<Self> {
+        let mut inventory = Self::default();
+        let wanted = |selected: MediaKind| matches!(kind, MediaKind::All) || kind == selected;
+        if wanted(MediaKind::Videos) {
+            inventory.videos = catalog.videos()?;
+        }
+        if wanted(MediaKind::Styles) {
+            inventory.styles = catalog.styles()?;
+        }
+        if wanted(MediaKind::Plaques) {
+            inventory.plaques = catalog.plaques()?;
+        }
+        if wanted(MediaKind::Textures) {
+            inventory.textures = catalog.textures()?;
+        }
+        if wanted(MediaKind::Fonts) {
+            inventory.fonts = catalog.fonts()?;
+        }
+        Ok(inventory)
+    }
+}
+
+/// List the media available to this build through the given catalog backend.
+pub fn list(
+    request: ListRequest,
+    catalog: &dyn crate::media::MediaCatalog,
+) -> Result<MediaInventory> {
+    MediaInventory::with(request.kind, catalog)
+}
