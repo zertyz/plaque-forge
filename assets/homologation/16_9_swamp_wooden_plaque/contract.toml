@@ -20,7 +20,7 @@ resolved_text = "Nós que aqui estamos,\npor vós esperamos!"
 
 [typography]
 lines = 2
-maximum_font_size = 40.0
+maximum_font_size = 44.0
 maximum_clipped_pixels = 0
 maximum_missing_glyphs = 0
 maximum_fallback_glyphs = 0

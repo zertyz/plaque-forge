@@ -1,4 +1,5 @@
 pub mod effects;
+mod font_system;
 pub mod typography;
 
 use std::{collections::HashMap, fs, path::Path};
@@ -879,14 +880,10 @@ mod tests {
 
     use std::{fs, path::Path};
 
-    use super::{effects, typography};
+    use super::{effects, font_system, typography};
     use crate::application::{FitMode, TextAlign, VerticalAlign};
 
-    fn pinned_test_font() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("fonts")
-            .join("NotoSerif-Regular.ttf")
-    }
+    use font_system::pinned_test_font;
 
     fn mask_correlation(actual: &[u8], expected: &[u8]) -> f64 {
         if actual.len() != expected.len() || actual.is_empty() {

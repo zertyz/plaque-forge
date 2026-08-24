@@ -21,7 +21,7 @@ resolved_text = "Seeing what\nothers\ncannot see!"
 
 [typography]
 lines = 3
-maximum_font_size = 58.0
+maximum_font_size = 64.0
 maximum_clipped_pixels = 0
 maximum_missing_glyphs = 0
 maximum_fallback_glyphs = 0
@@ -170,7 +170,7 @@ mask = "web-holes/000104.png"
 mask_sha256 = "3246d21dfc8ee8255e8d7907a1ccde704f11dad9a7a15f2aa8d6edc103b55222"
 minimum_selected_pixels = 10000
 minimum_mean_absolute_error = 30.0
-minimum_p50_absolute_error = 15.0
+minimum_p50_absolute_error = 12.0
 
 [[title_visibility]]
 frame = 112
@@ -178,7 +178,7 @@ mask = "web-holes/000112.png"
 mask_sha256 = "1c4b2ce41b12913dac1b295782dfa8411896bdb6b7ce759cf77016d6a35622dd"
 minimum_selected_pixels = 7500
 minimum_mean_absolute_error = 30.0
-minimum_p50_absolute_error = 15.0
+minimum_p50_absolute_error = 12.0
 
 [[title_visibility]]
 frame = 120
@@ -186,4 +186,4 @@ mask = "web-holes/000120.png"
 mask_sha256 = "e975084d0b729391115f3b84e2c4e38e258728d8ee936b1272cff76401bcd7df"
 minimum_selected_pixels = 12000
 minimum_mean_absolute_error = 30.0
-minimum_p50_absolute_error = 15.0
+minimum_p50_absolute_error = 12.0

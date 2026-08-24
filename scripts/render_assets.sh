@@ -11,7 +11,8 @@ Usage:
 
 Common options:
   --font PATH                 Font file.
-  --font-family PATTERN       Resolve a font with fontconfig, e.g. 'Noto Serif'.
+  --font-family PATTERN       Resolve a font with fontconfig instead of the
+                              bundled default (fonts/NotoSerif-Regular.ttf).
   --max-lines N               Maximum automatic line count.
   --padding RATIO             Inset from the writable region.
   --stroke-width RATIO        Outline width relative to font size.
