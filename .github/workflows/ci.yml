@@ -34,7 +34,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: archlinux:latest
-    timeout-minutes: 45
+    # check.sh plus the bundled-media checks below, which include one
+    # legitimate pure-Rust analysis rebuild and one render.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -83,13 +85,37 @@ jobs:
         env:
           PLAQUE_FORGE_BUNDLE_CACHE: ${{ runner.temp }}/bundle-cache
         run: |
+          set -euo pipefail
+          shopt -s nullglob
           binary=target/debug/plaque-forge
+
           # The analysis cache arrives from inside the binary, so --if-needed
           # must succeed purely on materialized data plus installed tools.
+          # One pure-Rust rebuild is expected here: the committed caches carry
+          # ML-worker provenance, and this workerless environment resolves a
+          # segmentation config of none, which legitimately reads as stale.
           $binary analyze \
             --input assets/moving-holographic-plaque.mp4 \
             --source-is-text-free --if-needed
-          test -f "$PLAQUE_FORGE_BUNDLE_CACHE/assets/analysis/moving-holographic-plaque/manifest.toml"
+
+          # Extraction lives under a per-bundle-identity directory; locate the
+          # manifest through the mirror layout instead of hardcoding it.
+          manifests=("$PLAQUE_FORGE_BUNDLE_CACHE"/*/assets/analysis/moving-holographic-plaque/manifest.toml)
+          if (( ${#manifests[@]} != 1 )); then
+            printf 'expected exactly one materialized analysis manifest, found %d\n' "${#manifests[@]}" >&2
+            exit 1
+          fi
+
+          # The persisted mirror must satisfy the next --if-needed invocation
+          # without any recomputation.
+          second=$($binary analyze \
+            --input assets/moving-holographic-plaque.mp4 \
+            --source-is-text-free --if-needed 2>&1)
+          if grep -q 'stale' <<<"$second"; then
+            printf 'second --if-needed run rebuilt anyway:\n%s\n' "$second" >&2
+            exit 1
+          fi
+
           # Style programs reference textures relative to their own file inside
           # the mirror; rendering one proves textures materialize with them.
           $binary render \
@@ -99,7 +125,11 @@ jobs:
             --text 'bundled gate' \
             --output "$PLAQUE_FORGE_BUNDLE_CACHE/gate-render.mkv" \
             --progress never
-          test -f "$PLAQUE_FORGE_BUNDLE_CACHE/assets/textures/gilded-marble.png"
+          textures=("$PLAQUE_FORGE_BUNDLE_CACHE"/*/assets/textures/gilded-marble.png)
+          if (( ${#textures[@]} != 1 )); then
+            printf 'expected the materialized style texture, found %d\n' "${#textures[@]}" >&2
+            exit 1
+          fi
 
   dependency-audit:
     runs-on: ubuntu-24.04
