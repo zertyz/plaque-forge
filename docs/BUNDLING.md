@@ -67,7 +67,9 @@ outside those roots pass through untouched. Write paths (renders, reports,
 diagnostics) stay wherever you point them. Derived locations follow the
 rewritten input, so scene intent, analysis caches, style textures, and any
 freshly regenerated analysis live inside the same mirror during a bundled
-session.
+session. Already-materialized files are never overwritten: workflow outputs
+such as rebuilt analysis caches take precedence over the embedded originals
+for the lifetime of one bundle identity.
 
 ## Build cost
 

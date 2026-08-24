@@ -279,21 +279,24 @@ impl Materializer {
         self.root.join(asset.path)
     }
 
-    /// Write `asset` unless an equally sized copy is already present.
+    /// Write `asset` unless the mirror already holds a copy.
     pub fn extract(&self, index: &EmbeddedIndex, asset: &EmbeddedAsset) -> Result<PathBuf> {
         self.write(asset.path, index.asset_bytes(asset))
     }
 
-    /// Write one bundle-relative file unless an equally sized copy exists.
+    /// Write one bundle-relative file unless the mirror already holds one.
+    ///
+    /// Existence wins over content: the mirror has two producers — bundle
+    /// extraction seeding it, and workflows writing regenerated outputs such
+    /// as rebuilt analysis caches. Once a file exists it belongs to whichever
+    /// producer wrote it last, so re-extraction must never clobber newer
+    /// workflow output with older embedded bytes (that would make every
+    /// `--if-needed` workflow rebuild forever). Writes stay atomic via a
+    /// temporary plus rename, so an existing file is always complete.
     pub fn write(&self, relative: &str, bytes: &[u8]) -> Result<PathBuf> {
         let destination = self.root.join(relative);
         if destination.is_file() {
-            let size = std::fs::metadata(&destination)
-                .with_context(|| format!("failed to stat {}", destination.display()))?
-                .len();
-            if size == bytes.len() as u64 {
-                return Ok(destination);
-            }
+            return Ok(destination);
         }
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent)

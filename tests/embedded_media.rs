@@ -198,6 +198,19 @@ fn materialization_mirrors_layout_and_is_idempotent() {
         std::fs::read(&second).unwrap().as_slice(),
         "re-extraction must not corrupt an already-present copy"
     );
+
+    // Workflow output wins over embedded originals: once a workflow rewrote a
+    // mirrored file (for example a rebuilt analysis cache), re-running a
+    // command must keep the newer bytes instead of restoring stale embedded
+    // ones and forcing endless recomputation.
+    let regenerated = b"regenerated-by-workflow";
+    std::fs::write(&first, regenerated).unwrap();
+    index.extract(&cache, asset).unwrap();
+    assert_eq!(
+        regenerated,
+        std::fs::read(&first).unwrap().as_slice(),
+        "extraction must not clobber newer workflow output in the mirror"
+    );
 }
 
 #[test]
