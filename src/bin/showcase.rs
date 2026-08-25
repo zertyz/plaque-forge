@@ -5,16 +5,15 @@
 //! `plaque_forge::showcase` modules; this binary owns decoding, scaling,
 //! OpenCV highgui plumbing, and key dispatch.
 
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use image::{ImageBuffer, RgbaImage, imageops::FilterType};
 use opencv::core::Point as CvPoint;
-use opencv::core::{Mat, Scalar, Vector};
-use opencv::imgcodecs::{IMREAD_COLOR, imdecode};
+use opencv::core::{CV_8UC4, Mat, Scalar, Vector};
+use opencv::imgcodecs::imencode;
 use opencv::imgproc::{FONT_HERSHEY_SIMPLEX, LINE_8, put_text, rectangle_points};
 use opencv::prelude::*;
 
@@ -29,15 +28,22 @@ use plaque_forge::render::compositor::{FrameCompositor, load_injected_surface};
 use plaque_forge::render::{effects, load_full_luma};
 use plaque_forge::scene::{LayerArtifactKind, LayerCoordinates};
 use plaque_forge::showcase::composer::{Direction as EditDirection, EditModel};
+use plaque_forge::showcase::driver::{Driver, Script};
 use plaque_forge::showcase::fonts::FontPicker;
 use plaque_forge::showcase::keys::{Key, normalize};
 use plaque_forge::showcase::quality::Tier;
 use plaque_forge::showcase::state::{DemoState, Mode};
 use plaque_forge::surface::Surface;
-use plaque_forge::video::{self, Decoder};
+use plaque_forge::video::{self, DecodeAhead};
 use plaque_forge::workspace;
 
 const WINDOW: &str = "plaque-forge-showcase";
+/// Set once from --headless so every drawer skips real display.
+static HEADLESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn headless() -> bool {
+    HEADLESS.load(std::sync::atomic::Ordering::Relaxed)
+}
 const DEFAULT_TEXT: &str = "Press ENTER to change this text";
 const YELLOW: Scalar = Scalar::new(0.0, 255.0, 255.0, 255.0);
 const WHITE: Scalar = Scalar::new(255.0, 255.0, 255.0, 255.0);
@@ -68,6 +74,18 @@ struct Args {
     #[arg(long)]
     smoke: Option<usize>,
 
+    /// Scripted UI driver (wait/press/text/shot/quit), for automated testing.
+    #[arg(long)]
+    driver: Option<PathBuf>,
+
+    /// Run without any window; pairs with --driver for headless UI tests.
+    #[arg(long)]
+    headless: bool,
+
+    /// Base-frame cache budget in MiB (0 disables caching).
+    #[arg(long, default_value_t = 800)]
+    cache_mib: usize,
+
     /// Typography fit policy: maximize | balanced | artistic | fixed.
     #[arg(long, default_value = "artistic")]
     fit: String,
@@ -96,7 +114,7 @@ struct Player {
     ffmpeg: PathBuf,
     input: PathBuf,
     info: video::VideoInfo,
-    decoder: Option<Decoder>,
+    decoder: Option<DecodeAhead>,
     index: usize,
     paused: bool,
     previous: Option<Surface>,
@@ -106,7 +124,7 @@ impl Player {
     fn spawn(ffmpeg: &Path, input: &Path) -> Result<Self> {
         let info = video::probe(Path::new("ffprobe"), input)?;
         info.ensure_supported_compositing_color()?;
-        let decoder = Some(Decoder::spawn_from(ffmpeg, input, &info, 0)?);
+        let decoder = Some(DecodeAhead::spawn(ffmpeg, input, &info, 0)?);
         Ok(Self {
             ffmpeg: ffmpeg.to_path_buf(),
             input: input.to_path_buf(),
@@ -119,9 +137,9 @@ impl Player {
     }
 
     fn respawn_at(&mut self, frame: usize) -> Result<()> {
-        self.decoder = Some(Decoder::spawn_from(
+        self.decoder = Some(DecodeAhead::spawn(
             &self.ffmpeg,
-            &self.input.clone(),
+            &self.input,
             &self.info,
             frame,
         )?);
@@ -182,8 +200,66 @@ struct Bake {
     stale: bool,
 }
 
+/// Content-addressed-by-generation cache of scaled BGRA frames.
+#[derive(Debug)]
+struct BaseCache {
+    generation: u64,
+    video_index: usize,
+    frames: Vec<Option<Vec<u8>>>,
+    width: u32,
+    height: u32,
+}
+
+impl BaseCache {
+    fn frame(&self, index: usize) -> Option<&Vec<u8>> {
+        self.frames.get(index).and_then(|slot| slot.as_ref())
+    }
+
+    fn fits(budget_bytes: usize, frames: usize, stride: usize) -> bool {
+        frames != 0 && frames.saturating_mul(stride) <= budget_bytes
+    }
+}
+
+/// Rolling per-stage nanos, printed at exit under PLAQUE_PROFILE=1.
+#[derive(Default)]
+struct StageTimes {
+    decode: u128,
+    composite: u128,
+    scale: u128,
+    present: u128,
+}
+
+impl StageTimes {
+    fn report(&self, frames: u64) {
+        if std::env::var("PLAQUE_PROFILE").is_err() || frames == 0 {
+            return;
+        }
+        let ms = |ns: u128| ns as f64 / 1e6 / frames as f64;
+        println!(
+            "profile: decode {:.1}ms | composite {:.1}ms | scale {:.1}ms | present {:.1}ms (avg/frame)",
+            ms(self.decode),
+            ms(self.composite),
+            ms(self.scale),
+            ms(self.present)
+        );
+    }
+}
+
 struct Session {
+    stages: StageTimes,
     fit: plaque_forge::application::FitMode,
+    display_width: u32,
+    headless: bool,
+    driver: Option<Driver>,
+    cache_mib: usize,
+    cache: Option<BaseCache>,
+    cache_generation: u64,
+    fps_ema: f64,
+    frames_shown: u64,
+    playback_started: Option<Instant>,
+    last_present: Option<Instant>,
+    welcome_until: Instant,
+    help_visible: bool,
     videos: Vec<Asset>,
     style_names: Vec<String>,
     font_choices: Vec<(String, bool)>,
@@ -201,10 +277,38 @@ struct Session {
     mode: Mode,
     saved_picks: (usize, usize),
     pending_save: Option<String>,
+    pending_screenshot: Option<String>,
     toast: String,
 }
 
 impl Session {
+    fn cache_active(&self) -> bool {
+        self.cache
+            .as_ref()
+            .is_some_and(|cache| cache.video_index == self.video_index && !cache.frames.is_empty())
+    }
+
+    /// Pure-index move while the cache serves frames (decoder stays parked).
+    fn move_index(&mut self, delta: i64) {
+        let last = self
+            .cache
+            .as_ref()
+            .map_or(0, |cache| cache.frames.len().saturating_sub(1));
+        self.player.paused = true;
+        self.player.index = ((self.player.index as i64 + delta).clamp(0, last as i64)) as usize;
+    }
+
+    fn move_to(&mut self, index: usize) {
+        self.player.paused = true;
+        self.player.decoder = None;
+        self.player.index = index.min(
+            self.cache
+                .as_ref()
+                .map_or(self.player.info.frames, |cache| cache.frames.len())
+                .saturating_sub(1),
+        );
+    }
+
     fn asset(&self) -> &Asset {
         &self.videos[self.video_index]
     }
@@ -255,6 +359,7 @@ impl Session {
         let compositor =
             FrameCompositor::open(plaque_forge::render::compositor::CompositorSetup {
                 pack,
+                preview_warp: self.tier == Tier::Fast,
                 mask,
                 injected_surface,
                 style,
@@ -272,7 +377,33 @@ impl Session {
             })?;
         self.layer_toggles = vec![true; compositor.pack().manifest.layers.len()];
         self.bake = Some(Bake { compositor, stale });
+        self.rebuild_cache();
         Ok(())
+    }
+
+    /// (Re)build the base-frame cache sized against the current asset.
+    fn rebuild_cache(&mut self) {
+        self.cache_generation = self.cache_generation.wrapping_add(1);
+        let generation = self.cache_generation;
+        let video_index = self.video_index;
+        let (width, height) = scaled_dims(
+            self.player.info.width,
+            self.player.info.height,
+            self.display_width,
+        );
+        let stride = width as usize * height as usize * 4;
+        let budget_mib = std::env::var("PLAQUE_SHOWCASE_CACHE_MB")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(self.cache_mib);
+        let budget = budget_mib.saturating_mul(1024 * 1024);
+        self.cache = BaseCache::fits(budget, self.player.info.frames, stride).then(|| BaseCache {
+            generation,
+            video_index,
+            frames: vec![None; self.player.info.frames],
+            width,
+            height,
+        });
     }
 
     fn cycle_video(&mut self, delta: i32) -> Result<()> {
@@ -305,6 +436,10 @@ fn run(args: Args) -> Result<()> {
         .canonicalize()
         .unwrap_or_else(|_| args.root.clone());
     std::env::set_current_dir(&root).ok();
+    let driver = match &args.driver {
+        Some(path) => Some(Driver::new(Script::load(path)?)),
+        None => None,
+    };
     let catalog = FilesystemCatalog::production()?;
     let videos: Vec<Asset> = catalog
         .videos()?
@@ -383,11 +518,24 @@ fn run(args: Args) -> Result<()> {
             .iter()
             .position(|candidate| candidate == name)
             .with_context(|| format!("style preset not found: {name}"))?,
-        None => 0,
+        None => default_style_index(&style_names),
     };
 
     let session = Session {
+        stages: StageTimes::default(),
         fit: parse_fit(&args.fit),
+        display_width: args.width,
+        headless: args.headless,
+        driver,
+        cache_mib: args.cache_mib,
+        cache: None,
+        cache_generation: 0,
+        fps_ema: 0.0,
+        frames_shown: 0,
+        playback_started: None,
+        last_present: None,
+        welcome_until: Instant::now() + std::time::Duration::from_secs(6),
+        help_visible: false,
         player: Player::spawn(
             Path::new("ffmpeg"),
             Path::new(&format!("assets/{}.mp4", videos[0].stem)),
@@ -408,9 +556,19 @@ fn run(args: Args) -> Result<()> {
         mode: Mode::Viewing,
         saved_picks: (font_index, style_index),
         pending_save: None,
+        pending_screenshot: None,
         toast: String::new(),
     };
-    run_session(session, args.width, args.smoke)
+    run_session(session, args.smoke)
+}
+
+/// Sensible first impression: a calm preset, never the arc-heavy opener.
+fn default_style_index(style_names: &[String]) -> usize {
+    style_names
+        .iter()
+        .position(|name| name == "classic-glow")
+        .or_else(|| style_names.iter().position(|name| name != "art-deco-arc"))
+        .unwrap_or(0)
 }
 
 fn parse_fit(name: &str) -> plaque_forge::application::FitMode {
@@ -422,7 +580,7 @@ fn parse_fit(name: &str) -> plaque_forge::application::FitMode {
     }
 }
 
-fn run_session(mut session: Session, display_width: u32, smoke: Option<usize>) -> Result<()> {
+fn run_session(mut session: Session, smoke: Option<usize>) -> Result<()> {
     if smoke.is_some() {
         // Bounded self-check: the artistic fit search is far too heavy to be
         // a quick gate on constrained machines.
@@ -433,10 +591,15 @@ fn run_session(mut session: Session, display_width: u32, smoke: Option<usize>) -
     if let Some(frames) = smoke {
         return smoke_run(&mut session, frames);
     }
-    opencv::highgui::named_window(WINDOW, opencv::highgui::WINDOW_AUTOSIZE)
-        .context("failed to create showcase window")?;
-    let result = event_loop(&mut session, display_width);
-    let _ = opencv::highgui::destroy_all_windows();
+    HEADLESS.store(session.headless, std::sync::atomic::Ordering::Relaxed);
+    if !headless() {
+        opencv::highgui::named_window(WINDOW, opencv::highgui::WINDOW_AUTOSIZE)
+            .context("failed to create showcase window")?;
+    }
+    let result = event_loop(&mut session);
+    if !headless() {
+        let _ = opencv::highgui::destroy_all_windows();
+    }
     result
 }
 
@@ -458,57 +621,241 @@ fn smoke_run(session: &mut Session, frames: usize) -> Result<()> {
     Ok(())
 }
 
-fn event_loop(session: &mut Session, display_width: u32) -> Result<()> {
+/// Destination display dimensions preserving aspect.
+fn scaled_dims(source_w: u32, source_h: u32, display_width: u32) -> (u32, u32) {
+    if source_w == 0 || source_h == 0 {
+        return (display_width.max(1), display_width.max(1));
+    }
+    let width = display_width.max(16).min(source_w);
+    let height = ((width as f64 / source_w as f64) * source_h as f64)
+        .round()
+        .max(1.0) as u32;
+    (width, height)
+}
+
+unsafe fn mat_view_rgba(bytes: &mut [u8], width: u32, height: u32) -> Mat {
+    unsafe {
+        Mat::new_rows_cols_with_data_unsafe_def(
+            height as i32,
+            width as i32,
+            CV_8UC4,
+            bytes.as_mut_ptr() as *mut core::ffi::c_void,
+        )
+        .expect("mat view over contiguous rgba buffer")
+    }
+}
+
+unsafe fn mat_view_bgra(bytes: &[u8], width: u32, height: u32) -> Mat {
+    unsafe {
+        Mat::new_rows_cols_with_data_unsafe_def(
+            height as i32,
+            width as i32,
+            CV_8UC4,
+            bytes.as_ptr() as *mut core::ffi::c_void,
+        )
+        .expect("mat view over contiguous bgra buffer")
+    }
+}
+
+fn mat_to_vec(mat: &Mat) -> Result<Vec<u8>> {
+    Ok(mat.data_bytes()?.to_vec())
+}
+
+/// RGBA surface -> owned BGRA buffer at display scale (OpenCV convert+resize).
+fn scaled_bgra(frame: Surface, display_width: u32) -> Result<(Vec<u8>, u32, u32)> {
+    let width = frame.width();
+    let height = frame.height();
+    let mut pixels = frame.into_pixels();
+    let (dst_w, dst_h) = scaled_dims(width, height, display_width);
+    unsafe {
+        let view = mat_view_rgba(&mut pixels, width, height);
+        // Downscale first so the channel conversion touches fewer pixels.
+        let mut resized = Mat::default();
+        opencv::imgproc::resize(
+            &view,
+            &mut resized,
+            opencv::core::Size_::new(dst_w as i32, dst_h as i32),
+            0.0,
+            0.0,
+            opencv::imgproc::INTER_LINEAR,
+        )?;
+        let mut converted = Mat::default();
+        opencv::imgproc::cvt_color_def(&resized, &mut converted, opencv::imgproc::COLOR_RGBA2BGRA)?;
+        Ok((mat_to_vec(&converted)?, dst_w, dst_h))
+    }
+}
+
+fn event_loop(session: &mut Session) -> Result<()> {
     loop {
-        let decoded = if !session.player.paused {
-            session.player.advance()?
-        } else {
-            None
-        };
-        if decoded.is_none() && !session.player.paused {
-            // End of stream: advance to the next asset (demo re-rolls picks).
-            let demo = matches!(session.mode, Mode::Demo(_));
-            session.cycle_video(1)?;
-            if demo {
-                start_demo(session)?;
-                continue;
+        let iteration_start = Instant::now();
+
+        // Scripted presses land before rendering so their effect is visible
+        // in the very same frame.
+        let mut injected: Option<Key> = None;
+        if let Some(driver) = session.driver.as_mut() {
+            injected = driver.poll();
+            if driver.finished() {
+                session.pending_screenshot = driver.pending_shot();
+                report_fps(session);
+                return Ok(());
             }
-            continue;
         }
-        let shown = decoded.clone().or_else(|| session.player.previous.clone());
-        let Some(source) = shown else { continue };
 
-        let frame_index = session
-            .player
-            .index
-            .saturating_sub(1)
-            .min(source_frame_budget(session));
-        let mut prepared = source;
-        if let Some(bake) = session.bake.as_mut() {
-            bake.compositor.composite(&mut prepared, frame_index)?;
-        }
-        if session.inspect {
-            draw_inspect_overlays(session, &mut prepared, frame_index)?;
-        }
-        present(session, prepared, display_width)?;
-
-        let typing = matches!(session.mode, Mode::EnteringText(_) | Mode::SavingName(_));
-        let delay_ms = if session.player.paused
-            || typing
-            || matches!(session.mode, Mode::PickingFont(_) | Mode::Composing(_))
-        {
-            30
+        // Cache hit: no decode, no composite — pure presentation.
+        let cached = if session.inspect {
+            None
         } else {
-            (1000.0 / session.player.info.fps.max(1.0)).clamp(15.0, 60.0) as i32
+            session.cache.as_ref().and_then(|cache| {
+                if cache.video_index != session.video_index {
+                    return None;
+                }
+                cache.frame(session.player.index).cloned()
+            })
         };
-        let raw = opencv::highgui::wait_key(delay_ms)?;
-        if raw < 0 {
-            continue;
-        }
-        if dispatch_key(session, normalize(raw))? {
+
+        let (bytes, width, height) = if let Some(bytes) = cached {
+            (bytes, cache_width(session), cache_height(session))
+        } else {
+            match session.player.advance() {
+                Ok(Some(frame)) => {
+                    let decode_stage = Instant::now();
+                    let frame_index = session.player.index.saturating_sub(1);
+                    let mut prepared = frame;
+                    session.stages.decode += decode_stage.elapsed().as_nanos();
+                    if let Some(bake) = session.bake.as_mut() {
+                        let clamped =
+                            frame_index.min(bake.compositor.pack().motion.len().saturating_sub(1));
+                        let composite_stage = Instant::now();
+                        bake.compositor.composite(&mut prepared, clamped)?;
+                        session.stages.composite += composite_stage.elapsed().as_nanos();
+                    }
+                    if session.inspect {
+                        draw_inspect_overlays(session, &mut prepared, clamped_index(session))?;
+                    }
+                    let scale_stage = Instant::now();
+                    let (bytes, w, h) = scaled_bgra(prepared, session.display_width)?;
+                    session.stages.scale += scale_stage.elapsed().as_nanos();
+                    store_in_cache(session, frame_index, &bytes);
+                    (bytes, w, h)
+                }
+                Ok(None) => {
+                    // End of stream: next asset; demo re-rolls its picks.
+                    let demo = matches!(session.mode, Mode::Demo(_));
+                    session.cycle_video(1)?;
+                    if demo {
+                        start_demo(session)?;
+                    }
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        };
+
+        let present_stage = Instant::now();
+        show_frame(session, &bytes, width, height)?;
+        session.stages.present += present_stage.elapsed().as_nanos();
+        update_fps(session, iteration_start);
+
+        // Pacing + input acquisition.
+        let typing = matches!(session.mode, Mode::EnteringText(_) | Mode::SavingName(_));
+        let modal = typing
+            || matches!(session.mode, Mode::PickingFont(_) | Mode::Composing(_))
+            || session.player.paused
+            || session.driver.is_some();
+        let delay_ms = if modal {
+            16
+        } else {
+            (1000.0 / session.player.info.fps.max(1.0)).clamp(8.0, 40.0) as i32
+        };
+
+        let key = if let Some(key) = injected {
+            Some(key)
+        } else if session.driver.is_some() || session.headless {
+            // The driver is polled exactly once per iteration (top of loop);
+            // idle here so wait deadlines still elapse.
+            std::thread::sleep(std::time::Duration::from_millis(4));
+            None
+        } else if session.headless {
+            std::thread::sleep(std::time::Duration::from_millis(8));
+            None
+        } else {
+            let raw = opencv::highgui::wait_key(delay_ms)?;
+            (raw >= 0).then(|| normalize(raw))
+        };
+
+        if let Some(key) = key
+            && dispatch_key(session, key)?
+        {
+            report_fps(session);
             return Ok(());
         }
     }
+}
+
+fn clamped_index(session: &Session) -> usize {
+    session
+        .player
+        .index
+        .saturating_sub(1)
+        .min(source_frame_budget(session))
+}
+
+fn cache_width(session: &Session) -> u32 {
+    session
+        .cache
+        .as_ref()
+        .map(|cache| cache.width)
+        .unwrap_or(session.display_width)
+}
+
+fn cache_height(session: &Session) -> u32 {
+    session
+        .cache
+        .as_ref()
+        .map(|cache| cache.height)
+        .unwrap_or(1)
+}
+
+fn store_in_cache(session: &mut Session, index: usize, bytes: &[u8]) {
+    let generation = session.cache_generation;
+    let video_index = session.video_index;
+    if let Some(cache) = session.cache.as_mut()
+        && cache.generation == generation
+        && cache.video_index == video_index
+        && let Some(slot) = cache.frames.get_mut(index)
+    {
+        *slot = Some(bytes.to_vec());
+    }
+}
+
+fn update_fps(session: &mut Session, started: Instant) {
+    if session.playback_started.is_none() {
+        session.playback_started = Some(started);
+    }
+    let elapsed = started.elapsed().as_secs_f64().max(1.0 / 1000.0);
+    let instant_fps = 1.0 / elapsed;
+    session.fps_ema = if session.frames_shown == 0 {
+        instant_fps
+    } else {
+        session.fps_ema * 0.9 + instant_fps * 0.1
+    };
+    session.frames_shown += 1;
+    session.last_present = Some(started);
+}
+
+fn report_fps(session: &Session) {
+    let overall = session
+        .playback_started
+        .map(|started| {
+            let secs = started.elapsed().as_secs_f64().max(1e-3);
+            session.frames_shown as f64 / secs
+        })
+        .unwrap_or(0.0);
+    println!(
+        "showcase: displayed {} frames, responsive {:.1} fps, overall {:.1} fps",
+        session.frames_shown, session.fps_ema, overall
+    );
+    session.stages.report(session.frames_shown);
 }
 
 fn source_frame_budget(session: &Session) -> usize {
@@ -644,22 +991,43 @@ fn dispatch_key(session: &mut Session, key: Key) -> Result<bool> {
         }
         Key::Char(' ') => session.player.paused = !session.player.paused,
         Key::Home => {
-            session.player.restart()?;
+            if session.cache_active() {
+                session.move_to(0);
+            } else {
+                session.player.restart()?;
+            }
         }
         Key::Left => {
             let step = (session.player.info.fps.round() as i64 * 5).max(1);
-            session.player.seek_by(-step)?;
+            if session.cache_active() {
+                session.move_index(-step);
+            } else {
+                session.player.seek_by(-step)?;
+            }
         }
         Key::Right => {
             let step = (session.player.info.fps.round() as i64 * 5).max(1);
-            session.player.seek_by(step)?;
+            if session.cache_active() {
+                session.move_index(step);
+            } else {
+                session.player.seek_by(step)?;
+            }
         }
         Key::Char(',') => {
-            session.player.step_back();
+            if session.cache_active() {
+                session.move_index(-1);
+            } else {
+                session.player.step_back();
+            }
         }
         Key::Char('.') => {
-            session.player.step_forward()?;
+            if session.cache_active() {
+                session.move_index(1);
+            } else {
+                session.player.step_forward()?;
+            }
         }
+        Key::Char('?') => session.help_visible = !session.help_visible,
         _ => {}
     }
     Ok(false)
@@ -905,156 +1273,283 @@ fn draw_quad(surface: &mut Surface, quad: plaque_forge::geometry::Quad, color: S
     }
 }
 
-fn hud_lines(session: &Session) -> Vec<String> {
-    let mut top = vec![format!(
-        "[{}] {} ({}/{})  font: {}{}",
-        session.tier.label(),
+/// Draw every overlay onto one displayed frame and show/screenshot it.
+fn show_frame(session: &mut Session, bytes: &[u8], width: u32, height: u32) -> Result<()> {
+    let owned = bytes.to_vec();
+    let view = unsafe { mat_view_bgra(&owned, width, height) };
+    let mut shadowed = view.clone();
+
+    draw_hud_bottom(session, &mut shadowed)?;
+    if !session.inspect
+        && Instant::now() < session.welcome_until
+        && matches!(session.mode, Mode::Viewing)
+    {
+        draw_help_card(&mut shadowed, true);
+    }
+    if session.help_visible {
+        draw_help_card(&mut shadowed, false);
+    }
+    match &session.mode {
+        Mode::EnteringText(buffer) => draw_entry_echo(&mut shadowed, "new title", buffer),
+        Mode::SavingName(buffer) => draw_entry_echo(&mut shadowed, "save as", buffer),
+        Mode::PickingFont(picker) => draw_font_popup(&mut shadowed, picker),
+        Mode::Composing(model) => draw_composer_panel(&mut shadowed, model),
+        _ => {}
+    }
+
+    // Screenshot requests from the driver capture the final composited UI.
+    let shot = session
+        .driver
+        .as_mut()
+        .and_then(Driver::pending_shot)
+        .or_else(|| session.pending_screenshot.take());
+    if let Some(path) = shot {
+        let mut png = Vector::<u8>::new();
+        imencode(".png", &shadowed, &mut png, &Vector::<i32>::new())
+            .with_context(|| format!("failed to encode screenshot {}", path))?;
+        std::fs::write(&path, png.to_vec())
+            .with_context(|| format!("failed to write screenshot {}", path))?;
+    }
+
+    if !headless() {
+        opencv::highgui::imshow(WINDOW, &shadowed)?;
+    }
+    Ok(())
+}
+
+const ZONE_LINE_HEIGHT: i32 = 20;
+
+/// Bottom tri-zone HUD: left status, center transient, right hints.
+fn draw_hud_bottom(session: &Session, mat: &mut Mat) -> Result<()> {
+    let rows = mat.rows();
+    let cols = mat.cols();
+    let scale = (cols as f64 / 1280.0).clamp(0.42, 0.8);
+    let baseline_y = rows - 12;
+    let strip_top = rows - ZONE_LINE_HEIGHT * 2 - 14;
+    rectangle_points(
+        mat,
+        CvPoint::new(0, strip_top),
+        CvPoint::new(cols, rows),
+        BLACK,
+        -1,
+        LINE_8,
+        0,
+    )?;
+
+    // Left: identity + quality.
+    let stale_note = if session.bake.is_none() {
+        "no analysis"
+    } else if session.bake.as_ref().is_some_and(|bake| bake.stale) {
+        "stale cache"
+    } else {
+        ""
+    };
+    let left1 = format!(
+        "{} {}/{}  [{}]",
         session.asset().stem,
         session.video_index + 1,
         session.videos.len(),
-        session
-            .font_choices
-            .get(session.font_index)
-            .map(|(l, _)| l.clone())
-            .unwrap_or_default(),
-        if session
-            .font_choices
-            .get(session.font_index)
-            .is_some_and(|(_, curated)| *curated)
-        {
-            "*"
-        } else {
-            ""
-        },
-    )];
-    top.push(format!(
-        "style: {}   PgUp/PgDn video · Up/Dn style · '/' fonts · Enter text · e edit · s save · d demo · i inspect · f tier · q quit",
-        session.style_names.get(session.style_index).cloned().unwrap_or_default(),
-    ));
-    let mut notes = Vec::new();
-    if session.bake.is_none() {
-        notes.push(session.bake_note.clone());
-    } else if session.bake.as_ref().is_some_and(|bake| bake.stale) {
-        notes.push("analysis cache is stale (render anyway)".into());
-    }
-    if !matches!(session.mode, Mode::Viewing) {
-        notes.push(format!("mode: {}", session.mode.label()));
-    }
-    if !session.toast.is_empty() {
-        notes.push(session.toast.clone());
-    }
-    if let Some(error) = match &session.mode {
-        Mode::Composing(model) => model.error().map(str::to_string),
-        _ => None,
-    } {
-        notes.push(error);
-    }
-    top.extend(notes.into_iter().take(2));
-    top
-}
+        session.tier.label()
+    );
+    let left2 = if stale_note.is_empty() {
+        format!(
+            "style {} · font {}",
+            session
+                .style_names
+                .get(session.style_index)
+                .cloned()
+                .unwrap_or_default(),
+            session
+                .font_choices
+                .get(session.font_index)
+                .map(|(l, _)| l.clone())
+                .unwrap_or_default(),
+        )
+    } else {
+        stale_note.to_string()
+    };
+    put_text(
+        mat,
+        &left1,
+        CvPoint::new(10, baseline_y - ZONE_LINE_HEIGHT),
+        FONT_HERSHEY_SIMPLEX,
+        scale,
+        WHITE,
+        1,
+        LINE_8,
+        false,
+    )?;
+    put_text(
+        mat,
+        &left2,
+        CvPoint::new(10, baseline_y),
+        FONT_HERSHEY_SIMPLEX,
+        scale,
+        WHITE,
+        1,
+        LINE_8,
+        false,
+    )?;
 
-fn present(session: &mut Session, frame: Surface, display_width: u32) -> Result<()> {
-    let scale = display_width as f32 / frame.width().max(1) as f32;
-    let scaled_w = (frame.width() as f32 * scale).round().max(1.0) as u32;
-    let scaled_h = (frame.height() as f32 * scale).round().max(1.0) as u32;
-    let view: RgbaImage =
-        ImageBuffer::from_raw(frame.width(), frame.height(), frame.pixels().to_vec())
-            .context("frame buffer mismatch")?;
-    let scaled = image::imageops::resize(&view, scaled_w, scaled_h, FilterType::Triangle);
-
-    let mut png = Vec::with_capacity((scaled_w * scaled_h / 2) as usize);
-    image::DynamicImage::ImageRgba8(scaled)
-        .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)?;
-    let vector: Vector<u8> = png.into_iter().collect();
-    let mat = imdecode(&vector, IMREAD_COLOR)?;
-    anyhow::ensure!(!mat.empty(), "decoded preview frame is empty");
-
-    // HUD.
-    let mut shadowed = mat.clone();
-    let lines = hud_lines(session);
-    for (row, line) in lines.iter().enumerate() {
-        let org = CvPoint::new(10, 26 + row as i32 * 22);
+    // Center: transient state.
+    let center = match (&session.mode, &session.toast) {
+        (_, toast) if !toast.is_empty() => toast.clone(),
+        (Mode::Viewing, _) => String::new(),
+        (mode, _) => format!("mode: {}", mode.label()),
+    };
+    if !center.is_empty() {
+        let width_px = (center.len() as f64 * scale * 13.0) as i32;
         put_text(
-            &mut shadowed,
-            line,
-            org,
+            mat,
+            &center,
+            CvPoint::new((cols - width_px) / 2, baseline_y - ZONE_LINE_HEIGHT),
             FONT_HERSHEY_SIMPLEX,
-            0.55,
-            BLACK,
-            3,
-            LINE_8,
-            false,
-        )?;
-        put_text(
-            &mut shadowed,
-            line,
-            org,
-            FONT_HERSHEY_SIMPLEX,
-            0.55,
-            WHITE,
+            scale,
+            YELLOW,
             1,
             LINE_8,
             false,
         )?;
     }
-    // Popups drawn last so they sit above the HUD.
-    match &session.mode {
-        Mode::EnteringText(buffer) => draw_entry_bar(&shadowed, "new title:", buffer),
-        Mode::SavingName(buffer) => draw_entry_bar(&shadowed, "save as:", buffer),
-        Mode::PickingFont(picker) => draw_font_popup(&shadowed, picker),
-        Mode::Composing(model) => draw_composer_panel(&shadowed, model),
-        _ => {}
-    }
 
-    opencv::highgui::imshow(WINDOW, &shadowed)?;
+    // Right: condensed hints (two short lines).
+    const RIGHT_HINT_1: &str = "PgUp/Dn vid · Up/Dn style · / fonts";
+    const RIGHT_HINT_2: &str = "e edit · s save · d demo · i inspect · f tier · ? help · q quit";
+    let right1 = RIGHT_HINT_1;
+    let right2 = RIGHT_HINT_2;
+    let width1 = (RIGHT_HINT_1.len() as f64 * scale * 12.5) as i32;
+    let width2 = (RIGHT_HINT_2.len() as f64 * scale * 12.5) as i32;
+    put_text(
+        mat,
+        right1,
+        CvPoint::new(cols - width1 - 10, baseline_y - ZONE_LINE_HEIGHT),
+        FONT_HERSHEY_SIMPLEX,
+        scale,
+        WHITE,
+        1,
+        LINE_8,
+        false,
+    )?;
+    put_text(
+        mat,
+        right2,
+        CvPoint::new(cols - width2 - 10, baseline_y),
+        FONT_HERSHEY_SIMPLEX,
+        scale,
+        WHITE,
+        1,
+        LINE_8,
+        false,
+    )?;
     Ok(())
 }
 
-fn dim_strip(mat: &mut Mat, height: i32) {
+/// Big centered echo so typed text is immediately visible (issue #6).
+fn draw_entry_echo(mat: &mut Mat, prompt: &str, buffer: &str) {
+    let rows = mat.rows();
+    let cols = mat.cols();
     rectangle_points(
         mat,
-        CvPoint::new(0, mat.rows() - height),
-        CvPoint::new(mat.cols(), mat.rows()),
+        CvPoint::new(cols / 8, rows / 3),
+        CvPoint::new(cols * 7 / 8, rows / 3 + 90),
         BLACK,
         -1,
         LINE_8,
         0,
     )
     .ok();
-}
-
-fn draw_entry_bar(mat: &Mat, prompt: &str, buffer: &str) {
-    let mut copy = mat.clone();
-    dim_strip(&mut copy, 46);
-    let text = format!("{prompt} {buffer}_");
-    let org = CvPoint::new(12, copy.rows() - 16);
     put_text(
-        &mut copy,
-        &text,
-        org,
+        mat,
+        prompt,
+        CvPoint::new(cols / 8 + 16, rows / 3 + 34),
         FONT_HERSHEY_SIMPLEX,
-        0.65,
+        0.6,
+        YELLOW,
+        1,
+        LINE_8,
+        false,
+    )
+    .ok();
+    let shown: String = buffer
+        .chars()
+        .rev()
+        .take(38)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    put_text(
+        mat,
+        &format!("{shown}_"),
+        CvPoint::new(cols / 8 + 16, rows / 3 + 70),
+        FONT_HERSHEY_SIMPLEX,
+        0.8,
         WHITE,
         1,
         LINE_8,
         false,
     )
     .ok();
-    imshow_replace(copy);
 }
 
-fn draw_font_popup(mat: &Mat, picker: &FontPicker) {
-    let mut copy = mat.clone();
+/// Centered key reference; `welcome` variant notes it disappears on its own.
+fn draw_help_card(mat: &mut Mat, welcome: bool) {
+    let lines: [&str; 9] = [
+        "PgUp/PgDn video   Up/Down style   Enter text",
+        "/ fonts (type to search)   e composer   s save",
+        "d demo   i inspect   f FAST/FINE   Space pause",
+        "Left/Right +-5s   Home restart",
+        ", . step back/forward   q quit   Esc cancel",
+        "",
+        "composer: Up/Dn row, Lt/Rt adjust, Enter add/remove, w save",
+        "",
+        if welcome {
+            "any key dismisses this card"
+        } else {
+            "? closes help"
+        },
+    ];
+    let rows = mat.rows();
+    let cols = mat.cols();
+    let card_h = 40 + lines.len() as i32 * 26 + 20;
+    rectangle_points(
+        mat,
+        CvPoint::new(cols / 10, rows / 8),
+        CvPoint::new(cols * 9 / 10, rows / 8 + card_h),
+        Scalar::new(0.0, 0.0, 0.0, 255.0),
+        -1,
+        LINE_8,
+        0,
+    )
+    .ok();
+    for (offset, line) in lines.iter().enumerate() {
+        put_text(
+            mat,
+            line,
+            CvPoint::new(cols / 10 + 24, rows / 8 + 46 + offset as i32 * 26),
+            FONT_HERSHEY_SIMPLEX,
+            0.52,
+            WHITE,
+            1,
+            LINE_8,
+            false,
+        )
+        .ok();
+    }
+}
+
+fn draw_font_popup(mat: &mut Mat, picker: &FontPicker) {
+    let cols = mat.cols();
     let query_line = match picker.query() {
         Some(query) => format!("search: {query}_"),
         None => "curated+system fonts  (type to search)".to_string(),
     };
-    let rows: Vec<_> = picker.rows().collect();
-    let visible_height = rows.len().min(14) as i32 * 22 + 56;
+    let entries: Vec<_> = picker.rows().collect();
+    let visible_height = entries.len().min(14) as i32 * 22 + 56;
     rectangle_points(
-        &mut copy,
+        mat,
         CvPoint::new(20, 20),
-        CvPoint::new(mat.cols() - 20, 20 + visible_height),
+        CvPoint::new(cols - 20, 20 + visible_height),
         BLACK,
         -1,
         LINE_8,
@@ -1062,7 +1557,7 @@ fn draw_font_popup(mat: &Mat, picker: &FontPicker) {
     )
     .ok();
     put_text(
-        &mut copy,
+        mat,
         &query_line,
         CvPoint::new(30, 44),
         FONT_HERSHEY_SIMPLEX,
@@ -1074,19 +1569,19 @@ fn draw_font_popup(mat: &Mat, picker: &FontPicker) {
     )
     .ok();
     // Scroll window around the cursor.
-    let cursor_position = rows
+    let cursor_position = entries
         .iter()
         .position(|(index, _)| *index == picker.cursor())
         .unwrap_or(0);
     let start = cursor_position.saturating_sub(6);
-    for (row_offset, (entry_index, choice)) in rows.iter().skip(start).take(14).enumerate() {
+    for (row_offset, (entry_index, choice)) in entries.iter().skip(start).take(14).enumerate() {
         let marker = if choice.curated { "*" } else { " " };
         let selected = *entry_index == picker.cursor();
         let color = if selected { YELLOW } else { WHITE };
         let text = format!("{marker} {}", choice.label);
         let org = CvPoint::new(34, 68 + row_offset as i32 * 22);
         put_text(
-            &mut copy,
+            mat,
             &text,
             org,
             FONT_HERSHEY_SIMPLEX,
@@ -1098,27 +1593,30 @@ fn draw_font_popup(mat: &Mat, picker: &FontPicker) {
         )
         .ok();
     }
-    imshow_replace(copy);
 }
 
-fn draw_composer_panel(mat: &Mat, model: &EditModel) {
-    let mut copy = mat.clone();
+fn draw_composer_panel(mat: &mut Mat, model: &EditModel) {
+    let rows_count = mat.rows();
+    let cols = mat.cols();
     let panel_width = 380;
+    let panel_left = cols - panel_width - 12;
+
     rectangle_points(
-        &mut copy,
-        CvPoint::new(mat.cols() - panel_width - 12, 12),
-        CvPoint::new(mat.cols() - 12, mat.rows() - 60),
+        mat,
+        CvPoint::new(panel_left, 12),
+        CvPoint::new(cols - 12, rows_count - 60),
         BLACK,
         -1,
         LINE_8,
         0,
     )
     .ok();
-    let mut y = 36;
+
+    let mut y = 38;
     put_text(
-        &mut copy,
+        mat,
         "STYLE COMPOSER",
-        CvPoint::new(mat.cols() - panel_width, y),
+        CvPoint::new(panel_left + 8, y),
         FONT_HERSHEY_SIMPLEX,
         0.55,
         YELLOW,
@@ -1127,30 +1625,31 @@ fn draw_composer_panel(mat: &Mat, model: &EditModel) {
         false,
     )
     .ok();
-    y += 26;
+    y += 28;
+
     let rows = model.rows();
     let cursor = model.cursor();
-    let start = cursor.saturating_sub(8);
-    for (offset, row) in rows.iter().skip(start).take(14).enumerate() {
+    let start = cursor.saturating_sub(9);
+    for (offset, row) in rows.iter().skip(start).take(13).enumerate() {
         let index = start + offset;
         let selected = index == cursor;
         let value = model.row_value(index);
         let color = if selected { YELLOW } else { WHITE };
-        let label = if row.label.chars().count() > 24 {
-            format!("{}…", row.label.chars().take(23).collect::<String>())
+        let label: String = if row.label.chars().count() > 22 {
+            format!("{}\u{2026}", row.label.chars().take(21).collect::<String>())
         } else {
             row.label.clone()
         };
         let text = format!(
-            "{} {:<24} {}",
+            "{} {:<22} {}",
             if selected { '>' } else { ' ' },
             label,
             value
         );
         put_text(
-            &mut copy,
+            mat,
             &text,
-            CvPoint::new(mat.cols() - panel_width, y),
+            CvPoint::new(panel_left + 8, y),
             FONT_HERSHEY_SIMPLEX,
             0.42,
             color,
@@ -1160,19 +1659,20 @@ fn draw_composer_panel(mat: &Mat, model: &EditModel) {
         )
         .ok();
         y += 20;
-        if y > mat.rows() - 90 {
+        if y > rows_count - 92 {
             break;
         }
     }
+
     if let Some(error) = model.error() {
-        let clipped: String = error.chars().take(58).collect();
+        let clipped: String = error.chars().take(56).collect();
         put_text(
-            &mut copy,
+            mat,
             &clipped,
-            CvPoint::new(mat.cols() - panel_width, mat.rows() - 72),
+            CvPoint::new(panel_left + 8, rows_count - 74),
             FONT_HERSHEY_SIMPLEX,
-            0.38,
-            Scalar::new(80.0, 80.0, 255.0, 255.0),
+            0.36,
+            Scalar::new(90.0, 90.0, 255.0, 255.0),
             1,
             LINE_8,
             false,
@@ -1180,21 +1680,15 @@ fn draw_composer_panel(mat: &Mat, model: &EditModel) {
         .ok();
     }
     put_text(
-        &mut copy,
-        "Up/Dn pick · Lt/Rt adjust · Enter add · w save · Esc close",
-        CvPoint::new(mat.cols() - panel_width, mat.rows() - 48),
+        mat,
+        "Up/Dn row - Lt/Rt adjust - Enter add - w save - Esc close",
+        CvPoint::new(panel_left + 8, rows_count - 50),
         FONT_HERSHEY_SIMPLEX,
-        0.38,
+        0.36,
         WHITE,
         1,
         LINE_8,
         false,
     )
     .ok();
-    imshow_replace(copy);
-}
-
-/// Swap the freshly annotated frame into the window.
-fn imshow_replace(mat: Mat) {
-    opencv::highgui::imshow(WINDOW, &mat).ok();
 }

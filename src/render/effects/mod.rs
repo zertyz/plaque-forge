@@ -654,13 +654,45 @@ impl Style {
             let stripe_width = (span * width_ratio).max(1.0);
             let progress = (time_seconds / period_seconds as f64).rem_euclid(1.0) as f32;
             let center = min_projection - stripe_width + progress * (span + stripe_width * 2.0);
+
+            // Only pixels whose projection falls inside the stripe can receive
+            // shine; per-row that is a contiguous x-band, so iterate the band
+            // directly over the pixel slice instead of scanning the canvas.
+            let pixels = shine.pixels_mut();
+            let stride = width as usize * 4;
+            let last_x = width.saturating_sub(1) as f32;
             for y in 0..height {
-                for x in 0..width {
-                    let alpha = glyph_mask[(y * width + x) as usize];
+                let row_base = y as usize * stride;
+                let row_offset = y as f32 * axis_y;
+                let (band_start, band_end) = if axis_x.abs() < 1e-6 {
+                    // Vertical stripe: every x shares the same projection.
+                    let projected = row_offset;
+                    let distance = (projected - center).abs();
+                    if distance > stripe_width {
+                        continue;
+                    }
+                    (0usize, width as usize)
+                } else {
+                    let low = ((center - stripe_width) - row_offset) / axis_x;
+                    let high = ((center + stripe_width) - row_offset) / axis_x;
+                    let (low, high) = if low <= high {
+                        (low, high)
+                    } else {
+                        (high, low)
+                    };
+                    let start = low.floor().max(0.0) as usize;
+                    let end = (high.ceil().max(0.0) as usize).min(width as usize);
+                    if start >= end || high < 0.0 || low > last_x {
+                        continue;
+                    }
+                    (start, end)
+                };
+                for x in band_start..band_end {
+                    let alpha = glyph_mask[y as usize * width as usize + x];
                     if alpha == 0 {
                         continue;
                     }
-                    let projected = x as f32 * axis_x + y as f32 * axis_y;
+                    let projected = x as f32 * axis_x + row_offset;
                     let distance = (projected - center).abs();
                     if distance > stripe_width {
                         continue;
@@ -668,7 +700,14 @@ impl Style {
                     let envelope = (1.0 - distance / stripe_width).powi(2);
                     let animated_alpha =
                         (color.a as f32 * envelope * alpha as f32 / 255.0).round() as u8;
-                    shine.set_pixel(x, y, Rgba::new(color.r, color.g, color.b, animated_alpha));
+                    if animated_alpha == 0 {
+                        continue;
+                    }
+                    let base = row_base + x * 4;
+                    pixels[base] = color.r;
+                    pixels[base + 1] = color.g;
+                    pixels[base + 2] = color.b;
+                    pixels[base + 3] = animated_alpha;
                 }
             }
             match &mut output {

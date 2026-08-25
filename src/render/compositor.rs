@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 
@@ -22,6 +23,8 @@ use super::{effects, load_full_luma, typography};
 /// Everything required to bake one title and composite it onto frames.
 pub struct CompositorSetup {
     pub pack: Analysis,
+    /// FAST-tier preview approximation (f32 warp); file rendering stays false.
+    pub preview_warp: bool,
     pub mask: Vec<u8>,
     pub injected_surface: Option<Surface>,
     pub style: effects::Style,
@@ -40,6 +43,7 @@ pub struct CompositorSetup {
 
 /// Bakes the title once, then composites it onto any frame index.
 pub struct FrameCompositor {
+    preview_warp: bool,
     pack: Analysis,
     mask: Vec<u8>,
     injected_surface: Option<Surface>,
@@ -78,6 +82,7 @@ impl FrameCompositor {
     pub fn open(
         CompositorSetup {
             pack,
+            preview_warp,
             mask,
             injected_surface,
             style,
@@ -124,6 +129,7 @@ impl FrameCompositor {
         let foregrounds = ForegroundReader::open(&pack, use_masks)?;
         let authored_matte = authored_occluder_matte(&pack);
         Ok(Self {
+            preview_warp,
             needs_original_frame: use_masks || !foregrounds.is_empty(),
             masks_dir: pack.root.join(OCCLUDER_DIR),
             source_width: pack.manifest.source.width,
@@ -228,11 +234,19 @@ impl FrameCompositor {
 
         let plaque_quad = transformed_rect(self.pack.manifest.source_plaque_rect, sample.transform);
         if let Some(plaque_layer) = &self.injected_surface {
-            frame.warp_blend(
-                plaque_layer,
-                plaque_quad,
-                sample.plaque_visibility.clamp(0.0, 1.0) as f32,
-            )?;
+            if self.preview_warp {
+                frame.warp_blend_preview(
+                    plaque_layer,
+                    plaque_quad,
+                    sample.plaque_visibility.clamp(0.0, 1.0) as f32,
+                );
+            } else {
+                frame.warp_blend(
+                    plaque_layer,
+                    plaque_quad,
+                    sample.plaque_visibility.clamp(0.0, 1.0) as f32,
+                )?;
+            }
         }
 
         // Static shaping/fitting is reused. Scramble and split-flap intentionally
@@ -275,17 +289,32 @@ impl FrameCompositor {
 
         let opacity = sample.plaque_visibility.clamp(0.0, 1.0) as f32
             * self.style.frame_opacity(time_seconds);
+        let profile = std::env::var("PLAQUE_PROFILE").is_ok() && frame_index < 3;
+        let mark = |name: &str, started: &Instant| {
+            if profile {
+                eprintln!("composite[{frame_index}] {name}: {:?}", started.elapsed());
+            }
+        };
         let animated_presented = if self.static_presented.is_none() || using_dynamic {
+            let t = Instant::now();
             let mut layer = frame_text.layer.clone();
+            mark("layer-clone", &t);
+            let t = Instant::now();
             if let Some(overlay) = self.style.frame_overlay(
                 &frame_text.glyph_mask,
                 frame_text.layer.width(),
                 frame_text.layer.height(),
                 time_seconds,
             )? {
+                mark("frame-overlay", &t);
+                let t = Instant::now();
                 layer.blend_surface(&overlay, 0, 0, 1.0);
+                mark("overlay-blend", &t);
             }
-            Some(self.style.frame_transform(&layer, time_seconds)?)
+            let t = Instant::now();
+            let transformed = self.style.frame_transform(&layer, time_seconds)?;
+            mark("frame-transform", &t);
+            Some(transformed)
         } else {
             None
         };
@@ -319,7 +348,51 @@ impl FrameCompositor {
             }
         }
 
-        frame.warp_blend(presented, plaque_quad, opacity)?;
+        let t = Instant::now();
+        if self.preview_warp {
+            // Warp only the layer's opaque bounding box, mapped through the
+            // forward homography; the rest of the layer is transparent.
+            if let Some((bx, by, bw, bh)) = presented.alpha_bounds() {
+                let source_rect = crate::geometry::Quad::from_rect(
+                    0.0,
+                    0.0,
+                    (presented.width().saturating_sub(1)) as f64,
+                    (presented.height().saturating_sub(1)) as f64,
+                );
+                if let Ok(forward) = crate::geometry::homography(source_rect, plaque_quad) {
+                    let corner = |x: f64, y: f64| {
+                        let w = forward.m[2][0] * x + forward.m[2][1] * y + forward.m[2][2];
+                        (
+                            (forward.m[0][0] * x + forward.m[0][1] * y + forward.m[0][2]) / w,
+                            (forward.m[1][0] * x + forward.m[1][1] * y + forward.m[1][2]) / w,
+                        )
+                    };
+                    let (x0, y0) = (bx as f64, by as f64);
+                    let (x1, y1) = ((bx + bw) as f64, (by + bh) as f64);
+                    let (ax, ay) = corner(x0, y0);
+                    let (bxp, byp) = corner(x1, y0);
+                    let (cxp, cyp) = corner(x1, y1);
+                    let (dxp, dyp) = corner(x0, y1);
+                    let sub_quad = crate::geometry::Quad::new(
+                        crate::geometry::Point::new(ax, ay),
+                        crate::geometry::Point::new(bxp, byp),
+                        crate::geometry::Point::new(cxp, cyp),
+                        crate::geometry::Point::new(dxp, dyp),
+                    );
+                    match presented.crop(bx, by, bw, bh) {
+                        Ok(cropped) => {
+                            frame.warp_blend_preview(&cropped, sub_quad, opacity);
+                        }
+                        Err(_) => frame.warp_blend_preview(presented, plaque_quad, opacity),
+                    }
+                } else {
+                    frame.warp_blend_preview(presented, plaque_quad, opacity);
+                }
+            }
+        } else {
+            frame.warp_blend(presented, plaque_quad, opacity)?;
+        }
+        mark("warp-blend", &t);
         let mut restore = self
             .foregrounds
             .frame_mask(frame_index, sample.transform)?

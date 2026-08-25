@@ -6,6 +6,7 @@
 //! onto an OpenCV highgui loop.
 
 pub mod composer;
+pub mod driver;
 pub mod fonts;
 pub mod keys;
 pub mod quality;

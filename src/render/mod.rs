@@ -311,6 +311,7 @@ fn render_to(
     let title_text = text.clone();
     let mut compositor = FrameCompositor::open(CompositorSetup {
         pack,
+        preview_warp: false,
         mask,
         injected_surface,
         style,

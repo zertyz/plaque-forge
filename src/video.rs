@@ -340,6 +340,59 @@ impl Drop for Decoder {
     }
 }
 
+/// Handle to a background decoder thread feeding a bounded frame channel.
+///
+/// Decoding overlaps with composition; the bounded channel applies natural
+/// backpressure so the pipeline never runs away.
+pub struct DecodeAhead {
+    rx: std::sync::mpsc::Receiver<Result<Option<Surface>>>,
+}
+
+impl DecodeAhead {
+    /// Spawn a decoder thread positioned at `start_frame`.
+    pub fn spawn(
+        ffmpeg: &Path,
+        input: &Path,
+        info: &VideoInfo,
+        start_frame: usize,
+    ) -> Result<Self> {
+        let mut decoder = Decoder::spawn_from(ffmpeg, input, info, start_frame)?;
+        let (tx, rx) = std::sync::mpsc::sync_channel(2);
+        std::thread::Builder::new()
+            .name("plaque-forge-decode".into())
+            .spawn(move || {
+                loop {
+                    match decoder.next_frame() {
+                        Ok(Some(frame)) => {
+                            if tx.send(Ok(Some(frame))).is_err() {
+                                break;
+                            }
+                        }
+                        Ok(None) => {
+                            let _ = tx.send(Ok(None));
+                            break;
+                        }
+                        Err(error) => {
+                            let _ = tx.send(Err(error));
+                            break;
+                        }
+                    }
+                }
+                // Dropping the decoder kills its ffmpeg child promptly.
+            })
+            .context("failed to spawn decode-ahead thread")?;
+        Ok(Self { rx })
+    }
+
+    /// Next decoded frame (blocks while the channel is empty).
+    pub fn next_frame(&mut self) -> Result<Option<Surface>> {
+        match self.rx.recv() {
+            Ok(frame) => frame,
+            Err(_) => Ok(None),
+        }
+    }
+}
+
 pub struct Encoder {
     child: Child,
     stdin: Option<ChildStdin>,

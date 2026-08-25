@@ -308,7 +308,10 @@ impl EditModel {
     fn value_at(&self, path: &str) -> Option<&toml::Value> {
         let mut node = &self.document;
         for component in path.split('.') {
-            node = node.get(component)?;
+            node = match node {
+                toml::Value::Array(items) => items.get(component.parse::<usize>().ok()?),
+                other => other.get(component),
+            }?;
         }
         Some(node)
     }
@@ -316,7 +319,10 @@ impl EditModel {
     fn value_at_mut(&mut self, path: &str) -> Option<&mut toml::Value> {
         let mut node = &mut self.document;
         for component in path.split('.') {
-            node = node.as_table_mut()?.get_mut(component)?;
+            node = match node {
+                toml::Value::Array(items) => items.get_mut(component.parse::<usize>().ok()?),
+                other => other.get_mut(component),
+            }?;
         }
         Some(node)
     }
@@ -713,6 +719,44 @@ mod tests {
         );
         if let Err(error) = model.preview_style() {
             panic!("post-switch style must load; document:\n{document}\nerror: {error:#}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod value_tests {
+    use super::*;
+
+    #[test]
+    fn row_value_reads_paths_for_colors_and_numbers() {
+        let source = "version = 5\n\
+            typography = { weight = 600 }\n\
+            fill = \"#EBFFFFFF\"\n\
+            [[effects]]\n\
+            type = \"shadow\"\n\
+            offset_x = 0.02\n\
+            offset_y = 0.04\n\
+            blur_radius = 5\n\
+            color = \"#000000A0\"\n\
+            [[effects]]\n\
+            type = \"glow\"\n\
+            radius = 10\n\
+            color = \"#FFFFFF80\"\n";
+        let model = EditModel::open(source, Path::new(".")).unwrap();
+        for (label, expected) in [
+            ("typography.weight", "600"),
+            ("fill.color", "#EBFFFFFF"),
+            ("effects.0.blur_radius", "5"),
+            ("effects.0.offset_x", "0.02"),
+            ("effects.1.radius", "10"),
+            ("effects.1.color", "#FFFFFF80"),
+        ] {
+            let index = model
+                .rows()
+                .iter()
+                .position(|row| row.label == label)
+                .unwrap_or_else(|| panic!("row {label} missing"));
+            assert_eq!(model.row_value(index), expected, "value for {label}");
         }
     }
 }

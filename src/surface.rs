@@ -86,6 +86,36 @@ impl Surface {
         self.height
     }
 
+    /// Consume the surface, returning its RGBA pixel buffer.
+    pub fn into_pixels(self) -> Vec<u8> {
+        self.pixels
+    }
+
+    /// Direct mutable RGBA pixel slice (row-major, top-left origin).
+    pub fn pixels_mut(&mut self) -> &mut [u8] {
+        &mut self.pixels
+    }
+
+    /// Copy a rectangular sub-region into a new surface.
+    pub fn crop(&self, x: u32, y: u32, width: u32, height: u32) -> Result<Self> {
+        anyhow::ensure!(
+            x.saturating_add(width) <= self.width && y.saturating_add(height) <= self.height,
+            "crop region {}x{}+{x}+{y} exceeds {}x{}",
+            width,
+            height,
+            self.width,
+            self.height
+        );
+        let mut pixels = vec![0_u8; width as usize * height as usize * 4];
+        for row in 0..height as usize {
+            let src = ((y as usize + row) * self.width as usize + x as usize) * 4;
+            let dst = row * width as usize * 4;
+            pixels[dst..dst + width as usize * 4]
+                .copy_from_slice(&self.pixels[src..src + width as usize * 4]);
+        }
+        Self::from_rgba(width, height, pixels)
+    }
+
     pub fn pixels(&self) -> &[u8] {
         &self.pixels
     }
@@ -251,6 +281,129 @@ impl Surface {
             },
         );
         Ok(())
+    }
+
+    /// Approximate warp for interactive previews (showcase FAST tier).
+    ///
+    /// f32 incremental homography and gamma-space bilinear sampling: several
+    /// times faster than [`Self::warp_blend`] at the cost of byte differences,
+    /// which is exactly the FAST-tier contract. Never used by file rendering.
+    pub fn warp_blend_preview(&mut self, source: &Surface, destination: Quad, opacity: f32) {
+        if opacity <= 0.0 {
+            return;
+        }
+        let source_quad = Quad::from_rect(
+            0.0,
+            0.0,
+            (source.width.saturating_sub(1)) as f64,
+            (source.height.saturating_sub(1)) as f64,
+        );
+        let Ok(inverse) = homography(source_quad, destination).and_then(|h| h.inverse()) else {
+            return;
+        };
+        let (min_x, min_y, max_x, max_y) = destination.bounds();
+        let left = min_x.floor().max(0.0) as i32;
+        let top = min_y.floor().max(0.0) as i32;
+        let right = max_x.ceil().min(self.width as f64 - 1.0) as i32;
+        let bottom = max_y.ceil().min(self.height as f64 - 1.0) as i32;
+        if left > right || top > bottom {
+            return;
+        }
+        let m = inverse.m;
+        let m00 = m[0][0] as f32;
+        let m01 = m[0][1] as f32;
+        let m02 = m[0][2] as f32;
+        let m10 = m[1][0] as f32;
+        let m11 = m[1][1] as f32;
+        let m12 = m[1][2] as f32;
+        let m20 = m[2][0] as f32;
+        let m21 = m[2][1] as f32;
+        let m22 = m[2][2] as f32;
+        let source_stride = source.width as usize;
+        let dest_stride = self.width as usize * 4;
+        let src = &source.pixels;
+        let workers = parallel_workers(destination_area(destination));
+        let rows_total = (bottom - top + 1) as usize;
+        let workers = workers.clamp(1, rows_total);
+        let rows_per_band = rows_total.div_ceil(workers);
+        let first_byte = top as usize * dest_stride;
+        let end_byte = (bottom as usize + 1) * dest_stride;
+        let mut rest = &mut self.pixels[first_byte..end_byte];
+        std::thread::scope(|scope| {
+            let mut band_top = top as usize;
+            while band_top < bottom as usize {
+                let band_rows = rows_per_band.min(bottom as usize - band_top);
+                let (band, tail) = rest.split_at_mut(band_rows * dest_stride);
+                rest = tail;
+                scope.spawn(move || {
+                    let y0 = band_top as f32 + 0.5;
+                    let mut u = m00 * 0.5 + m01 * y0 + m02;
+                    let mut v = m10 * 0.5 + m11 * y0 + m12;
+                    let mut w = m20 * 0.5 + m21 * y0 + m22;
+                    for (row_offset, row) in band.chunks_mut(dest_stride).enumerate() {
+                        let _ = row_offset;
+                        let mut uu = u;
+                        let mut vv = v;
+                        let mut ww = w;
+                        for destination_pixel in
+                            row[left as usize * 4..(right as usize + 1) * 4].chunks_mut(4)
+                        {
+                            if ww > 1e-6 {
+                                let sx = uu / ww - 0.5;
+                                let sy = vv / ww - 0.5;
+                                if sx >= -0.5
+                                    && sy >= -0.5
+                                    && sx < source_stride as f32 - 0.5
+                                    && sy < source.height as f32 - 0.5
+                                {
+                                    let cx = sx.clamp(0.0, source_stride as f32 - 1.0);
+                                    let cy = sy.clamp(0.0, source.height as f32 - 1.0);
+                                    let x0 = cx as usize;
+                                    let y0 = cy as usize;
+                                    let x1 = (x0 + 1).min(source_stride - 1);
+                                    let y1 = (y0 + 1).min(source.height as usize - 1);
+                                    let fx = cx - x0 as f32;
+                                    let fy = cy - y0 as f32;
+                                    let i00 = (y0 * source_stride + x0) * 4;
+                                    let i10 = (y0 * source_stride + x1) * 4;
+                                    let i01 = (y1 * source_stride + x0) * 4;
+                                    let i11 = (y1 * source_stride + x1) * 4;
+                                    let a00 = src[i00 + 3] as f32;
+                                    let a10 = src[i10 + 3] as f32;
+                                    let a01 = src[i01 + 3] as f32;
+                                    let a11 = src[i11 + 3] as f32;
+                                    let w00 = (1.0 - fx) * (1.0 - fy);
+                                    let w10 = fx * (1.0 - fy);
+                                    let w01 = (1.0 - fx) * fy;
+                                    let w11 = fx * fy;
+                                    let alpha = a00 * w00 + a10 * w10 + a01 * w01 + a11 * w11;
+                                    if alpha > 0.5 {
+                                        let inv = 1.0 / alpha;
+                                        for channel in 0..3 {
+                                            let value = src[i00 + channel] as f32 * a00 * w00
+                                                + src[i10 + channel] as f32 * a10 * w10
+                                                + src[i01 + channel] as f32 * a01 * w01
+                                                + src[i11 + channel] as f32 * a11 * w11;
+                                            destination_pixel[channel] =
+                                                (value * inv).round().clamp(0.0, 255.0) as u8;
+                                        }
+                                        let blended = alpha * opacity + destination_pixel[3] as f32;
+                                        destination_pixel[3] = blended.clamp(0.0, 255.0) as u8;
+                                    }
+                                }
+                            }
+                            uu += m00;
+                            vv += m10;
+                            ww += m20;
+                        }
+                        u += m01;
+                        v += m11;
+                        w += m21;
+                    }
+                });
+                band_top += band_rows;
+            }
+        });
     }
 
     /// Pulls a planar region from a video frame into a canonical rectangular canvas.
