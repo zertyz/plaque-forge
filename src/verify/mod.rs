@@ -777,8 +777,26 @@ pub fn run(
     }
     drop(structural_tx);
     drop(title_tx);
-    let _ = structural_worker.join();
-    let _ = title_worker.join();
+    // Join without panicking: verification is a library workflow and must
+    // surface a worker panic as a regular `Err` rather than aborting the
+    // caller. The `map_err` below turns the `JoinHandle` payload into a
+    // diagnostic message before bubbling it through `anyhow`.
+    if let Err(payload) = structural_worker.join() {
+        let message = payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("unknown panic payload");
+        bail!("structural registration worker panicked: {message}");
+    }
+    if let Err(payload) = title_worker.join() {
+        let message = payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("unknown panic payload");
+        bail!("title-plane registration worker panicked: {message}");
+    }
     original_decoder.finish()?;
     if rendered_decoder.next_frame()?.is_some() {
         bail!("render contains frames after the source ended");

@@ -309,6 +309,9 @@ struct PreparedFile {
 
 fn cleanup_prepared(members: &[PreparedFile]) {
     for member in members {
+        // Best-effort: `incoming` is a private staging file; a leftover after
+        // a failed publish must not fail the caller. Library use must not
+        // panic on a transient `EBUSY` or permission error during cleanup.
         let _ = remove_if_exists(&member.incoming);
     }
 }
@@ -316,10 +319,16 @@ fn cleanup_prepared(members: &[PreparedFile]) {
 fn rollback_prepared(members: &mut [PreparedFile]) {
     for member in members.iter_mut().rev() {
         if member.installed {
+            // Best-effort: the target may already be gone if a previous
+            // rollback partially succeeded. Preserve the error for the caller
+            // of the higher-level `commit`, don't abort here.
             let _ = remove_if_exists(&member.target);
             member.installed = false;
         }
         if member.had_previous && member.previous.exists() {
+            // Best-effort restore: if this rename fails the caller will
+            // already receive the original publish error; a second failure
+            // is diagnostic, not a hard abort for library use.
             let _ = fs::rename(&member.previous, &member.target);
             member.had_previous = false;
         }
@@ -331,10 +340,14 @@ impl Drop for StagedOutput {
     fn drop(&mut self) {
         self.work_lease.take();
         if !self.committed {
+            // Best-effort: `Drop` must never panic. Stale work is reaped by
+            // `reap_stale_work` after 24h; a leftover here is not a library
+            // failure.
             let _ = remove_if_exists(&self.path);
         }
         self.lock_leases.clear();
         for lock in &self.locks {
+            // Best-effort: lock files are reaped via `DEAD_OWNER_GRACE`.
             let _ = remove_if_exists(lock);
         }
     }

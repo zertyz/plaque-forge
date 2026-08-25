@@ -555,16 +555,30 @@ impl From<AnalyzeArgs> for AnalyzeRequest {
 
 impl RenderArgs {
     pub fn into_request(self, analysis: PathBuf, output: PathBuf) -> RenderRequest {
+        // `clap` enforces the `title_source` group when invoked via the CLI,
+        // but the same struct is reachable programmatically (and soon via the
+        // UI). As a library we must not panic on invalid caller input: degrade
+        // gracefully and let downstream validation surface a diagnostic.
+        let title = match (self.text, self.text_file) {
+            (Some(text), None) => TitleSource::Text(text),
+            (None, Some(path)) => TitleSource::File(path),
+            (Some(text), Some(_)) => {
+                eprintln!(
+                    "warning: both --text and --text-file supplied; using --text and ignoring file"
+                );
+                TitleSource::Text(text)
+            }
+            (None, None) => {
+                eprintln!("warning: no title source supplied; using empty title");
+                TitleSource::Text(String::new())
+            }
+        };
         RenderRequest {
             input: self.input,
             analysis,
             scene: self.scene,
             surface: self.surface,
-            title: match (self.text, self.text_file) {
-                (Some(text), None) => TitleSource::Text(text),
-                (None, Some(path)) => TitleSource::File(path),
-                _ => unreachable!("clap title_source group guarantees exactly one title source"),
-            },
+            title,
             font: self.font,
             style_file: self.style_file,
             output,
@@ -707,161 +721,9 @@ pub enum PlacementSpace {
     ScreenCanvas,
 }
 
-/// Read-path adaptation for bundled builds.
-///
-/// `bundle-media` binaries carry their media internally while the rendering
-/// pipeline still consumes real files, so every read-side argument that names
-/// a canonical repository location (`assets/…`, `styles/…`, `fonts/…`) is
-/// rewritten onto an extracted mirror before its workflow runs. Write paths,
-/// external executables, and homologation evidence (deliberately on-disk only)
-/// are left untouched.
-#[cfg(feature = "bundle-media")]
-impl Command {
-    pub(crate) fn materialize_embedded_media(&mut self) -> anyhow::Result<()> {
-        use crate::media::bundled::production_materializer;
-        use crate::media::index::Materializer;
-
-        fn file(
-            index: &EmbeddedIndexAlias,
-            cache: &Materializer,
-            raw: &mut PathBuf,
-        ) -> anyhow::Result<()> {
-            *raw = index.remap_file(cache, raw)?;
-            Ok(())
-        }
-
-        fn optional(
-            index: &EmbeddedIndexAlias,
-            cache: &Materializer,
-            raw: &mut Option<PathBuf>,
-        ) -> anyhow::Result<()> {
-            if let Some(path) = raw {
-                file(index, cache, path)?;
-            }
-            Ok(())
-        }
-
-        /// Remap an explicit analysis-directory argument onto the mirror.
-        fn directory(
-            index: &EmbeddedIndexAlias,
-            cache: &Materializer,
-            raw: &mut PathBuf,
-        ) -> anyhow::Result<()> {
-            if let Some(relative) = index.normalize_relative(raw) {
-                let prefix = format!("{relative}/");
-                index.extract_prefix(cache, &prefix)?;
-                *raw = cache.root().join(&prefix);
-            }
-            Ok(())
-        }
-
-        /// Remap one source-video argument and pre-extract its scene intent
-        /// plus analysis cache so derived default paths resolve inside the
-        /// mirror without further lookups.
-        fn video(
-            index: &EmbeddedIndexAlias,
-            cache: &Materializer,
-            input: &mut PathBuf,
-        ) -> anyhow::Result<()> {
-            let embedded = index.lookup(input).map(|asset| asset.path);
-            file(index, cache, input)?;
-            if let Some(relative) = embedded {
-                let stem = relative
-                    .strip_prefix("assets/")
-                    .and_then(|rest| rest.strip_suffix(".mp4"))
-                    .unwrap_or(relative);
-                index.extract_prefix(cache, &format!("assets/scenes/{stem}/"))?;
-                index.extract_prefix(cache, &format!("assets/analysis/{stem}/"))?;
-            }
-            Ok(())
-        }
-
-        fn scene_intent(
-            index: &EmbeddedIndexAlias,
-            cache: &Materializer,
-            input: &mut PathBuf,
-            scene: &mut Option<PathBuf>,
-        ) -> anyhow::Result<()> {
-            video(index, cache, input)?;
-            optional(index, cache, scene)
-        }
-
-        type EmbeddedIndexAlias = crate::media::index::EmbeddedIndex;
-
-        // `list` reads only generated tables, and homologation commands stay
-        // an on-disk responsibility: neither may create a materialization
-        // cache as a side effect.
-        if matches!(
-            self,
-            Command::List(_) | Command::Homologate(_) | Command::HomologationCoverage(_)
-        ) {
-            return Ok(());
-        }
-
-        let index = crate::media::bundled::index();
-        let cache = production_materializer()?;
-
-        /// Materialize every embedded style texture; style programs reference
-        /// them relative to their own file inside the mirror.
-        fn textures(index: &EmbeddedIndexAlias, cache: &Materializer) -> anyhow::Result<()> {
-            index.extract_prefix(cache, "assets/textures/")?;
-            Ok(())
-        }
-
-        match self {
-            Command::CreateScene(args) => video(&index, &cache, &mut args.input)?,
-            Command::PlaceSurface(args) => {
-                video(&index, &cache, &mut args.input)?;
-                file(&index, &cache, &mut args.image)?;
-            }
-            Command::Analyze(args) => {
-                scene_intent(&index, &cache, &mut args.input, &mut args.scene)?
-            }
-            Command::ExportTrajectory(args) => directory(&index, &cache, &mut args.analysis)?,
-            Command::Segment(args) => {
-                scene_intent(&index, &cache, &mut args.input, &mut args.scene)?
-            }
-            Command::Render(args) => {
-                let render = args;
-                scene_intent(&index, &cache, &mut render.input, &mut render.scene)?;
-                if let Some(analysis) = render.analysis.as_mut() {
-                    directory(&index, &cache, analysis)?;
-                }
-                file(&index, &cache, &mut render.font)?;
-                optional(&index, &cache, &mut render.style_file)?;
-                optional(&index, &cache, &mut render.text_file)?;
-                textures(&index, &cache)?;
-            }
-            Command::Verify(args) => {
-                directory(&index, &cache, &mut args.analysis)?;
-                file(&index, &cache, &mut args.rendered)?;
-                optional(&index, &cache, &mut args.original)?;
-            }
-            Command::Review(args) => {
-                directory(&index, &cache, &mut args.analysis)?;
-                optional(&index, &cache, &mut args.scene)?;
-                optional(&index, &cache, &mut args.verification)?;
-                textures(&index, &cache)?;
-            }
-            Command::List(_) | Command::Homologate(_) | Command::HomologationCoverage(_) => {}
-            Command::CheckAnalysisCache(_args) => {
-                // The audit walks every bundled asset's source video and
-                // analysis pack below --assets-dir.
-                index.extract_prefix(&cache, "assets/")?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Write one line to stdout, tolerating a closed downstream pipe (`| head`).
-pub(crate) fn write_stdout_line(out: &mut impl std::io::Write, text: &str) -> anyhow::Result<()> {
-    match writeln!(out, "{text}") {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(error) => Err(error.into()),
-    }
-}
+// Thin re-export for the shared I/O contract so external callers and
+// `src/lib.rs` share one `BrokenPipe`-tolerant implementation.
+pub(crate) use crate::io::write_stdout_line;
 
 /// Plain-text presentation of a media inventory.
 /// Single-kind inventories list bare entries; combined inventories add
@@ -869,8 +731,6 @@ pub(crate) fn write_stdout_line(out: &mut impl std::io::Write, text: &str) -> an
 /// closed downstream pipe (for example `list fonts | head`) ends the listing
 /// successfully instead of failing the command.
 pub(crate) fn print_media_inventory(inventory: &MediaInventory) -> anyhow::Result<()> {
-    use std::io::Write;
-
     let mut out = std::io::stdout().lock();
     let populated = [
         !inventory.videos.is_empty(),
@@ -932,11 +792,7 @@ pub(crate) fn print_media_inventory(inventory: &MediaInventory) -> anyhow::Resul
             write_stdout_line(&mut out, &format!("  {marker}{}", font.label))?;
         }
     }
-    match out.flush() {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(error) => Err(error.into()),
-    }
+    crate::io::flush_tolerating_broken_pipe(&mut out)
 }
 
 #[cfg(test)]
