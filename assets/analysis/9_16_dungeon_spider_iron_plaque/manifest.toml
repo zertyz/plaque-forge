@@ -35,7 +35,7 @@ model = "auto"
 device = "auto"
 profile = "canonical"
 precision = "auto"
-worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
+worker_sha256 = "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30"
 runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
 
 [[layers]]
@@ -57,13 +57,13 @@ solid_threshold = 0.7
 [layers.generator]
 backend = "sam2-cutie"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16"
+version = "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16"
 requested_device = "auto"
 source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
 prompt_sha256 = "918e5abb06f8ed96f1de1c78c5e294ec1c7e54056c252c525d746dbbd39381e0"
-worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
+worker_sha256 = "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30"
 runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
-request_sha256 = "8cf310975587ec0939f0e9f6d6ec4feacb3a1474319364044ae99696094aff1c"
+request_sha256 = "46b23bb78e6c01abe7b0303c9efd0d9c8b5c374140e8f4419483749b4b32b672"
 plan_sha256 = "391285cd17c78a1a99a0b5755aec26d806b8b4600d87aef4dc75ffe52763e870"
 
 [[layers]]
@@ -85,13 +85,13 @@ solid_threshold = 0.2
 [layers.generator]
 backend = "sam2-cutie"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+categorical-membership-p50"
+version = "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+categorical-membership-p50"
 requested_device = "auto"
 source_sha256 = "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df"
 prompt_sha256 = "4b178a2a4010ba009ad79c2db54b721effd6c3aed2a3c4d439c8726596cbb758"
-worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
+worker_sha256 = "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30"
 runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
-request_sha256 = "e8b8d6ef69c21c0bc6b9f6322e48aa5835a9b5c61ef7776c13ea9e9961d2dce9"
+request_sha256 = "07498c7f5e817aefafe0ff6149b7d542ac61a031255e09afae5608c292b3f3e3"
 plan_sha256 = "391285cd17c78a1a99a0b5755aec26d806b8b4600d87aef4dc75ffe52763e870"
 
 [scenes]
@@ -111,17 +111,17 @@ semantic_sha256 = "05484bc05d12b85d0f498486c3a6936aea1ab9a97403e2b3a28d8d8833fb9
 
 [[scenes.layer_artifacts]]
 path = "layers/spider/artifact.toml"
-sha256 = "bc6017ca05175d066ecd94117f27b40466b5b5cb3b32c92b66587001a7a3a3e0"
-semantic_sha256 = "dbe26a313b2cfee7538848b7b8dfa83a448c80d599058f2616864588df7ed1c3"
+sha256 = "4ae1f74e76263806a38b3c5d561d14bdc685e0d33fa0ed20a2c8d6351b038e46"
+semantic_sha256 = "3835f8b48e54fe9256b0227c8983bdf7e99e09a2337ec3daa74024705528a89f"
 
 [[scenes.layer_artifacts]]
 path = "layers/iron-writing-surface/artifact.toml"
-sha256 = "ed12199c89804a38b498181a92df1b9858667b1dd6b04369b0fd82d4c06d4f53"
-semantic_sha256 = "252a9b0d615ad18b12ebac580e38473b6805a100f5ce88bf4ad841246a317889"
+sha256 = "b46b65b6016033f69b86fbec44123a7f3d249126a9019eeebb21a18b5bf861d6"
+semantic_sha256 = "3d2d2e50900004799a4e2459f7a225425e08580fbc81c843494f7e97e3708ed1"
 
 [confidence]
 plaque_detection = 0.98
 motion = 0.99
 extraction = 0.9627474599753694
-occlusion = 0.8898815032261426
-overall = 0.9548308841605087
+occlusion = 0.8899665073504144
+overall = 0.9548536854142707

@@ -150,6 +150,9 @@ pub struct RenderRequest {
     pub shadow_color: String,
     pub text_align: TextAlign,
     pub vertical_align: VerticalAlign,
+    /// Push mid-level restore alphas toward 0/1 so semi-covered title edges stop
+    /// ghosting. 0 keeps the measured soft fringe; 1 approaches a hard cut.
+    pub restore_fringe_hardening: f32,
     pub encoder_args: Vec<String>,
     pub progress: ProgressMode,
     pub progress_interval_ms: u64,
@@ -270,6 +273,7 @@ impl RenderRequest {
             shadow_color: "#00000000".into(),
             text_align: TextAlign::Center,
             vertical_align: VerticalAlign::Center,
+            restore_fringe_hardening: 0.0,
             encoder_args: Vec::new(),
             progress: ProgressMode::Auto,
             progress_interval_ms: 500,

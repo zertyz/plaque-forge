@@ -14,10 +14,10 @@
         "maximum_negative_alpha_u16": 0,
         "nonempty_permille": 1000,
         "maximum_coverage_permille": 17,
-        "maximum_prompt_box_fill_permille": 742,
-        "minimum_interprompt_area_ratio_permille": 444,
-        "interprompt_area_ratio_p05_permille": 504,
-        "adjacent_iou_p05_permille": 555
+        "maximum_prompt_box_fill_permille": 737,
+        "minimum_interprompt_area_ratio_permille": 454,
+        "interprompt_area_ratio_p05_permille": 509,
+        "adjacent_iou_p05_permille": 564
       },
       "reasons": []
     }

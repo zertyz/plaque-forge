@@ -433,7 +433,7 @@ pub fn run(
         };
         if automatic_occlusion
             && !scenes.has_dense_locked_track(info.frames)
-            && !track.model_name.contains("screen-fixed")
+            && !track.screen_fixed
             && (has_scene_exclusions || occlusion.has_occluder)
         {
             match tracking::retrack_masked(

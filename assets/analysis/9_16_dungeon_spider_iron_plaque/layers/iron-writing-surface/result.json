@@ -2,16 +2,16 @@
   "format": "plaque-forge.segmentation-result/2",
   "backend": "sam2-cutie",
   "model": "facebook/sam2.1-hiera-large",
-  "version": "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+categorical-membership-p50",
+  "version": "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+categorical-membership-p50",
   "plan_sha256": "391285cd17c78a1a99a0b5755aec26d806b8b4600d87aef4dc75ffe52763e870",
   "precision": "fp32",
   "frames": 206,
   "mean_confidence": 1.0,
   "minimum_confidence": 1.0,
-  "request_sha256": "e8b8d6ef69c21c0bc6b9f6322e48aa5835a9b5c61ef7776c13ea9e9961d2dce9",
+  "request_sha256": "07498c7f5e817aefafe0ff6149b7d542ac61a031255e09afae5608c292b3f3e3",
   "source_sha256": "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df",
   "prompt_sha256": "4b178a2a4010ba009ad79c2db54b721effd6c3aed2a3c4d439c8726596cbb758",
-  "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
+  "worker_sha256": "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30",
   "runtime_sha256": "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4",
   "nonempty_frames": 206,
   "mean_coverage": 0.1276143115392395,
@@ -24,24 +24,15 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 12972.801
-    },
-    {
-      "stage": "SAM 2",
-      "device": "xpu",
-      "precision": "fp32",
-      "seconds": 1267.892565,
-      "cache_hit": false,
-      "process_peak_rss_mib": 12972.801,
-      "accelerator_peak_mib": 2671.461
+      "process_peak_rss_mib": 12990.141
     },
     {
       "stage": "Cutie",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 464.228554,
-      "cache_hit": false,
-      "process_peak_rss_mib": 12972.801
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 12990.141
     },
     {
       "stage": "Temporal stabilization",
@@ -49,7 +40,7 @@
       "precision": "fp32",
       "seconds": 1e-06,
       "cache_hit": false,
-      "process_peak_rss_mib": 12972.801
+      "process_peak_rss_mib": 12990.141
     }
   ]
 }

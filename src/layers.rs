@@ -387,7 +387,7 @@ pub struct ForegroundReader<'a> {
 }
 
 impl<'a> ForegroundReader<'a> {
-    pub fn open(pack: &'a Analysis, fused_source_material: bool) -> Result<Self> {
+    pub fn open(pack: &'a Analysis) -> Result<Self> {
         let mut canonical = Vec::new();
         let mut source_static = Vec::new();
         let mut sequences = Vec::new();
@@ -395,7 +395,7 @@ impl<'a> ForegroundReader<'a> {
             .manifest
             .layers
             .iter()
-            .filter(|layer| directly_restores_layer(layer, fused_source_material))
+            .filter(|layer| directly_restores_layer(layer))
         {
             match (layer.coordinates, layer.kind) {
                 (LayerCoordinates::PlaqueCanonical, LayerArtifactKind::AlphaImage) => {
@@ -505,16 +505,15 @@ impl<'a> ForegroundReader<'a> {
     }
 }
 
-fn directly_restores_layer(layer: &LayerAsset, fused_source_material: bool) -> bool {
-    let composited_role = matches!(
+/// Every composited-role layer restores its own pixels. Declared opaque
+/// source-pixel layers always do, even when fused analysis occluders exist: the
+/// fusion's material channel is photometrically gated, so a persistent occluder
+/// baked into the plaque model would otherwise lose exactly those pixels.
+fn directly_restores_layer(layer: &LayerAsset) -> bool {
+    matches!(
         layer.role,
         LayerRole::Foreground | LayerRole::Shadow | LayerRole::Reflection | LayerRole::Modulation
-    );
-    composited_role
-        && !(fused_source_material
-            && layer.role == LayerRole::Foreground
-            && layer.coordinates == LayerCoordinates::SourcePixels
-            && layer.matte.mode == LayerMatteMode::Opaque)
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -859,7 +858,7 @@ mod tests {
     };
 
     #[test]
-    fn fused_material_replaces_only_the_opaque_source_semantic_layer() {
+    fn declared_layers_restore_alongside_fused_occluders() {
         let make = |role, coordinates, mode| crate::analysis::LayerAsset {
             id: "test".into(),
             role,
@@ -892,10 +891,13 @@ mod tests {
             LayerMatteMode::Optical,
         );
 
-        assert!(directly_restores_layer(&semantic, false));
-        assert!(!directly_restores_layer(&semantic, true));
-        assert!(directly_restores_layer(&optical, true));
-        assert!(directly_restores_layer(&shadow, true));
+        // A human-declared opaque layer must keep restoring even when fused
+        // analysis occluders exist: the fusion's material channel is gated, so a
+        // persistent occluder baked into the plaque model would otherwise leak
+        // title through the declared object.
+        assert!(directly_restores_layer(&semantic));
+        assert!(directly_restores_layer(&optical));
+        assert!(directly_restores_layer(&shadow));
     }
 
     #[test]

@@ -600,6 +600,12 @@ struct SegmentationEvidence {
     interprompt_area_ratio_p05_permille: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     adjacent_iou_p05_permille: Option<u16>,
+    /// Largest ratio (permille) between the propagated track's support area and its
+    /// seed-mask area, measured at the seed frames. Recorded for automatic layers
+    /// whose seeds are machine-derived; a runaway propagation shows up here long
+    /// before it can bleed over unrelated plaque content.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed_area_growth_permille: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -633,6 +639,7 @@ fn strategy_evidence(
         &layer.prompts,
         layer.matte.support_threshold,
         info,
+        None,
     )
 }
 
@@ -643,6 +650,7 @@ fn strategy_evidence_for_inputs(
     prompts: &[SegmentationPrompt],
     support_threshold: f64,
     info: &VideoInfo,
+    seed_areas: Option<&[(usize, u64)]>,
 ) -> Result<SegmentationEvidence> {
     let artifact = LayerArtifact::load(artifact_path)?;
     let paths = artifact.referenced_paths(artifact_path);
@@ -713,6 +721,15 @@ fn strategy_evidence_for_inputs(
     let temporal = persistent_track.map(|(start, end)| {
         persistent_temporal_evidence(&frame_areas, prompts, start, end, &adjacent_ious)
     });
+    let seed_area_growth_permille = seed_areas.and_then(|seeds| {
+        seeds
+            .iter()
+            .filter_map(|&(frame, area)| {
+                let track = frame_areas.get(frame).copied()?;
+                (area > 0).then(|| ((track * 1_000) / area).min(u16::MAX as u64) as u16)
+            })
+            .max()
+    });
     Ok(SegmentationEvidence {
         minimum_prompt_alpha_u16: positive_samples.into_iter().min(),
         maximum_negative_alpha_u16: negative_samples.into_iter().max(),
@@ -728,6 +745,7 @@ fn strategy_evidence_for_inputs(
         adjacent_iou_p05_permille: temporal
             .as_ref()
             .map(|evidence| evidence.adjacent_iou_p05_permille),
+        seed_area_growth_permille,
     })
 }
 
@@ -939,6 +957,14 @@ fn evidence_acceptance(
         failures.push(format!(
             "maximum frame coverage {}/1000 > {maximum}/1000",
             evidence.maximum_coverage_permille
+        ));
+    }
+    if let Some(bound) = policy.max_seed_growth_permille
+        && let Some(growth) = evidence.seed_area_growth_permille
+        && growth > bound
+    {
+        failures.push(format!(
+            "seed area growth {growth}/1000 > {bound}/1000 (propagated track exploded past its seed masks)"
         ));
     }
     if let Some(value) = evidence.maximum_prompt_box_fill_permille
@@ -1455,6 +1481,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             if cached.is_dir()
                 && validate_worker_output(&cached, &request_document, request.info).is_ok()
             {
+                let seed_areas = automatic_seed_areas(request.seed_masks, &worker_layer.prompts);
                 let evidence = strategy_evidence_for_inputs(
                     &cached.join("artifact.toml"),
                     LayerRole::Foreground,
@@ -1462,6 +1489,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
                     &worker_layer.prompts,
                     0.03,
                     request.info,
+                    Some(&seed_areas),
                 )?;
                 let (accepted, failures) =
                     evidence_acceptance(&evidence, strategy.acceptance, LayerRole::Foreground);
@@ -1538,6 +1566,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             crate::staged_output::remove_child(request.analysis_root, &output)?;
             return Err(error.context("automatic foreground worker output was rejected"));
         }
+        let seed_areas = automatic_seed_areas(request.seed_masks, &worker_layer.prompts);
         let evidence = strategy_evidence_for_inputs(
             &output.join("artifact.toml"),
             LayerRole::Foreground,
@@ -1545,6 +1574,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             &worker_layer.prompts,
             0.03,
             request.info,
+            Some(&seed_areas),
         )?;
         let (accepted, failures) =
             evidence_acceptance(&evidence, strategy.acceptance, LayerRole::Foreground);
@@ -1855,6 +1885,25 @@ fn fuse_automatic_foreground_alpha(
         .zip(photometric)
         .zip(semantic_guard)
         .map(|((&semantic, &photometric), guard)| photometric.min(semantic.max(guard)))
+        .collect()
+}
+
+/// Support area of each selected automatic seed mask, paired with its frame.
+///
+/// Uses the same foreground threshold as `automatic_foreground_prompts` so the
+/// growth evidence compares like with like.
+fn automatic_seed_areas(seed_masks: &Path, prompts: &[SegmentationPrompt]) -> Vec<(usize, u64)> {
+    prompts
+        .iter()
+        .filter_map(|prompt| {
+            let path = seed_masks.join(format!("{:06}.png", prompt.frame));
+            let image = image::open(&path).ok()?.to_luma8();
+            let area = image
+                .enumerate_pixels()
+                .filter(|(_, _, pixel)| pixel[0] > 24)
+                .count() as u64;
+            Some((prompt.frame, area))
+        })
         .collect()
 }
 
@@ -2495,6 +2544,7 @@ mod adaptive_evidence_tests {
         min_interprompt_area_ratio_permille: 250,
         min_interprompt_area_p05_permille: 350,
         min_adjacent_iou_p05_permille: 500,
+        max_seed_growth_permille: None,
     };
 
     #[test]
@@ -2508,6 +2558,7 @@ mod adaptive_evidence_tests {
             minimum_interprompt_area_ratio_permille: None,
             interprompt_area_ratio_p05_permille: None,
             adjacent_iou_p05_permille: None,
+            seed_area_growth_permille: None,
         };
         assert!(evidence_acceptance(&evidence, POLICY, LayerRole::Foreground).0);
     }
@@ -2523,6 +2574,7 @@ mod adaptive_evidence_tests {
             minimum_interprompt_area_ratio_permille: None,
             interprompt_area_ratio_p05_permille: None,
             adjacent_iou_p05_permille: None,
+            seed_area_growth_permille: None,
         };
         let (accepted, reasons) = evidence_acceptance(&evidence, POLICY, LayerRole::Foreground);
         assert!(!accepted);
@@ -2540,6 +2592,7 @@ mod adaptive_evidence_tests {
             minimum_interprompt_area_ratio_permille: Some(0),
             interprompt_area_ratio_p05_permille: Some(0),
             adjacent_iou_p05_permille: Some(0),
+            seed_area_growth_permille: None,
         };
 
         let (accepted, reasons) = evidence_acceptance(&evidence, POLICY, LayerRole::Foreground);
@@ -2554,6 +2607,33 @@ mod adaptive_evidence_tests {
     }
 
     #[test]
+    fn seed_growth_bound_rejects_a_runaway_propagated_track() {
+        let mut policy = POLICY;
+        policy.max_seed_growth_permille = Some(12_000);
+        let mut evidence = SegmentationEvidence {
+            minimum_prompt_alpha_u16: Some(50_000),
+            maximum_negative_alpha_u16: Some(2_000),
+            nonempty_permille: 700,
+            maximum_coverage_permille: 220,
+            maximum_prompt_box_fill_permille: Some(320),
+            minimum_interprompt_area_ratio_permille: None,
+            interprompt_area_ratio_p05_permille: None,
+            adjacent_iou_p05_permille: None,
+            seed_area_growth_permille: None,
+        };
+        assert!(evidence_acceptance(&evidence, policy, LayerRole::Foreground).0);
+
+        evidence.seed_area_growth_permille = Some(45_000);
+        let (accepted, reasons) = evidence_acceptance(&evidence, policy, LayerRole::Foreground);
+        assert!(!accepted);
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.contains("seed area growth"))
+        );
+    }
+
+    #[test]
     fn independent_evidence_rejects_a_filled_prompt_rectangle() {
         let evidence = SegmentationEvidence {
             minimum_prompt_alpha_u16: Some(u16::MAX),
@@ -2564,6 +2644,7 @@ mod adaptive_evidence_tests {
             minimum_interprompt_area_ratio_permille: None,
             interprompt_area_ratio_p05_permille: None,
             adjacent_iou_p05_permille: None,
+            seed_area_growth_permille: None,
         };
 
         let (accepted, reasons) = evidence_acceptance(&evidence, POLICY, LayerRole::Foreground);

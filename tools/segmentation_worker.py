@@ -172,6 +172,7 @@ def precision_context(torch, device, precision):
 def accelerator_peak_mib(device):
     try:
         import torch
+
         kind = str(device).split(":", 1)[0]
         module = getattr(torch, kind, None)
         if kind not in {"cuda", "xpu"} or module is None:
@@ -187,9 +188,14 @@ def accelerator_peak_mib(device):
 def reset_accelerator_peak(device):
     try:
         import torch
+
         kind = str(device).split(":", 1)[0]
         module = getattr(torch, kind, None)
-        reset = getattr(module, "reset_peak_memory_stats", None) if module is not None else None
+        reset = (
+            getattr(module, "reset_peak_memory_stats", None)
+            if module is not None
+            else None
+        )
         if kind in {"cuda", "xpu"} and reset is not None:
             reset()
     except (ImportError, RuntimeError, TypeError):
@@ -265,6 +271,7 @@ def clear_resident_models():
     gc.collect()
     try:
         import torch
+
         if xpu_available(torch):
             torch.xpu.empty_cache()
         if torch.cuda.is_available():
@@ -275,7 +282,9 @@ def clear_resident_models():
 
 def private_runtime_root():
     root = Path(os.environ.get("PLAQUE_FORGE_PYTHON_ROOT", "/tmp/plaque-forge-python"))
-    if root != Path("/tmp/plaque-forge-python") and not os.environ.get("PLAQUE_FORGE_ALLOW_CUSTOM_RUNTIME_ROOT"):
+    if root != Path("/tmp/plaque-forge-python") and not os.environ.get(
+        "PLAQUE_FORGE_ALLOW_CUSTOM_RUNTIME_ROOT"
+    ):
         raise RuntimeError(f"unexpected segmentation runtime root: {root}")
     return root
 
@@ -302,7 +311,11 @@ def cache_lock(path):
 def prune_frame_cache(root, maximum_entries=12):
     if not root.is_dir():
         return
-    entries = [path for path in root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+    entries = [
+        path
+        for path in root.iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
     entries.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     for stale in entries[maximum_entries:]:
         shutil.rmtree(stale, ignore_errors=True)
@@ -318,10 +331,16 @@ def extract_frames_cached(request):
         if metadata.is_file():
             document = json.loads(metadata.read_text(encoding="utf-8"))
             frames = sorted(target.glob("*.png"))
-            if document.get("format") == FRAME_CACHE_FORMAT and len(frames) == request["source"]["frames"]:
+            if (
+                document.get("format") == FRAME_CACHE_FORMAT
+                and len(frames) == request["source"]["frames"]
+            ):
                 record_stage("Decode frames", "cpu", "lossless", 0.0, cache_hit=True)
                 os.utime(target, None)
-                print(f"Decode frames: cache hit ({len(frames)} lossless PNGs)", file=sys.stderr)
+                print(
+                    f"Decode frames: cache hit ({len(frames)} lossless PNGs)",
+                    file=sys.stderr,
+                )
                 return frames
         staging = cache_root / f".{key}.{os.getpid()}.incoming"
         shutil.rmtree(staging, ignore_errors=True)
@@ -329,9 +348,22 @@ def extract_frames_cached(request):
         started = time.monotonic()
         subprocess.run(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-noautorotate",
-                "-i", str(request["source"]["path"]), "-start_number", "0",
-                "-c:v", "png", "-pix_fmt", "rgba", "-f", "image2", "-y",
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-noautorotate",
+                "-i",
+                str(request["source"]["path"]),
+                "-start_number",
+                "0",
+                "-c:v",
+                "png",
+                "-pix_fmt",
+                "rgba",
+                "-f",
+                "image2",
+                "-y",
                 str(staging / "%06d.png"),
             ],
             check=True,
@@ -398,7 +430,9 @@ def exact_seed_mask(request, frame, size):
         if seed["frame"] != frame:
             continue
         if file_sha256(seed["path"]) != seed["sha256"]:
-            raise ValueError(f"seed mask changed after request creation on frame {frame}")
+            raise ValueError(
+                f"seed mask changed after request creation on frame {frame}"
+            )
         image = Image.open(seed["path"]).convert("L")
         if image.size != size:
             raise ValueError(f"seed mask dimensions differ on frame {frame}")
@@ -411,14 +445,16 @@ def probability_from_png(path):
     encoded = np.asarray(Image.open(path))
     if encoded.ndim == 3:
         encoded = encoded[..., 0]
-    maximum = 65535.0 if encoded.dtype == np.uint16 or encoded.max(initial=0) > 255 else 255.0
+    maximum = (
+        65535.0 if encoded.dtype == np.uint16 or encoded.max(initial=0) > 255 else 255.0
+    )
     return encoded.astype(np.float32) / maximum
 
 
 def save_probability_png(path, probability):
-    encoded = np.round(np.asarray(probability, dtype=np.float32).clip(0, 1) * 65535).astype(
-        np.uint16
-    )
+    encoded = np.round(
+        np.asarray(probability, dtype=np.float32).clip(0, 1) * 65535
+    ).astype(np.uint16)
     Image.fromarray(encoded).save(path, format="PNG", compress_level=6)
 
 
@@ -430,7 +466,9 @@ def seed_mask(request, frame, size):
     for prompt in request["layer"]["prompts"]:
         if prompt["frame"] == frame:
             mask = Image.fromarray(
-                np.maximum(np.asarray(mask), np.asarray(prompt_shape(prompt, size))).astype(np.uint8)
+                np.maximum(
+                    np.asarray(mask), np.asarray(prompt_shape(prompt, size))
+                ).astype(np.uint8)
             )
     if not np.asarray(mask).any():
         raise ValueError(f"no area seed exists on frame {frame}")
@@ -440,6 +478,7 @@ def seed_mask(request, frame, size):
 def sam2_native_postprocessing_available():
     try:
         import sam2._C  # noqa: F401
+
         return True
     except (ImportError, OSError):
         return False
@@ -515,7 +554,9 @@ def sam2_masks(request, frames, device):
                 compute_device,
             )
         if async_loading_frames:
-            raise ValueError("lossless PNG loading does not support asynchronous loading")
+            raise ValueError(
+                "lossless PNG loading does not support asynchronous loading"
+            )
         images = torch.zeros(
             len(png_paths), 3, image_size, image_size, dtype=torch.float32
         )
@@ -596,10 +637,15 @@ def sam2_masks(request, frames, device):
             f"[ml] SAM2 resident-model hit: {request['model']} on {device}/{precision}",
             file=sys.stderr,
         )
-    state = predictor.init_state(video_path=str(frames[0].parent), offload_video_to_cpu=True)
+    state = predictor.init_state(
+        video_path=str(frames[0].parent), offload_video_to_cpu=True
+    )
     prompts = request["layer"]["prompts"]
     precision = requested_precision(request)
-    active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
+    active_start, active_end = request["layer"].get("active_frames") or [
+        0,
+        len(frames) - 1,
+    ]
     probabilities = [None] * len(frames)
     first = min(prompt["frame"] for prompt in prompts)
     last = max(prompt["frame"] for prompt in prompts)
@@ -616,18 +662,24 @@ def sam2_masks(request, frames, device):
                 "frame_idx": prompt["frame"],
                 "obj_id": object_id,
             }
-            exact = exact_seed_mask(request, prompt["frame"], Image.open(frames[0]).size)
+            exact = exact_seed_mask(
+                request, prompt["frame"], Image.open(frames[0]).size
+            )
             polygon = prompt.get("polygon") or prompt.get("quad")
             if exact is not None:
                 predictor.add_new_mask(
                     **kwargs,
-                    mask=torch.from_numpy(np.asarray(exact, dtype=np.uint8) > 24).to(device),
+                    mask=torch.from_numpy(np.asarray(exact, dtype=np.uint8) > 24).to(
+                        device
+                    ),
                 )
             elif polygon:
                 mask = prompt_shape(prompt, Image.open(frames[0]).size)
                 predictor.add_new_mask(
                     **kwargs,
-                    mask=torch.from_numpy(np.asarray(mask, dtype=np.uint8) > 0).to(device),
+                    mask=torch.from_numpy(np.asarray(mask, dtype=np.uint8) > 0).to(
+                        device
+                    ),
                 )
             else:
                 positive = prompt.get("positive_points", [])
@@ -656,18 +708,29 @@ def sam2_masks(request, frames, device):
                 max_frame_num_to_track=limit,
                 reverse=reverse,
             ):
-                probability = logits.sigmoid().amax(dim=0).squeeze().float().cpu().numpy()
+                probability = (
+                    logits.sigmoid().amax(dim=0).squeeze().float().cpu().numpy()
+                )
                 probabilities[frame] = (
                     probability
                     if probabilities[frame] is None
                     else np.maximum(probabilities[frame], probability)
                 )
-    if any(probabilities[frame] is None for frame in range(active_start, active_end + 1)):
+    if any(
+        probabilities[frame] is None for frame in range(active_start, active_end + 1)
+    ):
         raise RuntimeError("SAM 2 did not produce every source frame")
-    empty = np.zeros((request["source"]["height"], request["source"]["width"]), dtype=np.float32)
-    probabilities = [empty.copy() if probability is None else probability for probability in probabilities]
+    empty = np.zeros(
+        (request["source"]["height"], request["source"]["width"]), dtype=np.float32
+    )
+    probabilities = [
+        empty.copy() if probability is None else probability
+        for probability in probabilities
+    ]
     if not native_postprocessing:
-        probabilities = [cleanup_small_mask_defects(probability) for probability in probabilities]
+        probabilities = [
+            cleanup_small_mask_defects(probability) for probability in probabilities
+        ]
     return probabilities, (
         f"sam2-{package_version('sam-2', 'sam2')}+{precision}+{compile_label}"
     )
@@ -757,7 +820,10 @@ def cutie_masks(request, frames, device, guides=None):
 
     precision = requested_precision(request)
     prompts = request["layer"]["prompts"]
-    active_start, active_end = request["layer"].get("active_frames") or [0, len(frames) - 1]
+    active_start, active_end = request["layer"].get("active_frames") or [
+        0,
+        len(frames) - 1,
+    ]
     if device == "cpu":
         torch.set_num_threads(min(8, len(os.sched_getaffinity(0))))
     seed = min(prompt["frame"] for prompt in prompts)
@@ -771,13 +837,20 @@ def cutie_masks(request, frames, device, guides=None):
         output = {}
         with torch.inference_mode(), precision_context(torch, device, precision):
             for position, frame in enumerate(indices):
-                image = to_tensor(Image.open(frames[frame]).convert("RGB")).to(device).float()
+                image = (
+                    to_tensor(Image.open(frames[frame]).convert("RGB"))
+                    .to(device)
+                    .float()
+                )
                 correction = position == 0 or frame in prompt_frames
                 if correction:
                     source = (
                         guides[frame] >= 0.5
                         if guides is not None
-                        else np.asarray(seed_mask(request, frame, (source_width, source_height))) > 0
+                        else np.asarray(
+                            seed_mask(request, frame, (source_width, source_height))
+                        )
+                        > 0
                     )
                     mask = torch.from_numpy(source.astype(np.float32)).to(device)
                     probability = processor.step(image, mask, objects=[1])
@@ -833,7 +906,9 @@ def optical_trimap_known_foreground(request, frame_index, probability):
         stride = 32
         for top in range(0, height, stride):
             for left in range(0, width, stride):
-                tile = probability[top : min(top + stride, height), left : min(left + stride, width)]
+                tile = probability[
+                    top : min(top + stride, height), left : min(left + stride, width)
+                ]
                 if tile.size == 0 or float(tile.max(initial=0.0)) < 0.92:
                     continue
                 _, maximum, _, location = cv2.minMaxLoc(tile)
@@ -854,12 +929,21 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
 
     def build_vitmatte():
         processor = VitMatteImageProcessor.from_pretrained(model_name, **revision)
-        model = VitMatteForImageMatting.from_pretrained(model_name, **revision).to(device).eval()
+        model = (
+            VitMatteForImageMatting.from_pretrained(model_name, **revision)
+            .to(device)
+            .eval()
+        )
         return processor, model
 
-    (processor, model), hit = cached_model(("vitmatte", model_name, device), build_vitmatte)
+    (processor, model), hit = cached_model(
+        ("vitmatte", model_name, device), build_vitmatte
+    )
     if hit:
-        print(f"[ml] ViTMatte resident-model hit: {model_name} on {device}", file=sys.stderr)
+        print(
+            f"[ml] ViTMatte resident-model hit: {model_name} on {device}",
+            file=sys.stderr,
+        )
     output = []
     optical_foreground = (
         request["layer"].get("role") == "foreground"
@@ -869,7 +953,9 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
         kernel = np.ones((3, 3), np.uint8)
         if optical_foreground:
-            foreground = optical_trimap_known_foreground(request, frame_index, probability)
+            foreground = optical_trimap_known_foreground(
+                request, frame_index, probability
+            )
         else:
             foreground = cv2.erode((probability >= 0.82).astype(np.uint8), kernel)
             if not foreground.any():
@@ -920,12 +1006,17 @@ def dense_flow(source, target):
     # Half-resolution variational flow preserves narrow vines/webs far better than
     # the former quarter-resolution FAST preset while keeping this post-pass bounded.
     scale = 0.5
-    size = (max(1, round(source.shape[1] * scale)), max(1, round(source.shape[0] * scale)))
+    size = (
+        max(1, round(source.shape[1] * scale)),
+        max(1, round(source.shape[0] * scale)),
+    )
     source_small = cv2.resize(source, size, interpolation=cv2.INTER_AREA)
     target_small = cv2.resize(target, size, interpolation=cv2.INTER_AREA)
     estimator = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
     flow = estimator.calc(source_small, target_small, None)
-    flow = cv2.resize(flow, (source.shape[1], source.shape[0]), interpolation=cv2.INTER_LINEAR)
+    flow = cv2.resize(
+        flow, (source.shape[1], source.shape[0]), interpolation=cv2.INTER_LINEAR
+    )
     flow[..., 0] /= scale
     flow[..., 1] /= scale
     return flow
@@ -935,7 +1026,9 @@ def warp_alpha(alpha, source_gray, target_gray, forward, backward):
     y, x = np.mgrid[: target_gray.shape[0], : target_gray.shape[1]].astype(np.float32)
     map_x = x + backward[..., 0]
     map_y = y + backward[..., 1]
-    warped = cv2.remap(alpha, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    warped = cv2.remap(
+        alpha, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
+    )
     warped_gray = cv2.remap(
         source_gray, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT
     )
@@ -951,19 +1044,28 @@ def warp_alpha(alpha, source_gray, target_gray, forward, backward):
     return warped, weight.astype(np.float32)
 
 
-def stabilize_alpha(probabilities, frames, blend_strength=0.32, propagation_headroom=None):
+def stabilize_alpha(
+    probabilities, frames, blend_strength=0.32, propagation_headroom=None
+):
     if len(probabilities) < 2:
         return probabilities
-    original = [np.asarray(value, dtype=np.float32).clip(0, 1) for value in probabilities]
+    original = [
+        np.asarray(value, dtype=np.float32).clip(0, 1) for value in probabilities
+    ]
     active = [frame for frame, value in enumerate(original) if np.any(value >= 0.01)]
     if not active:
         return original
     start = max(0, active[0] - 1)
     end = min(len(original) - 1, active[-1] + 1)
     segment = original[start : end + 1]
-    gray = [cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in frames[start : end + 1]]
+    gray = [
+        cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in frames[start : end + 1]
+    ]
     flows = [
-        (dense_flow(gray[frame], gray[frame + 1]), dense_flow(gray[frame + 1], gray[frame]))
+        (
+            dense_flow(gray[frame], gray[frame + 1]),
+            dense_flow(gray[frame + 1], gray[frame]),
+        )
         for frame in range(len(gray) - 1)
     ]
     forward = [segment[0]]
@@ -1012,11 +1114,17 @@ def matanyone2_masks(request, output, size, frames, device):
     model_module.device = torch.device(device)
 
     def build_matanyone2():
-        return MatAnyone2.from_pretrained(
-            request["model"], **model_revision(request["model"])
-        ).to(device).eval()
+        return (
+            MatAnyone2.from_pretrained(
+                request["model"], **model_revision(request["model"])
+            )
+            .to(device)
+            .eval()
+        )
 
-    model, hit = cached_model(("matanyone2", request["model"], device), build_matanyone2)
+    model, hit = cached_model(
+        ("matanyone2", request["model"], device), build_matanyone2
+    )
     if hit:
         print(f"[ml] MatAnyone2 resident-model hit: {device}", file=sys.stderr)
     processor = InferenceCore(model, device=device)
@@ -1032,7 +1140,9 @@ def matanyone2_masks(request, output, size, frames, device):
         )
     alpha_paths = sorted(work.glob("*/pha/*.png"))
     if len(alpha_paths) != frames:
-        raise RuntimeError(f"MatAnyone2 produced {len(alpha_paths)} masks, expected {frames}")
+        raise RuntimeError(
+            f"MatAnyone2 produced {len(alpha_paths)} masks, expected {frames}"
+        )
     # Preserve the model's native PNG precision. Converting through PIL "L" used to
     # quantize the matte to 8 bits before Plaque Forge re-encoded it as 16-bit PNG.
     return [probability_from_png(path) for path in alpha_paths], (
@@ -1061,7 +1171,11 @@ def sam2_cache_key(request):
 def prune_stage_cache(root, maximum_entries=20):
     if not root.is_dir():
         return
-    entries = [path for path in root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+    entries = [
+        path
+        for path in root.iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    ]
     entries.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     for stale in entries[maximum_entries:]:
         shutil.rmtree(stale, ignore_errors=True)
@@ -1081,7 +1195,9 @@ def cutie_cache_key(request, guided):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
-def load_cutie_stage_cache(request, frames, requested_device, guided, *, allow_xpu=True):
+def load_cutie_stage_cache(
+    request, frames, requested_device, guided, *, allow_xpu=True
+):
     key = cutie_cache_key(request, guided)
     target = private_runtime_root() / "cache" / "model-stages" / "cutie" / key
     metadata_path = target / "cache.json"
@@ -1229,7 +1345,9 @@ def cached_sam2(request, frames, requested_device):
 def sam31_masks(request, output):
     """Run the optional SAM 3.1 backend in its isolated Python 3.12/CUDA runtime."""
     if requested_precision(request) != "bf16":
-        raise RuntimeError("SAM 3.1 integration currently requires the sealed BF16 policy")
+        raise RuntimeError(
+            "SAM 3.1 integration currently requires the sealed BF16 policy"
+        )
     root = Path(os.environ.get("PLAQUE_FORGE_SAM31_ROOT", "/tmp/plaque-forge-sam31"))
     python = root / "venv" / "bin" / "python"
     manifest = root / "runtime-manifest.json"
@@ -1245,7 +1363,14 @@ def sam31_masks(request, output):
     request_path.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
     started = time.monotonic()
     subprocess.run(
-        [str(python), str(bridge), "--request", str(request_path), "--output", str(work)],
+        [
+            str(python),
+            str(bridge),
+            "--request",
+            str(request_path),
+            "--output",
+            str(work),
+        ],
         check=True,
         env={
             **os.environ,
@@ -1263,8 +1388,10 @@ def sam31_masks(request, output):
             f"SAM 3.1 bridge produced {len(paths)} masks, expected {request['source']['frames']}"
         )
     record_stage("SAM 3.1", metadata.get("device", "cuda"), "bf16", elapsed)
-    return [probability_from_png(path) for path in paths], metadata["version"], metadata.get(
-        "device", "cuda"
+    return (
+        [probability_from_png(path) for path in paths],
+        metadata["version"],
+        metadata.get("device", "cuda"),
     )
 
 
@@ -1359,18 +1486,26 @@ def model_masks(request, frames, requested_device, output):
             ),
             precision=precision,
         )
-        matte_version = f"vitmatte-{package_version('transformers')}@{matte_device}/{precision}"
+        matte_version = (
+            f"vitmatte-{package_version('transformers')}@{matte_device}/{precision}"
+        )
     elif matte_refiner == "native":
         # Native alpha is produced by specialist backends (currently MatAnyone2)
         # and therefore never reaches this function.
-        raise RuntimeError("native matte refinement reached a non-native semantic executor")
+        raise RuntimeError(
+            "native matte refinement reached a non-native semantic executor"
+        )
     else:
         raise ValueError(f"unsupported sealed matte refiner: {matte_refiner}")
 
     probabilities = constrain_to_authored_motion_envelope(request, probabilities)
     probabilities = preserve_authored_prompt_evidence(request, probabilities)
     started = time.monotonic()
-    if role == "foreground" and matte_mode == "optical" and matte_refiner != "none":
+    if role == "foreground":
+        # Temporal stabilization is noise suppression, not matte calibration: it
+        # blends neighboring frames so thin structures stop flickering. It applies
+        # to optical mattes and to opaque semantic confidence alike; the Rust
+        # compositor still owns the scene's support-to-solid calibration policy.
         probabilities = stabilize_alpha(
             probabilities,
             frames,
@@ -1417,7 +1552,9 @@ def constrain_to_authored_motion_envelope(request, probabilities):
             return np.asarray(prompts[0]["box_bounds"], dtype=np.float64)
         if frame >= prompts[-1]["frame"]:
             return np.asarray(prompts[-1]["box_bounds"], dtype=np.float64)
-        right = next(index for index, prompt in enumerate(prompts) if prompt["frame"] >= frame)
+        right = next(
+            index for index, prompt in enumerate(prompts) if prompt["frame"] >= frame
+        )
         left = right - 1
         before = prompts[left]
         after = prompts[right]
@@ -1451,7 +1588,9 @@ def preserve_authored_prompt_evidence(request, probabilities):
     seed.  A tiny feathered guard is local enough not to invent an object, while
     negative points remain exact background constraints.
     """
-    output = [np.asarray(value, dtype=np.float32).clip(0, 1).copy() for value in probabilities]
+    output = [
+        np.asarray(value, dtype=np.float32).clip(0, 1).copy() for value in probabilities
+    ]
     for prompt in request["layer"]["prompts"]:
         probability = output[prompt["frame"]]
         height, width = probability.shape
@@ -1510,7 +1649,9 @@ def verify_sam2_device(device):
             },
         }
         probabilities, _ = sam2_masks(request, frames, device)
-        if len(probabilities) != 2 or not any(np.any(mask >= 0.5) for mask in probabilities):
+        if len(probabilities) != 2 or not any(
+            np.any(mask >= 0.5) for mask in probabilities
+        ):
             raise RuntimeError("SAM2 smoke test produced no foreground mask")
     return True
 
@@ -1542,9 +1683,13 @@ def verify_vitmatte_device(device):
     processor = VitMatteImageProcessor.from_pretrained(
         model_name, local_files_only=True, **revision
     )
-    model = VitMatteForImageMatting.from_pretrained(
-        model_name, local_files_only=True, **revision
-    ).to(device).eval()
+    model = (
+        VitMatteForImageMatting.from_pretrained(
+            model_name, local_files_only=True, **revision
+        )
+        .to(device)
+        .eval()
+    )
     image = Image.new("RGB", (64, 64), (90, 100, 110))
     trimap = Image.new("L", (64, 64), 0)
     draw = ImageDraw.Draw(trimap)
@@ -1587,10 +1732,16 @@ def verify_runtime():
     _, sam2_device = run_component("SAM 2 smoke", "auto", verify_sam2_device)
     # Cutie is deliberately allowed to try XPU. Unsupported operators trigger the
     # existing automatic fallback to CUDA/CPU rather than disabling XPU forever.
-    _, cutie_device = run_component("Cutie smoke", "auto", verify_cutie_device, allow_xpu=True)
+    _, cutie_device = run_component(
+        "Cutie smoke", "auto", verify_cutie_device, allow_xpu=True
+    )
     _, vitmatte_device = run_component("ViTMatte smoke", "auto", verify_vitmatte_device)
 
-    native = "available" if sam2_native_postprocessing_available() else "not built (expected on XPU/CPU)"
+    native = (
+        "available"
+        if sam2_native_postprocessing_available()
+        else "not built (expected on XPU/CPU)"
+    )
     print(f"[verify] SAM2 native CUDA cleanup: {native}", file=sys.stderr)
     print(
         f"[verify] runtime OK: torch={torch_device}, sam2={sam2_device}, "
@@ -1615,13 +1766,17 @@ def write_output(request, output, probabilities, version):
         if not active_start <= frame <= active_end:
             probability = np.zeros_like(probability)
         encoded = np.round(probability * 65535).astype(np.uint16)
-        validation_alpha = np.round(encoded.astype(np.float64) * 255 / 65535).astype(np.uint8)
+        validation_alpha = np.round(encoded.astype(np.float64) * 255 / 65535).astype(
+            np.uint8
+        )
         support = probability[encoded > 0]
         confidences.append(
             float(np.mean(2.0 * np.abs(support - 0.5))) if support.size else 0.0
         )
         if active_start <= frame <= active_end:
-            coverages.append(float(np.count_nonzero(validation_alpha > 8) / encoded.size))
+            coverages.append(
+                float(np.count_nonzero(validation_alpha > 8) / encoded.size)
+            )
         soft_edge_pixels += int(
             np.count_nonzero((validation_alpha > 0) & (validation_alpha < 255))
         )
@@ -1673,7 +1828,9 @@ def write_output(request, output, probabilities, version):
         "soft_edge_pixels": soft_edge_pixels,
         "execution": list(STAGE_METRICS),
     }
-    (output / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    (output / "result.json").write_text(
+        json.dumps(result, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def remove_owned_directory(root, path):
@@ -1764,7 +1921,9 @@ def main():
         verify_runtime()
         return
     if args.request is None or args.output is None:
-        parser.error("--request and --output are required unless --verify-runtime is used")
+        parser.error(
+            "--request and --output are required unless --verify-runtime is used"
+        )
     process_request(args.request, args.output)
 
 

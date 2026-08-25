@@ -1,0 +1,46 @@
+{
+  "format": "plaque-forge.segmentation-result/2",
+  "backend": "sam2-cutie",
+  "model": "facebook/sam2.1-hiera-large",
+  "version": "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16",
+  "plan_sha256": "d11cb42c6809000c184f50855a10c351f9f5ea232485ca5ba81082b43e926de8",
+  "precision": "fp32",
+  "frames": 240,
+  "mean_confidence": 0.9745668875674407,
+  "minimum_confidence": 0.9289019703865051,
+  "request_sha256": "5318501fc3aa1748d9d3c21f5e14da191001b7253256e123c85fe4a99051262d",
+  "source_sha256": "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33",
+  "prompt_sha256": "699d5472f15a3081507619fd62626987b357a83a4ea688c6a428402394d08fc5",
+  "worker_sha256": "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30",
+  "runtime_sha256": "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4",
+  "nonempty_frames": 240,
+  "mean_coverage": 0.031868376555266205,
+  "maximum_coverage": 0.044554036458333335,
+  "soft_edge_pixels": 9338607,
+  "execution": [
+    {
+      "stage": "Decode frames",
+      "device": "cpu",
+      "precision": "lossless",
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 11046.75
+    },
+    {
+      "stage": "Cutie",
+      "device": "cpu",
+      "precision": "fp32",
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 11046.75
+    },
+    {
+      "stage": "Temporal stabilization",
+      "device": "cpu",
+      "precision": "fp32",
+      "seconds": 38.252104,
+      "cache_hit": false,
+      "process_peak_rss_mib": 11046.75
+    }
+  ]
+}

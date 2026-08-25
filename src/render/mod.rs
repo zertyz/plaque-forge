@@ -352,7 +352,7 @@ fn render_to(
     // Opaque source masks carry semantic identity, not material alpha. When the
     // analyzer has produced a frame-local fused matte, restoring the semantic mask
     // too would turn prompt boxes/blobs into solid foreground and close porous gaps.
-    let foregrounds = ForegroundReader::open(&pack, use_masks)?;
+    let foregrounds = ForegroundReader::open(&pack)?;
     let scene_foreground_layers = pack
         .manifest
         .layers
@@ -485,6 +485,7 @@ fn render_to(
             }
         }
         if !restore.is_empty() {
+            harden_restore_fringe(&mut restore, args.restore_fringe_hardening);
             frame.restore_from_mask(
                 original
                     .as_ref()
@@ -802,6 +803,23 @@ fn evenly_spaced(frames: usize, count: usize) -> Vec<usize> {
         .collect()
 }
 
+/// Push mid-level restore alphas toward 0 and 1.
+///
+/// A soft matte fringe restores source pixels only partially, so title paint
+/// ghosts through at foreground boundaries. Hardening narrows that transition
+/// band around 50% coverage; `0` keeps the measured soft fringe untouched.
+fn harden_restore_fringe(mask: &mut [u8], hardening: f32) {
+    if hardening <= 0.0 {
+        return;
+    }
+    let slope = 1.0 + 4.0 * hardening.clamp(0.0, 1.0);
+    for alpha in mask.iter_mut() {
+        let coverage = f32::from(*alpha) / 255.0;
+        let hardened = ((coverage - 0.5) * slope + 0.5).clamp(0.0, 1.0);
+        *alpha = (hardened * 255.0).round() as u8;
+    }
+}
+
 fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Result<()> {
     let Some(first) = frames.first() else {
         bail!("cannot create a render contact sheet without frames");
@@ -828,7 +846,10 @@ fn write_contact_sheet(frames: &[crate::surface::Surface], path: &Path) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use super::{analysis_occluders_are_renderable, evenly_spaced, validate_portable_encoder_args};
+    use super::{
+        analysis_occluders_are_renderable, evenly_spaced, harden_restore_fringe,
+        validate_portable_encoder_args,
+    };
     use crate::scene::DepthMode;
 
     #[test]
@@ -911,6 +932,21 @@ mod tests {
         } else {
             cov / denom
         }
+    }
+
+    #[test]
+    fn restore_fringe_hardening_pushes_mid_alpha_to_the_edges() {
+        let mut mask = vec![0, 26, 77, 128, 179, 230, 255];
+        harden_restore_fringe(&mut mask, 1.0);
+        assert_eq!(
+            mask,
+            vec![0, 0, 0, 130, 255, 255, 255],
+            "mid-level coverage must resolve toward full restoration or none"
+        );
+
+        let mut unchanged = vec![0, 77, 255];
+        harden_restore_fringe(&mut unchanged, 0.0);
+        assert_eq!(unchanged, vec![0, 77, 255], "0 must keep the soft fringe");
     }
 
     #[test]

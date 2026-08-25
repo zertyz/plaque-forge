@@ -2,21 +2,21 @@
   "format": "plaque-forge.segmentation-result/2",
   "backend": "sam2-cutie",
   "model": "facebook/sam2.1-hiera-large",
-  "version": "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16",
+  "version": "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+semantic-confidence-u16",
   "plan_sha256": "391285cd17c78a1a99a0b5755aec26d806b8b4600d87aef4dc75ffe52763e870",
   "precision": "fp32",
   "frames": 206,
-  "mean_confidence": 0.44411449785371426,
+  "mean_confidence": 0.44320864642708047,
   "minimum_confidence": 0.0,
-  "request_sha256": "8cf310975587ec0939f0e9f6d6ec4feacb3a1474319364044ae99696094aff1c",
+  "request_sha256": "46b23bb78e6c01abe7b0303c9efd0d9c8b5c374140e8f4419483749b4b32b672",
   "source_sha256": "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df",
   "prompt_sha256": "918e5abb06f8ed96f1de1c78c5e294ec1c7e54056c252c525d746dbbd39381e0",
-  "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
+  "worker_sha256": "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30",
   "runtime_sha256": "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4",
   "nonempty_frames": 102,
-  "mean_coverage": 0.01629888131467865,
-  "maximum_coverage": 0.021044921875,
-  "soft_edge_pixels": 2093016,
+  "mean_coverage": 0.01679677925857843,
+  "maximum_coverage": 0.021204427083333335,
+  "soft_edge_pixels": 2262672,
   "execution": [
     {
       "stage": "Decode frames",
@@ -24,32 +24,23 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 12972.801
-    },
-    {
-      "stage": "SAM 2",
-      "device": "xpu",
-      "precision": "fp32",
-      "seconds": 910.867746,
-      "cache_hit": false,
-      "process_peak_rss_mib": 12972.801,
-      "accelerator_peak_mib": 2836.994
+      "process_peak_rss_mib": 12990.141
     },
     {
       "stage": "Cutie",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 226.094364,
-      "cache_hit": false,
-      "process_peak_rss_mib": 12972.801
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 12990.141
     },
     {
       "stage": "Temporal stabilization",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 1e-06,
+      "seconds": 16.192009,
       "cache_hit": false,
-      "process_peak_rss_mib": 12972.801
+      "process_peak_rss_mib": 12990.141
     }
   ]
 }

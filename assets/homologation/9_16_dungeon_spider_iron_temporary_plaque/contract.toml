@@ -32,7 +32,7 @@ maximum_fallback_glyphs = 0
 [[source_preservation]]
 frame = 52
 mask = "foreground/000052.png"
-mask_sha256 = "f916c3bf26683d03b17a0d93a3577266e9ba24c91cdb57ba8c832166b418fdc0"
+mask_sha256 = "34b9e141cd7b368cc28676c5c0dd86a0bba5fac4fc694e1efe0556898b654749"
 minimum_selected_pixels = 70000
 maximum_mean_absolute_error = 12.0
 maximum_p95_absolute_error = 25.0
@@ -40,7 +40,7 @@ maximum_p95_absolute_error = 25.0
 [[source_preservation]]
 frame = 64
 mask = "foreground/000064.png"
-mask_sha256 = "b3ddc2b3398aa44bc9309ab961d7eee9393df4e7fce382d312189f0ad332d52e"
+mask_sha256 = "7ecad875dbef7856881aafeb917073253653e01368a4ba82bbbceb198e3851e9"
 minimum_selected_pixels = 70000
 maximum_mean_absolute_error = 12.0
 maximum_p95_absolute_error = 25.0

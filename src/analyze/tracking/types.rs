@@ -11,6 +11,8 @@ pub enum MotionModel {
 pub struct TrackingResult {
     pub samples: Vec<MotionSample>,
     pub model_name: String,
+    /// Whether the trajectory pins the surface to the screen instead of the scene.
+    pub screen_fixed: bool,
     pub reference_frame: usize,
     pub confidence: f64,
     pub loop_closed: bool,
@@ -40,6 +42,7 @@ pub fn screen_fixed(
             })
             .collect(),
         model_name: model_name.to_string(),
+        screen_fixed: true,
         reference_frame: reference_frame.min(frame_count.saturating_sub(1)),
         confidence: confidence.clamp(0.0, 1.0),
         loop_closed: false,

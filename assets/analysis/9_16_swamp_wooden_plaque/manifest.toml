@@ -7,11 +7,11 @@ reference_frame = 10
 canonical_width = 720
 canonical_height = 380
 surface_space = "scene-plane"
-trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-retrack-rejected+foreground-aware-source-flow"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-retrack+foreground-aware-source-flow"
 loop_closed = false
 has_occluder = true
 occlusion_mode = "automatic"
-automatic_ml_foreground = false
+automatic_ml_foreground = true
 analysis_gate_passed = true
 
 [source]
@@ -28,6 +28,15 @@ x = 0.0
 y = 64.0
 width = 720.0
 height = 380.0
+
+[segmentation]
+backend = "auto"
+model = "auto"
+device = "auto"
+profile = "canonical"
+precision = "auto"
+worker_sha256 = "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30"
+runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
 
 [[layers]]
 id = "plaque-foreground"
@@ -48,13 +57,13 @@ solid_threshold = 0.2
 [layers.generator]
 backend = "sam2-cutie-vitmatte"
 model = "facebook/sam2.1-hiera-large"
-version = "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+vitmatte-4.57.1@xpu/fp32"
+version = "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+vitmatte-4.57.1@xpu/fp32"
 requested_device = "auto"
 source_sha256 = "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33"
 prompt_sha256 = "88e15c2b9d8ddb29e518f6e58e31f97ec448cf4c5377325a362cbec6e41fb001"
-worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
+worker_sha256 = "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30"
 runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
-request_sha256 = "1a6417cb41f93366cce7253906df1db263ea28e259a39251cda83f499a607e55"
+request_sha256 = "c5230e38ebd17c19b19666c7729e9215144b9e725db9fd9614ee25c153094e6b"
 plan_sha256 = "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93"
 
 [scenes]
@@ -69,12 +78,12 @@ semantic_sha256 = "4150110454cc9a55983f980277a62d0ca7ec72e633cb9f479fc217f7f1296
 
 [[scenes.layer_artifacts]]
 path = "layers/plaque-foreground/artifact.toml"
-sha256 = "ccae350d838528aedb0a8d461f501d75764e310419f6f14e7a8cccb76403e8fd"
-semantic_sha256 = "ce90e033165cb7811938fd3ecc45f90fb41130a223e1500045a1520f73aff71c"
+sha256 = "7c36bfc011121cbff3805177b280ab68588177bd5aee4c40959c66e1fdc533dd"
+semantic_sha256 = "f718ad6f7d1473ae14dfa013aa26e0dab44c460ce57eb36d163c94adf2c0fb70"
 
 [confidence]
 plaque_detection = 0.98
-motion = 0.8132632552679124
-extraction = 0.9350257675438598
-occlusion = 0.8494540620341721
-overall = 0.891980121254362
+motion = 0.8135929550928012
+extraction = 0.9350389254385965
+occlusion = 0.929510083010077
+overall = 0.912387365760036

@@ -273,7 +273,7 @@ pub fn run(
     let registration_template = load_rgba(&pack.require_asset(REGISTRATION_TEMPLATE_FILE)?)?;
     let structural_matcher =
         StructuralMatcher::new(&registration_template, &registration_mask).map(std::sync::Arc::new);
-    let foregrounds = ForegroundReader::open(&pack, manifest.used_analysis_occluder_masks)?;
+    let foregrounds = ForegroundReader::open(&pack)?;
     let has_any_occluder = pack.manifest.has_occluder || !foregrounds.is_empty();
     let writing_surface_layer = pack.manifest.layers.iter().find(|layer| {
         layer.role == crate::scene::LayerRole::WritingSurface

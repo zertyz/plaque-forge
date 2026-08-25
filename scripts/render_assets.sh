@@ -24,6 +24,9 @@ Common options:
   --style NAME                Built-in preset from styles/NAME.toml.
   --style-file PATH           Custom TOML paint/effect stack; replaces paint flags.
   --fit MODE                  maximize, balanced, artistic, or fixed.
+  --restore-fringe-hardening F
+                              Push mid-level foreground-restore alpha toward 0/1
+                              (0 keeps the soft matte fringe; 1 is a hard cut).
 
 All typography options accepted by this script are also available through the
 matching environment variables documented in scripts/render_common.sh.

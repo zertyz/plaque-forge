@@ -429,7 +429,7 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
 
     if let Some(occlusion) = occlusion {
         body.push_str("<h2>Foreground / occlusion</h2>");
-        body.push_str("<p>Coverage is scene complexity, not a failure by itself. The important question is whether crossings are restored cleanly.</p><div class=metrics>");
+        body.push_str("<p>Coverage is scene complexity, not a failure by itself. The important question is whether crossings are restored cleanly. Low temporal agreement or persistence means foreground masks flicker between frames, which reads as title blinking at crossing regions.</p><div class=metrics>");
         metric_neutral(
             &mut body,
             "Mean content occlusion",
@@ -444,6 +444,22 @@ fn build_report(inputs: ReportInputs<'_>) -> String {
             &mut body,
             "Minimum plaque visibility",
             number(occlusion, "minimum_plaque_visibility"),
+        );
+        metric_warn_below(
+            &mut body,
+            "Adjacent-frame mask IoU",
+            number(occlusion, "nonempty_adjacent_mask_iou"),
+            0.60,
+            "below 0.60",
+            "Foreground masks change abruptly between frames. Inspect crossing regions for title blinking; consider a sparse foreground prompt for the flickering object.",
+        );
+        metric_warn_below(
+            &mut body,
+            "Coverage persistence",
+            number(occlusion, "coverage_persistence"),
+            0.30,
+            "below 0.30",
+            "Mean coverage is low relative to its peak, so the foreground appears and disappears. Check whether a crossing object is only partially detected.",
         );
         body.push_str("</div>");
     }
@@ -1145,6 +1161,35 @@ fn metric_neutral(body: &mut String, label: &str, value: Option<f64>) {
         "<div class=\"metric neutral\"><span>{}</span><strong>{:.3}</strong></div>",
         escape_html(label),
         value,
+    ));
+}
+
+/// Surface a metric with an actionable hint whenever it falls below `threshold`.
+fn metric_warn_below(
+    body: &mut String,
+    label: &str,
+    value: Option<f64>,
+    threshold: f64,
+    threshold_label: &str,
+    hint: &str,
+) {
+    let Some(value) = value else {
+        return;
+    };
+    if value >= threshold {
+        body.push_str(&format!(
+            "<div class=\"metric neutral\"><span>{}</span><strong>{:.3}</strong></div>",
+            escape_html(label),
+            value,
+        ));
+        return;
+    }
+    body.push_str(&format!(
+        "<div class=\"metric partial\"><span>{}</span><strong>{:.3}</strong><em>{} — {}</em></div>",
+        escape_html(label),
+        value,
+        escape_html(threshold_label),
+        escape_html(hint),
     ));
 }
 

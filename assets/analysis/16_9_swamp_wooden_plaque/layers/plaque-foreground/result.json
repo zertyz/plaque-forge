@@ -2,21 +2,21 @@
   "format": "plaque-forge.segmentation-result/2",
   "backend": "sam2-cutie-vitmatte",
   "model": "facebook/sam2.1-hiera-large",
-  "version": "sam2-1.0+fp32+eager@xpu+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+vitmatte-4.57.1@xpu/fp32",
+  "version": "sam2-guided-stage-cache+cutie-1.0.0+local-sam2-prompt-corrections-r4@cpu/fp32+sam2-guided-cutie+vitmatte-4.57.1@xpu/fp32",
   "plan_sha256": "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93",
   "precision": "fp32",
   "frames": 240,
-  "mean_confidence": 0.7452183765669663,
-  "minimum_confidence": 0.6791458129882812,
-  "request_sha256": "2a1053fba3277ee579b84c9490a3258bf6d1a6981f1d9b66a131b584611b20e9",
+  "mean_confidence": 0.7452285851041476,
+  "minimum_confidence": 0.6790578365325928,
+  "request_sha256": "88c97e1ffcf8ec8c1e71ae39ac11f85dd6376bdf31c73ecdb7f526dd6cfecb59",
   "source_sha256": "5336784452c6473c5cc41258cb605b4bd1c48e264ce609948ba4a24bc53ac0db",
   "prompt_sha256": "cd3931384b51f48d60416195c5617071174f37d082c01b00e009550d28b729da",
-  "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
+  "worker_sha256": "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30",
   "runtime_sha256": "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4",
   "nonempty_frames": 240,
-  "mean_coverage": 0.04215685130931714,
-  "maximum_coverage": 0.069052734375,
-  "soft_edge_pixels": 10038192,
+  "mean_coverage": 0.04215677897135417,
+  "maximum_coverage": 0.06905164930555556,
+  "soft_edge_pixels": 10038280,
   "execution": [
     {
       "stage": "Decode frames",
@@ -24,41 +24,32 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 55.344
-    },
-    {
-      "stage": "SAM 2",
-      "device": "xpu",
-      "precision": "fp32",
-      "seconds": 2665.316699,
-      "cache_hit": false,
-      "process_peak_rss_mib": 7766.414,
-      "accelerator_peak_mib": 3089.978
+      "process_peak_rss_mib": 11046.75
     },
     {
       "stage": "Cutie",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 606.35784,
-      "cache_hit": false,
-      "process_peak_rss_mib": 7766.414
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 11046.75
     },
     {
       "stage": "ViTMatte",
       "device": "xpu",
       "precision": "fp32",
-      "seconds": 104.933959,
+      "seconds": 98.065168,
       "cache_hit": false,
-      "process_peak_rss_mib": 7766.414,
-      "accelerator_peak_mib": 1615.793
+      "process_peak_rss_mib": 11046.75,
+      "accelerator_peak_mib": 635.401
     },
     {
       "stage": "Temporal stabilization",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 38.899575,
+      "seconds": 37.694211,
       "cache_hit": false,
-      "process_peak_rss_mib": 12972.801
+      "process_peak_rss_mib": 11073.18
     }
   ]
 }

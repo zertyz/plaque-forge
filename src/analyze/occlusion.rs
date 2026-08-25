@@ -239,7 +239,6 @@ pub fn extract(
                 semantic_dir,
                 extraction_samples,
                 extraction,
-                progress,
             )? {
                 Some(surface) => std::borrow::Cow::Owned(surface.pixels().to_vec()),
                 None => std::borrow::Cow::Borrowed(extraction.median.pixels()),
@@ -1048,7 +1047,6 @@ fn occlusion_aware_background(
     semantic_dir: &Path,
     sample_count: usize,
     extraction: &ExtractionResult,
-    progress: &mut ProgressReporter,
 ) -> Result<Option<Surface>> {
     let sample_indices = evenly_spaced(info.frames, info.frames.min(sample_count.max(1)).max(1));
     let width = extraction.median.width() as usize;
@@ -1057,13 +1055,7 @@ fn occlusion_aware_background(
     let mut luma_samples: Vec<Vec<u8>> = Vec::with_capacity(sample_indices.len());
     let mut semantic_samples: Vec<Vec<bool>> = Vec::with_capacity(sample_indices.len());
     let mut next_needed = 0_usize;
-    progress.start(
-        0,
-        1,
-        "Occlusion-aware plaque model",
-        Some(sample_indices.len()),
-    );
-    for (taken, &frame_index) in sample_indices.iter().enumerate() {
+    for &frame_index in sample_indices.iter() {
         while next_needed <= frame_index {
             let Some(frame) = decoder.next_frame()? else {
                 return Err(anyhow::anyhow!(
@@ -1116,9 +1108,7 @@ fn occlusion_aware_background(
             }
             next_needed += 1;
         }
-        progress.update(taken + 1, "");
     }
-    progress.finish("plaque model rebuilt");
     decoder.finish()?;
     let sample_refs: Vec<&[u8]> = luma_samples
         .iter()

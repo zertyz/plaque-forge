@@ -118,6 +118,10 @@ pub struct AcceptancePolicy {
     pub min_interprompt_area_ratio_permille: u16,
     pub min_interprompt_area_p05_permille: u16,
     pub min_adjacent_iou_p05_permille: u16,
+    /// Optional upper bound (permille) on the propagated track's area relative to
+    /// its machine-derived seed masks. Must be promoted from measured bake-off +
+    /// homologation data before being enabled; absent means unbounded.
+    pub max_seed_growth_permille: Option<u16>,
 }
 
 /// Rust-owned strategy. Candidate order is significant: execute the cheapest first and
@@ -158,6 +162,8 @@ struct PolicyThresholds {
     min_interprompt_area_ratio_permille: u16,
     min_interprompt_area_p05_permille: u16,
     min_adjacent_iou_p05_permille: u16,
+    #[serde(default)]
+    max_seed_growth_permille: Option<u16>,
 }
 
 impl From<PolicyThresholds> for AcceptancePolicy {
@@ -172,6 +178,7 @@ impl From<PolicyThresholds> for AcceptancePolicy {
             min_interprompt_area_ratio_permille: value.min_interprompt_area_ratio_permille,
             min_interprompt_area_p05_permille: value.min_interprompt_area_p05_permille,
             min_adjacent_iou_p05_permille: value.min_adjacent_iou_p05_permille,
+            max_seed_growth_permille: value.max_seed_growth_permille,
         }
     }
 }

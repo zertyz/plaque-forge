@@ -16,6 +16,7 @@ run_case() {
   local case_name="$1"
   local text="$2"
   local style="$3"
+  local extra_options="${4:-}"
   local contract="assets/homologation/$case_name/contract.toml"
   local report="output/$case_name.homologation.json"
   local rendered="output/$case_name.hevc.mkv"
@@ -26,11 +27,13 @@ run_case() {
     exit 2
   }
 
+  # shellcheck disable=SC2086 # extra_options is an intentional word-split flag list
   ./scripts/render_assets.sh \
     --text "$text" \
     --font "$PWD/fonts/NotoSerif-Regular.ttf" \
     --style "$style" \
     --fit artistic \
+    $extra_options \
     "$case_name"
 
   cargo run --release -- homologate \
@@ -71,6 +74,7 @@ run_case \
 run_case \
   "9_16_swamp_wooden_plaque" \
   "Seeing what others cannot see!" \
-  "gold-shine"
+  "gold-shine" \
+  "--restore-fringe-hardening 0.6"
 
 printf 'coverage:    %s\n' "output/homologation-coverage.json"

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -24,6 +25,64 @@ class SegmentationQualityContractTests(unittest.TestCase):
             rtol=0,
             atol=1.0e-6,
         )
+
+    @staticmethod
+    def _flow_stub():
+        """A cv2 double whose optical flow is exactly zero."""
+
+        def resize(source, size, interpolation=None):
+            if source.ndim == 3:
+                return np.zeros((size[1], size[0], 2), dtype=np.float32)
+            return np.zeros((size[1], size[0]), dtype=np.float32)
+
+        estimator = types.SimpleNamespace(calc=lambda source, target, flow: np.zeros(
+            (source.shape[0], source.shape[1], 2), dtype=np.float32
+        ))
+        return types.SimpleNamespace(
+            IMREAD_GRAYSCALE=0,
+            INTER_AREA=1,
+            INTER_LINEAR=2,
+            BORDER_CONSTANT=0,
+            BORDER_REFLECT=1,
+            DISOPTICAL_FLOW_PRESET_MEDIUM=0,
+            imread=lambda path, flag: np.full((2, 2), 100, dtype=np.uint8),
+            resize=resize,
+            DISOpticalFlow_create=lambda preset: estimator,
+            remap=lambda source, map_x, map_y, interpolation, borderMode=None: source.astype(
+                np.float32
+            ),
+        )
+
+    def test_opaque_foreground_layers_are_temporally_stabilized(self):
+        # Opaque mattes used to skip stabilization entirely, so raw per-frame
+        # confidence flicker reached the compositor. The pass must run for opaque
+        # layers too, blending neighbors while keeping the confidence soft.
+        probabilities = [
+            np.asarray([[0.9, 0.0], [0.0, 0.0]], dtype=np.float32),
+            np.asarray([[0.1, 0.0], [0.0, 0.0]], dtype=np.float32),
+        ]
+        frames = []
+        with tempfile.TemporaryDirectory() as directory:
+            for frame in range(2):
+                path = Path(directory) / f"{frame:06}.png"
+                Image.new("RGB", (2, 2), (32, 48, 64)).save(path)
+                frames.append(path)
+
+            with patch.object(worker, "cv2", self._flow_stub()):
+                stabilized = worker.stabilize_alpha(
+                    [value.copy() for value in probabilities],
+                    frames,
+                    blend_strength=0.20,
+                    propagation_headroom=0.08,
+                )
+
+        self.assertFalse(
+            np.allclose(stabilized[1], probabilities[1], rtol=0, atol=1.0e-6),
+            "a differing next frame must be temporally blended",
+        )
+        self.assertTrue(np.all(stabilized[0] >= 0.0) and np.all(stabilized[0] <= 1.0))
+        self.assertAlmostEqual(float(stabilized[1][0, 0]), 0.14, places=3)
+        self.assertAlmostEqual(float(stabilized[0][0, 0]), 0.86, places=3)
 
     def test_sam2_cutie_uses_the_temporal_track_and_keeps_soft_opaque_confidence(self):
         sam2 = [
@@ -67,12 +126,21 @@ class SegmentationQualityContractTests(unittest.TestCase):
                     "cached_cutie",
                     return_value=(cutie, "cutie-test", "cpu"),
                 ),
+                patch.object(worker, "cv2", self._flow_stub()),
             ):
                 probabilities, version = worker.model_masks(
                     request, frames, "cpu", root
                 )
 
-        np.testing.assert_allclose(probabilities, cutie, rtol=0, atol=1.0e-6)
+        # Opaque confidence stays soft: temporal stabilization blends neighboring
+        # frames (0.80 -> 0.6875, 0.35 -> 0.3725 with identical-frame flow) and the
+        # propagation headroom caps how far a pixel may rise, but nothing is
+        # thresholded to black-and-white.
+        expected = [
+            np.asarray([[0.6875, 0.105], [0.0, 0.0]], dtype=np.float32),
+            np.asarray([[0.3725, 0.119], [0.0, 0.0]], dtype=np.float32),
+        ]
+        np.testing.assert_allclose(probabilities, expected, rtol=0, atol=1.0e-6)
         self.assertIn("sam2-guided-cutie", version)
         self.assertIn("semantic-confidence", version)
         self.assertNotIn("selected-sam2", version)

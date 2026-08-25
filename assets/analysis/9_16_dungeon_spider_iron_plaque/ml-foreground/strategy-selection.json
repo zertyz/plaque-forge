@@ -14,7 +14,8 @@
         "maximum_negative_alpha_u16": null,
         "nonempty_permille": 524,
         "maximum_coverage_permille": 88,
-        "maximum_prompt_box_fill_permille": 446
+        "maximum_prompt_box_fill_permille": 449,
+        "seed_area_growth_permille": 7791
       },
       "reasons": []
     }

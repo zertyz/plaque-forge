@@ -75,6 +75,7 @@ pf_configure_render() {
       --shadow-color) (( $# >= 2 )) || pf_die "$1 requires a value"; SHADOW_COLOR="$2"; shift 2 ;;
       --text-align) (( $# >= 2 )) || pf_die "$1 requires a value"; TEXT_ALIGN="$2"; shift 2 ;;
       --vertical-align) (( $# >= 2 )) || pf_die "$1 requires a value"; VERTICAL_ALIGN="$2"; shift 2 ;;
+      --restore-fringe-hardening) (( $# >= 2 )) || pf_die "$1 requires a value"; RESTORE_HARDENING="$2"; shift 2 ;;
       --)
         shift
         cases+=("$@")
@@ -145,6 +146,7 @@ pf_configure_render() {
   pf_append_env_option SHADOW_COLOR --shadow-color
   pf_append_env_option TEXT_ALIGN --text-align
   pf_append_env_option VERTICAL_ALIGN --vertical-align
+  pf_append_env_option RESTORE_HARDENING --restore-fringe-hardening
 
   if (( ${#cases[@]} )); then
     PF_CASES=("${cases[@]}")

@@ -379,6 +379,10 @@ pub struct RenderArgs {
     #[arg(long, value_enum, default_value_t = VerticalAlign::Center)]
     pub vertical_align: VerticalAlign,
 
+    /// Push mid-level foreground-restore alphas toward 0/1 (0 keeps the soft fringe).
+    #[arg(long, default_value_t = 0.0)]
+    pub restore_fringe_hardening: f32,
+
     /// Self-contained FFmpeg output argument. Absolute/file-backed paths are rejected.
     #[arg(long = "encoder-arg", allow_hyphen_values = true)]
     pub encoder_args: Vec<String>,
@@ -564,6 +568,7 @@ impl RenderArgs {
             shadow_color: self.shadow_color,
             text_align: self.text_align,
             vertical_align: self.vertical_align,
+            restore_fringe_hardening: self.restore_fringe_hardening,
             encoder_args: self.encoder_args,
             progress: self.progress,
             progress_interval_ms: self.progress_interval_ms,
@@ -828,6 +833,10 @@ mod tests {
         assert_eq!(actual.shadow_color, expected.shadow_color);
         assert_eq!(actual.text_align, expected.text_align);
         assert_eq!(actual.vertical_align, expected.vertical_align);
+        assert_eq!(
+            actual.restore_fringe_hardening,
+            expected.restore_fringe_hardening
+        );
         assert_eq!(actual.progress, expected.progress);
         assert_eq!(actual.progress_interval_ms, expected.progress_interval_ms);
         assert_eq!(actual.ffmpeg, expected.ffmpeg);

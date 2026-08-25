@@ -29,6 +29,15 @@ y = 46.0
 width = 634.0
 height = 133.0
 
+[segmentation]
+backend = "auto"
+model = "auto"
+device = "auto"
+profile = "canonical"
+precision = "auto"
+worker_sha256 = "d4aa399322766092e159381bc7f0440af8ed8463cd8ca5cea33dc624e79a8a30"
+runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
+
 [[layers]]
 id = "chains"
 role = "foreground"

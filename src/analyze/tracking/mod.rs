@@ -162,6 +162,7 @@ pub fn load_dense_scene(
     Ok(TrackingResult {
         samples,
         model_name: format!("reviewed-dense-quad-track-{}-frames", info.frames),
+        screen_fixed: false,
         reference_frame: 0,
         confidence: 0.99,
         loop_closed: trajectory_loop_closed(
@@ -438,6 +439,7 @@ fn track_with_exclusions(
             args.tracking_inertia
         )
         .to_lowercase(),
+        screen_fixed: false,
         reference_frame,
         confidence,
         loop_closed,
@@ -803,6 +805,7 @@ mod tests {
 
     fn tracking_result(model: &str, confidence: f64, translation: f64) -> TrackingResult {
         TrackingResult {
+            screen_fixed: model.contains("screen-fixed"),
             samples: vec![MotionSample {
                 frame: 0,
                 transform: Mat3 {
@@ -1148,6 +1151,7 @@ mod tests {
         let mut result = TrackingResult {
             samples: (0..3).map(sample).collect(),
             model_name: "automatic-inertia-0.35".into(),
+            screen_fixed: false,
             reference_frame: 0,
             confidence: 0.8,
             loop_closed: false,
@@ -1200,6 +1204,7 @@ mod tests {
             model_name: "automatic-inertia-0.35".into(),
             reference_frame: 0,
             confidence: 0.5,
+            screen_fixed: false,
             loop_closed: false,
         };
         let keyframe = |frame| MotionKeyframe {
@@ -1261,6 +1266,7 @@ mod tests {
         let mut result = TrackingResult {
             samples: (0..3).map(sample).collect(),
             model_name: "automatic-inertia-0.35".into(),
+            screen_fixed: false,
             reference_frame: 0,
             confidence: 0.8,
             loop_closed: false,
