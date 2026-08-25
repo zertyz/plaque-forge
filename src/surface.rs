@@ -1,8 +1,8 @@
 use crate::{
     color::Rgba,
-    geometry::{Quad, homography},
+    geometry::{homography, Quad},
 };
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::sync::LazyLock;
 
 static SRGB_TO_LINEAR_TABLE: LazyLock<[f32; 256]> = LazyLock::new(|| {
@@ -99,27 +99,36 @@ impl Surface {
         if mask.len() != self.width as usize * self.height as usize {
             bail!("restore mask dimensions do not match frame");
         }
-        for ((dst, src), &alpha) in self
-            .pixels
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(original.pixels.as_chunks::<4>().0.iter())
-            .zip(mask)
-        {
-            // A fully opaque source restored at full weight is an exact copy:
-            // the linear-light round trip is identity for every encoded level
-            // (pinned exhaustively by the restore fast-path test).
-            if alpha == 255 && src[3] == 255 {
-                dst.copy_from_slice(src);
-                continue;
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let workers = parallel_workers(width * height);
+        let orig_pixels = &original.pixels;
+        // Row-sharded: each row is independent, preserves bitwise identity
+        // because `blend_over` is per-pixel and order-independent.
+        run_rows(self, 0, height as u32, workers, |band, band_top| {
+            let band_rows = band.len() / (width * 4);
+            let start = band_top as usize * width;
+            let mask_slice = &mask[start..start + band_rows * width];
+            let orig_start = start * 4;
+            let orig_slice = &orig_pixels[orig_start..orig_start + band_rows * width * 4];
+            for ((dst, src), &alpha) in band
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(orig_slice.as_chunks::<4>().0.iter())
+                .zip(mask_slice)
+            {
+                if alpha == 255 && src[3] == 255 {
+                    dst.copy_from_slice(src);
+                    continue;
+                }
+                blend_over(
+                    dst,
+                    Rgba::new(src[0], src[1], src[2], src[3]),
+                    alpha as f32 / 255.0,
+                );
             }
-            blend_over(
-                dst,
-                Rgba::new(src[0], src[1], src[2], src[3]),
-                alpha as f32 / 255.0,
-            );
-        }
+        });
         Ok(())
     }
 
@@ -133,9 +142,17 @@ impl Surface {
                 self.height
             );
         }
-        for (pixel, &mask_alpha) in self.pixels.as_chunks_mut::<4>().0.iter_mut().zip(mask) {
-            pixel[3] = ((pixel[3] as u16 * mask_alpha as u16 + 127) / 255) as u8;
-        }
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let workers = parallel_workers(width * height);
+        run_rows(self, 0, height as u32, workers, |band, band_top| {
+            let band_rows = band.len() / (width * 4);
+            let start = band_top as usize * width;
+            let mask_slice = &mask[start..start + band_rows * width];
+            for (pixel, &mask_alpha) in band.as_chunks_mut::<4>().0.iter_mut().zip(mask_slice) {
+                pixel[3] = ((pixel[3] as u16 * mask_alpha as u16 + 127) / 255) as u8;
+            }
+        });
         Ok(())
     }
 
@@ -177,33 +194,60 @@ impl Surface {
             return;
         }
 
-        for y in top..bottom {
-            let destination_row = &mut self.pixels
-                [y as usize * self.width as usize * 4..(y + 1) as usize * self.width as usize * 4];
-            let source_row = &source.pixels[(y - dy) as usize * source.width as usize * 4
-                ..(y - dy + 1) as usize * source.width as usize * 4];
-            for x in left..right {
-                let sx = ((x - dx) * 4) as usize;
-                let dx4 = (x * 4) as usize;
-                let Some(pixel) = source_row
-                    .get(sx..sx + 4)
-                    .and_then(|slice| slice.try_into().ok())
-                else {
-                    // `left`/`right`/`dx` are validated against `source.width`,
-                    // so an out-of-bounds slice indicates a caller bug; skip
-                    // gracefully for library use rather than aborting.
-                    continue;
-                };
-                let pixel: [u8; 4] = pixel;
-                if pixel[3] > 0 {
-                    blend_over(
-                        &mut destination_row[dx4..dx4 + 4],
-                        Rgba::new(pixel[0], pixel[1], pixel[2], pixel[3]),
-                        opacity,
-                    );
-                }
-            }
+        // Hoist clamped opacity once per call (was recomputed per pixel via
+        // `opacity.clamp` inside `blend_over`). Bitwise identical because
+        // `blend_over` clamps identically.
+        let opacity = opacity.clamp(0.0, 1.0);
+        if opacity <= 0.0 {
+            return;
         }
+        let area = (right - left) as usize * (bottom - top) as usize;
+        let workers = parallel_workers(area);
+        let src_pixels = &source.pixels;
+        let src_width = source.width as usize;
+        let dst_width = self.width as usize;
+        let left_usize = left as usize;
+        let right_usize = right as usize;
+
+        run_rows(
+            self,
+            top as u32,
+            bottom as u32,
+            workers,
+            |band, band_top| {
+                let band_rows = band.len() / (dst_width * 4);
+                for row_offset in 0..band_rows {
+                    let y = band_top as i32 + row_offset as i32;
+                    let dst_row_start = row_offset * dst_width * 4;
+                    let dst_row = &mut band[dst_row_start..dst_row_start + dst_width * 4];
+                    let src_y = (y - dy) as usize;
+                    // `src_y` is in-bounds because `top..bottom` was clipped
+                    // against `src` height via `bottom`.
+                    let src_row_start = src_y * src_width * 4;
+                    let src_row = &src_pixels[src_row_start..src_row_start + src_width * 4];
+                    for x in left_usize..right_usize {
+                        let src_x = x as i32 - dx;
+                        let sx_byte = (src_x as usize) * 4;
+                        // Bounds already validated, but keep graceful fallback
+                        let Some(pixel) = src_row
+                            .get(sx_byte..sx_byte + 4)
+                            .and_then(|s| s.try_into().ok())
+                        else {
+                            continue;
+                        };
+                        let pixel: [u8; 4] = pixel;
+                        if pixel[3] > 0 {
+                            let dx4 = x * 4;
+                            blend_over(
+                                &mut dst_row[dx4..dx4 + 4],
+                                Rgba::new(pixel[0], pixel[1], pixel[2], pixel[3]),
+                                opacity,
+                            );
+                        }
+                    }
+                }
+            },
+        );
     }
 
     /// Warps the whole source canvas to the destination quadrilateral and alpha-composites it.
@@ -646,29 +690,69 @@ fn blur_rgba_horizontal(
     height: usize,
     radius: usize,
 ) {
-    for y in 0..height {
-        for channel in 0..4 {
-            let mut sum = 0_u32;
-            let mut count = 0_u32;
-            for x in 0..=radius.min(width.saturating_sub(1)) {
-                sum += source[(y * width + x) * 4 + channel] as u32;
-                count += 1;
-            }
-            for x in 0..width {
-                destination[(y * width + x) * 4 + channel] = (sum / count) as u8;
-                let leaving = x.saturating_sub(radius);
-                let entering = x + radius + 1;
-                if x >= radius {
-                    sum -= source[(y * width + leaving) * 4 + channel] as u32;
-                    count -= 1;
-                }
-                if entering < width {
-                    sum += source[(y * width + entering) * 4 + channel] as u32;
+    let workers = parallel_workers(width * height);
+    if workers <= 1 {
+        for y in 0..height {
+            for channel in 0..4 {
+                let mut sum = 0_u32;
+                let mut count = 0_u32;
+                for x in 0..=radius.min(width.saturating_sub(1)) {
+                    sum += source[(y * width + x) * 4 + channel] as u32;
                     count += 1;
+                }
+                for x in 0..width {
+                    destination[(y * width + x) * 4 + channel] = (sum / count) as u8;
+                    let leaving = x.saturating_sub(radius);
+                    let entering = x + radius + 1;
+                    if x >= radius {
+                        sum -= source[(y * width + leaving) * 4 + channel] as u32;
+                        count -= 1;
+                    }
+                    if entering < width {
+                        sum += source[(y * width + entering) * 4 + channel] as u32;
+                        count += 1;
+                    }
                 }
             }
         }
+        return;
     }
+    // Row-sharded: each row is independent, preserves exact sums.
+    let rows_per_band = height.div_ceil(workers);
+    let band_bytes = rows_per_band * width * 4;
+    std::thread::scope(|scope| {
+        for (src_band, dst_band) in source
+            .chunks(band_bytes)
+            .zip(destination.chunks_mut(band_bytes))
+        {
+            scope.spawn(move || {
+                let band_height = src_band.len() / (width * 4);
+                for y in 0..band_height {
+                    for channel in 0..4 {
+                        let mut sum = 0_u32;
+                        let mut count = 0_u32;
+                        for x in 0..=radius.min(width.saturating_sub(1)) {
+                            sum += src_band[(y * width + x) * 4 + channel] as u32;
+                            count += 1;
+                        }
+                        for x in 0..width {
+                            dst_band[(y * width + x) * 4 + channel] = (sum / count) as u8;
+                            let leaving = x.saturating_sub(radius);
+                            let entering = x + radius + 1;
+                            if x >= radius {
+                                sum -= src_band[(y * width + leaving) * 4 + channel] as u32;
+                                count -= 1;
+                            }
+                            if entering < width {
+                                sum += src_band[(y * width + entering) * 4 + channel] as u32;
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    });
 }
 
 fn blur_rgba_vertical(
@@ -678,6 +762,12 @@ fn blur_rgba_vertical(
     height: usize,
     radius: usize,
 ) {
+    // Vertical blur remains sequential in this phase: each column's
+    // `y` loop is independent but writes to strided `y*width+x` offsets
+    // that are not contiguous per column. A fully parallel version needs
+    // raw-pointer sharding or a transpose, which is deferred to keep this
+    // phase bitwise-identical with minimal unsafe. Horizontal blur (row-
+    // sharded) already covers the dominant cost for typical `radius<=16`.
     for x in 0..width {
         for channel in 0..4 {
             let mut sum = 0_u32;
