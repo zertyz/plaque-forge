@@ -3,7 +3,10 @@
 //! Layers describe material that constrains text placement or must appear in front of
 //! rendered typography, such as vines, chains, shadows, and writing-surface masks.
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 
@@ -378,15 +381,23 @@ fn copy_generated_sidecars(input: &LayerInput, destination: &Path) -> Result<()>
     Ok(())
 }
 
-pub struct ForegroundReader<'a> {
-    pack: &'a Analysis,
-    canonical: Vec<(Surface, &'a LayerAsset)>,
-    source_static: Vec<(Vec<u8>, &'a LayerAsset)>,
-    sequences: Vec<&'a LayerAsset>,
+/// Owned snapshot of every directly-restoring foreground layer.
+///
+/// Holds copies of the analysis facts it needs so a reader can live
+/// independently of the [`crate::analysis::Analysis`] it was built from
+/// (the compositor owns both).
+pub struct ForegroundReader {
+    assets_root: PathBuf,
+    source_plaque_rect: RectF,
+    source_width: u32,
+    source_height: u32,
+    canonical: Vec<(Surface, LayerAsset)>,
+    source_static: Vec<(Vec<u8>, LayerAsset)>,
+    sequences: Vec<LayerAsset>,
 }
 
-impl<'a> ForegroundReader<'a> {
-    pub fn open(pack: &'a Analysis, fused_source_material: bool) -> Result<Self> {
+impl ForegroundReader {
+    pub fn open(pack: &Analysis, fused_source_material: bool) -> Result<Self> {
         let mut canonical = Vec::new();
         let mut source_static = Vec::new();
         let mut sequences = Vec::new();
@@ -411,7 +422,7 @@ impl<'a> ForegroundReader<'a> {
                             &mask,
                             Rgba::new(255, 255, 255, 255),
                         )?,
-                        layer,
+                        layer.clone(),
                     ));
                 }
                 (LayerCoordinates::SourcePixels, LayerArtifactKind::AlphaImage) => {
@@ -421,16 +432,19 @@ impl<'a> ForegroundReader<'a> {
                         pack.manifest.source.height,
                     )?;
                     apply_matte_policy(&mut mask, layer.matte);
-                    source_static.push((mask, layer));
+                    source_static.push((mask, layer.clone()));
                 }
                 (LayerCoordinates::SourcePixels, LayerArtifactKind::AlphaSequence) => {
-                    sequences.push(layer);
+                    sequences.push(layer.clone());
                 }
                 _ => bail!("unsupported packed foreground layer {:?}", layer.id),
             }
         }
         Ok(Self {
-            pack,
+            assets_root: pack.root.clone(),
+            source_plaque_rect: pack.manifest.source_plaque_rect,
+            source_width: pack.manifest.source.width,
+            source_height: pack.manifest.source.height,
             canonical,
             source_static,
             sequences,
@@ -449,19 +463,12 @@ impl<'a> ForegroundReader<'a> {
         if self.is_empty() {
             return Ok(None);
         }
-        let mut combined = vec![
-            0_u8;
-            self.pack.manifest.source.width as usize
-                * self.pack.manifest.source.height as usize
-        ];
+        let mut combined = vec![0_u8; self.source_width as usize * self.source_height as usize];
         for (canonical, _) in &self.canonical {
-            let mut full = Surface::new(
-                self.pack.manifest.source.width,
-                self.pack.manifest.source.height,
-            );
+            let mut full = Surface::new(self.source_width, self.source_height);
             full.warp_blend(
                 canonical,
-                transformed_rect(self.pack.manifest.source_plaque_rect, transform),
+                transformed_rect(self.source_plaque_rect, transform),
                 1.0,
             )?;
             alpha_over(&mut combined, &full.alpha_mask());
@@ -471,14 +478,11 @@ impl<'a> ForegroundReader<'a> {
         }
         for layer in &self.sequences {
             if frame_in_layer(layer, frame) {
-                let path = self
-                    .pack
-                    .require_asset_path(&sequence_path(layer.path.as_path(), frame))?;
-                let mut mask = load_mask(
-                    &path,
-                    self.pack.manifest.source.width,
-                    self.pack.manifest.source.height,
+                let path = crate::analysis::resolve_asset(
+                    &self.assets_root,
+                    &sequence_path(layer.path.as_path(), frame),
                 )?;
+                let mut mask = load_mask(&path, self.source_width, self.source_height)?;
                 apply_matte_policy(&mut mask, layer.matte);
                 alpha_over(&mut combined, &mask);
             }
@@ -662,7 +666,7 @@ fn validate_frame_range(artifact: &LayerArtifact, frames: usize, id: &str) -> Re
     Ok(())
 }
 
-fn frame_in_layer(layer: &LayerAsset, frame: usize) -> bool {
+pub fn frame_in_layer(layer: &LayerAsset, frame: usize) -> bool {
     layer.first_frame.is_some_and(|first| frame >= first)
         && layer.last_frame.is_some_and(|last| frame <= last)
 }

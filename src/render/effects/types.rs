@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{color::Rgba, surface::Surface};
 
@@ -302,13 +302,13 @@ pub(crate) enum AnimationEffect {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TypographyFile {
     #[serde(default = "default_font_weight")]
     pub(crate) weight: u16,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct StyleFile {
     #[serde(default = "default_style_version")]
     pub(crate) version: u32,
@@ -328,7 +328,7 @@ pub(crate) struct StyleFile {
     pub(crate) animations: Vec<AnimationFile>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub(crate) enum LayoutFile {
     Arc {
@@ -339,7 +339,7 @@ pub(crate) enum LayoutFile {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub(crate) enum SurfaceEffectFile {
     LaserBurn {
@@ -366,7 +366,7 @@ pub(crate) enum SurfaceEffectFile {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub(crate) enum MaterialFile {
     LinearGradient {
@@ -465,7 +465,7 @@ pub(crate) enum MaterialFile {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub(crate) enum EffectFile {
     Stroke {
@@ -527,7 +527,7 @@ pub(crate) enum EffectFile {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub(crate) enum AnimationFile {
     Pulse {

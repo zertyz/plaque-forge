@@ -222,21 +222,37 @@ pub fn open_capture(input: &Path) -> Result<VideoCapture> {
 }
 
 pub struct Decoder {
-    child: Child,
-    stdout: ChildStdout,
+    child: Option<Child>,
+    stdout: Option<ChildStdout>,
     width: u32,
     height: u32,
     frame_size: usize,
 }
 impl Decoder {
     pub fn spawn(ffmpeg: &Path, input: &Path, info: &VideoInfo) -> Result<Self> {
+        Self::spawn_from(ffmpeg, input, info, 0)
+    }
+
+    /// Spawn a decoder positioned at `start_frame` (input-side seek; the first
+    /// delivered frame is the one at that index on decoders with exact seek).
+    pub fn spawn_from(
+        ffmpeg: &Path,
+        input: &Path,
+        info: &VideoInfo,
+        start_frame: usize,
+    ) -> Result<Self> {
         // A raw pipe carries no timestamps. Normalize them before muxing into that
         // pipe so broken/coarse container DTS cannot trigger FFmpeg diagnostics;
         // `fps_mode=passthrough` still preserves every decoded frame exactly once.
         let timestamp_filter = format!("setpts=N/({:.12}*TB)", info.fps);
         let mut command = Command::new(ffmpeg);
+        command.args(["-hide_banner", "-loglevel", "error", "-noautorotate"]);
+        if start_frame > 0 {
+            let seconds = format!("{:.6}", start_frame as f64 / info.fps.max(f64::EPSILON));
+            command.arg("-ss").arg(seconds);
+        }
         command
-            .args(["-hide_banner", "-loglevel", "error", "-noautorotate", "-i"])
+            .arg("-i")
             .arg(input)
             .args([
                 "-map",
@@ -261,12 +277,14 @@ impl Decoder {
         let mut child = command
             .spawn()
             .with_context(|| format!("failed to launch decoder {}", ffmpeg.display()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .context("decoder stdout was not piped")?;
+        let stdout = Some(
+            child
+                .stdout
+                .take()
+                .context("decoder stdout was not piped")?,
+        );
         Ok(Self {
-            child,
+            child: Some(child),
             stdout,
             width: info.width,
             height: info.height,
@@ -274,10 +292,14 @@ impl Decoder {
         })
     }
     pub fn next_frame(&mut self) -> Result<Option<Surface>> {
+        let stdout = match self.stdout.as_mut() {
+            Some(stdout) => stdout,
+            None => return Ok(None),
+        };
         let mut bytes = vec![0u8; self.frame_size];
         let mut read = 0;
         while read < bytes.len() {
-            match self.stdout.read(&mut bytes[read..]) {
+            match stdout.read(&mut bytes[read..]) {
                 Ok(0) if read == 0 => return Ok(None),
                 Ok(0) => bail!(
                     "decoder ended with a partial frame: {read}/{} bytes",
@@ -290,13 +312,31 @@ impl Decoder {
         }
         Ok(Some(Surface::from_rgba(self.width, self.height, bytes)?))
     }
+    /// Wait for a naturally finished decoder. Unlike [`Drop`], this treats a
+    /// nonzero exit as an error instead of discarding it.
     pub fn finish(mut self) -> Result<()> {
-        drop(self.stdout);
-        let s = self.child.wait()?;
-        if !s.success() {
-            bail!("decoder exited with {s}")
+        drop(self.stdout.take());
+        let status = match self.child.as_mut() {
+            Some(child) => child.wait()?,
+            None => bail!("decoder was already terminated"),
+        };
+        // Reaped successfully; disarm the killing Drop.
+        self.child = None;
+        if !status.success() {
+            bail!("decoder exited with {status}")
         }
         Ok(())
+    }
+}
+
+impl Drop for Decoder {
+    /// Kill the ffmpeg child right away: an abandoned raw-video pipe would
+    /// otherwise leave the encoder blocked on writes forever.
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 

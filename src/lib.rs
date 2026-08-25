@@ -35,7 +35,7 @@
 use anyhow::Result;
 use clap::Parser;
 
-mod analysis;
+pub mod analysis;
 pub mod analyze;
 pub mod application;
 mod build_info;
@@ -44,9 +44,9 @@ pub mod color;
 mod digest;
 pub mod geometry;
 pub mod homologation;
-mod image_io;
+pub mod image_io;
 pub mod infrastructure;
-mod layers;
+pub mod layers;
 pub mod media;
 pub mod model;
 mod portable_path;
@@ -57,11 +57,12 @@ pub mod scene;
 mod scene_commands;
 mod segmentation;
 pub mod segmentation_strategy;
+pub mod showcase;
 mod staged_output;
 mod stats;
 pub mod surface;
 mod verify;
-mod video;
+pub mod video;
 pub mod workspace;
 pub mod writable_region;
 

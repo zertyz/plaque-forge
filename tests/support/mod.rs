@@ -51,6 +51,10 @@ impl FakeFamilies {
 }
 
 impl FamilyIndex for FakeFamilies {
+    fn face_file_and_family(&self, _family: &str) -> Option<(std::path::PathBuf, String)> {
+        None
+    }
+
     fn match_pattern(&self, pattern: &str) -> Option<String> {
         self.matches.get(&pattern.to_lowercase()).cloned()
     }

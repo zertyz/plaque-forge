@@ -127,11 +127,24 @@ impl Style {
         })
     }
 
+    /// Load a style from TOML text. Relative texture paths resolve against
+    /// `base_dir`, which callers set to the style file's directory.
+    pub fn parse_str(source: &str, base_dir: &Path) -> Result<Self> {
+        Self::from_parsed(
+            toml::from_str(source).with_context(|| "invalid text style TOML".to_string())?,
+            base_dir,
+        )
+    }
+
     pub fn from_file(path: &Path) -> Result<Self> {
         let source = fs::read_to_string(path)
             .with_context(|| format!("failed to read text style {}", path.display()))?;
-        let parsed: StyleFile = toml::from_str(&source)
-            .with_context(|| format!("invalid text style TOML {}", path.display()))?;
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        Self::parse_str(&source, base_dir)
+            .with_context(|| format!("in text style {}", path.display()))
+    }
+
+    fn from_parsed(parsed: StyleFile, base_dir: &Path) -> Result<Self> {
         if !matches!(parsed.version, 1..=5) {
             bail!(
                 "unsupported text style version {}; this build supports versions 1 through 5",
@@ -302,10 +315,7 @@ impl Style {
                 {
                     bail!("image-texture scale must be 0.05..20 and offsets must be finite");
                 }
-                let resolved = path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("."))
-                    .join(&texture_path);
+                let resolved = base_dir.join(&texture_path);
                 let image = image::open(&resolved)
                     .with_context(|| format!("failed to load text texture {}", resolved.display()))?
                     .to_rgba8();
