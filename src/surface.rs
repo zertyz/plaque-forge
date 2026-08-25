@@ -383,12 +383,17 @@ impl Surface {
     }
 
     pub fn recolor(&mut self, color: Rgba) {
-        for pixel in self.pixels.as_chunks_mut::<4>().0.iter_mut() {
-            pixel[0] = color.r;
-            pixel[1] = color.g;
-            pixel[2] = color.b;
-            pixel[3] = ((pixel[3] as u16 * color.a as u16 + 127) / 255) as u8;
-        }
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let workers = parallel_workers(width * height);
+        run_rows(self, 0, height as u32, workers, |band, _| {
+            for pixel in band.as_chunks_mut::<4>().0.iter_mut() {
+                pixel[0] = color.r;
+                pixel[1] = color.g;
+                pixel[2] = color.b;
+                pixel[3] = ((pixel[3] as u16 * color.a as u16 + 127) / 255) as u8;
+            }
+        });
     }
 
     pub fn from_alpha_mask(width: u32, height: u32, mask: &[u8], color: Rgba) -> Result<Self> {
@@ -396,12 +401,20 @@ impl Surface {
             bail!("alpha mask dimensions do not match its length");
         }
         let mut surface = Self::new(width, height);
-        for (pixel, &alpha) in surface.pixels.as_chunks_mut::<4>().0.iter_mut().zip(mask) {
-            pixel[0] = color.r;
-            pixel[1] = color.g;
-            pixel[2] = color.b;
-            pixel[3] = ((alpha as u16 * color.a as u16 + 127) / 255) as u8;
-        }
+        let width_usize = width as usize;
+        let height_usize = height as usize;
+        let workers = parallel_workers(width_usize * height_usize);
+        run_rows(&mut surface, 0, height, workers, |band, band_top| {
+            let band_rows = band.len() / (width_usize * 4);
+            let start = band_top as usize * width_usize;
+            let mask_slice = &mask[start..start + band_rows * width_usize];
+            for (pixel, &alpha) in band.as_chunks_mut::<4>().0.iter_mut().zip(mask_slice) {
+                pixel[0] = color.r;
+                pixel[1] = color.g;
+                pixel[2] = color.b;
+                pixel[3] = ((alpha as u16 * color.a as u16 + 127) / 255) as u8;
+            }
+        });
         Ok(surface)
     }
 
@@ -762,12 +775,6 @@ fn blur_rgba_vertical(
     height: usize,
     radius: usize,
 ) {
-    // Vertical blur remains sequential in this phase: each column's
-    // `y` loop is independent but writes to strided `y*width+x` offsets
-    // that are not contiguous per column. A fully parallel version needs
-    // raw-pointer sharding or a transpose, which is deferred to keep this
-    // phase bitwise-identical with minimal unsafe. Horizontal blur (row-
-    // sharded) already covers the dominant cost for typical `radius<=16`.
     for x in 0..width {
         for channel in 0..4 {
             let mut sum = 0_u32;
