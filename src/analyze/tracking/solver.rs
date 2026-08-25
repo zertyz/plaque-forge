@@ -525,9 +525,5 @@ pub(crate) fn correspondence_errors(
 }
 
 pub fn median(mut values: Vec<f64>) -> f64 {
-    if values.is_empty() {
-        return f64::INFINITY;
-    }
-    values.sort_by(f64::total_cmp);
-    values[values.len() / 2]
+    crate::stats::median(&mut values)
 }

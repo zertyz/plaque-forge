@@ -26,3 +26,13 @@ pub fn load_luma(path: &Path, expected_width: u32, expected_height: u32) -> Resu
     );
     Ok(image.into_raw())
 }
+
+/// Persist a single-channel u8 buffer as a grayscale PNG diagnostic artifact.
+pub fn save_luma_png(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
+    let image = image::ImageBuffer::<image::Luma<u8>, _>::from_raw(width, height, data.to_vec())
+        .context("invalid luma buffer dimensions")?;
+    image
+        .save(path)
+        .with_context(|| format!("failed to save grayscale image {}", path.display()))?;
+    Ok(())
+}

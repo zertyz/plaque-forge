@@ -28,6 +28,7 @@ use crate::{
         self, AcceptancePolicy, PlanningInput, SegmentationPlan, SegmentationPrecision,
         SegmentationProfile, SegmentationStrategy, SemanticBackend,
     },
+    stats::percentile_u16,
     video::{self, VideoInfo},
     workspace,
 };
@@ -840,15 +841,6 @@ fn binary_iou_permille(left: &[u8], right: &[u8]) -> u16 {
         .checked_div(union)
         .unwrap_or(0)
         .min(1_000) as u16
-}
-
-fn percentile_u16(values: &mut [u16], percentile: f64) -> u16 {
-    if values.is_empty() {
-        return 0;
-    }
-    values.sort_unstable();
-    let rank = ((values.len() - 1) as f64 * percentile.clamp(0.0, 1.0)).floor() as usize;
-    values[rank]
 }
 
 fn sample_pixel_u16(mask: &image::ImageBuffer<image::Luma<u16>, Vec<u16>>, point: [f64; 2]) -> u16 {

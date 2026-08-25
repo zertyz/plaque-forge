@@ -17,10 +17,10 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    analysis::{Analysis, MANIFEST_FILE},
+    analysis::Analysis,
     application::HomologateRequest,
-    render::{RENDER_MANIFEST_SCHEMA_VERSION, RenderManifest},
     scene::{Scene, resolve_relative},
+    stats::percentile_u8,
     video::{self, Decoder},
 };
 
@@ -365,26 +365,12 @@ pub(crate) fn run(
         &source_sha256,
         &mut failures,
     );
-    let analysis_manifest_path = analysis_path.join(MANIFEST_FILE);
-    let analysis_manifest_sha256 = crate::digest::file_sha256(&analysis_manifest_path)?;
-
-    let manifest_path = args.rendered.with_extension("render-manifest.json");
-    let manifest_bytes = fs::read(&manifest_path)
-        .with_context(|| format!("failed to read render manifest {}", manifest_path.display()))?;
-    let manifest: RenderManifest = serde_json::from_slice(&manifest_bytes).with_context(|| {
-        format!(
-            "failed to parse render manifest {}",
-            manifest_path.display()
-        )
-    })?;
-    ensure!(
-        manifest.schema_version == RENDER_MANIFEST_SCHEMA_VERSION,
-        "unsupported render manifest schema {}; expected {}",
-        manifest.schema_version,
-        RENDER_MANIFEST_SCHEMA_VERSION
-    );
-    let render_manifest_sha256 = crate::digest::bytes_sha256(&manifest_bytes);
-    let rendered_sha256 = crate::digest::file_sha256(&args.rendered)?;
+    let provenance = crate::render::load_render_provenance(&args.rendered, &analysis)?;
+    let manifest_path = provenance.manifest_path.clone();
+    let analysis_manifest_sha256 = provenance.analysis_manifest_sha256.clone();
+    let rendered_sha256 = provenance.rendered_sha256;
+    let render_manifest_sha256 = provenance.render_manifest_sha256;
+    let manifest = provenance.manifest;
 
     check_equal(
         "render manifest rendered SHA-256",
@@ -401,11 +387,10 @@ pub(crate) fn run(
     check_equal(
         "render manifest analysis SHA-256",
         &manifest.analysis_manifest_sha256,
-        &analysis_manifest_sha256,
+        &provenance.analysis_manifest_sha256,
         &mut failures,
     );
-    let analysis_inputs_sha256 =
-        analysis.render_inputs_sha256(manifest.used_analysis_occluder_masks)?;
+    let analysis_inputs_sha256 = provenance.analysis_inputs_sha256;
     check_equal(
         "render manifest analysis-input bundle SHA-256",
         &manifest.analysis_inputs_sha256,
@@ -1017,14 +1002,6 @@ fn check_maximum(description: &str, actual: f64, maximum: f64, failures: &mut Ve
     }
 }
 
-fn percentile_u8(values: &mut [u8], percentile: f64) -> f64 {
-    values.sort_unstable();
-    let index = ((values.len().saturating_sub(1)) as f64 * percentile)
-        .round()
-        .clamp(0.0, values.len().saturating_sub(1) as f64) as usize;
-    values[index] as f64
-}
-
 fn validate_sha256(value: &str, description: &str) -> Result<()> {
     ensure!(
         value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
@@ -1062,12 +1039,6 @@ fn rect_approximately_equal(left: [f64; 4], right: [f64; 4]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn percentile_uses_the_requested_rank() {
-        let mut values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        assert_eq!(percentile_u8(&mut values, 0.95), 10.0);
-    }
 
     #[test]
     fn masked_error_metrics_measure_only_selected_rgb_pixels() {

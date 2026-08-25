@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+repo="$PF_ROOT"
 analysis_root="$repo/assets/analysis"
 temporary_root="/tmp/plaque-forge"
 apply=false

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+ROOT="$PF_ROOT"
 cd "$ROOT"
 
 usage() {
@@ -20,20 +21,13 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   exit 0
 fi
 
-cargo build --release --quiet
+pf_build_release
 
 if (( $# )); then
   cases=("$@")
 else
-  cases=()
-  shopt -s nullglob
-  for input in assets/*.mp4; do
-    cases+=("$(basename "$input" .mp4)")
-  done
-  shopt -u nullglob
+  pf_asset_cases cases
 fi
-
-(( ${#cases[@]} > 0 )) || { printf 'error: no assets selected\n' >&2; exit 2; }
 
 mkdir -p output/review
 index_tmp="output/review/.index.html.tmp"

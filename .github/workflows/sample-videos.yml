@@ -1,0 +1,150 @@
+name: Sample videos
+
+# Producer workflow: regenerates the public sample-video set whenever a push to
+# main may change rendered output, and republishes the rolling `sample_videos`
+# release. Acceptance (verification of the representative plaque-scene
+# sentinels) completes before publication; ordinary validation CI remains
+# read-only.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'build.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'styles/**'
+      - 'fonts/**'
+      - 'assets/**'
+      - 'scripts/render_assets.sh'
+      - 'scripts/render_common.sh'
+      - 'scripts/render_sample_videos.sh'
+      - '.github/workflows/sample-videos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sample-videos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render-samples:
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install render dependencies
+        uses: ./.github/actions/install-native-deps
+        with:
+          packages: |
+            clang
+            ffmpeg
+            fontconfig
+            noto-fonts
+            opencv
+            pkgconf
+            git
+            rust
+
+      - name: Reject stale analysis caches
+        run: ./scripts/check_analysis_cache.sh
+
+      - name: Render and verify the sample-video set
+        run: ./scripts/render_sample_videos.sh --previews
+
+      - name: Stage release assets
+        run: ./scripts/render_sample_videos.sh --stage-release output/sample_videos output/release-assets
+
+      # Only the publishable artifacts travel through CI: delivery videos,
+      # showcase previews, and sentinel verification reports. The bulky
+      # lossless validation renders and per-render sidecars stay local.
+      - name: Upload the sample-video batch and acceptance evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: sample-videos-${{ github.run_id }}
+          path: |
+            output/release-assets
+            output/validation/*.lossless.verification.json
+          if-no-files-found: error
+
+  publish-release:
+    needs: render-samples
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SAMPLE_TAG: sample_videos
+      RELEASE_TITLE: Plaque Forge sample videos
+      SOURCE_SHA: ${{ github.sha }}
+      SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: sample-videos-${{ github.run_id }}
+          path: dist
+
+      - name: Write release notes
+        run: |
+          cat > notes.md <<NOTES
+          Automated sample renders of every bundled source asset, regenerated whenever a push to \`main\` may change rendered output.
+
+          - Source commit: ${SOURCE_SHA::7} ($SOURCE_RUN_URL)
+          - Generated: $(date -u '+%Y-%m-%d %H:%M UTC')
+          - Styles: \`gold-shine\` for real plaque surfaces, \`classic-glow\` for plaque-less and background videos
+          - Title: “plaque-forge: High Quality & Advanced Text Placing in Videos” · Font: Noto Serif · Fit: artistic
+
+          The four representative plaque-scene sentinels passed the lossless validation render and frame verification against their analysis caches before publication — each `*.lossless.verification.json` asset below is that sentinel's acceptance report. The small MP4 files are browser-friendly previews of the showcase assets (the README loops are committed under `docs/media/`).
+
+          Reproduce locally:
+
+          \`\`\`bash
+          ./scripts/render_sample_videos.sh --previews
+          \`\`\`
+          NOTES
+
+      - name: Publish the rolling sample_videos release
+        run: |
+          set -euo pipefail
+          if ! gh release view "$SAMPLE_TAG" >/dev/null 2>&1; then
+            gh release create "$SAMPLE_TAG" \
+              --prerelease \
+              --title "$RELEASE_TITLE" \
+              --notes-file notes.md
+          fi
+
+          # The render job already flattened the batch into unique release
+          # asset names (<stem>.<style>.hevc.mkv, previews, sentinel reports).
+          mkdir -p stage
+          cp dist/release-assets/* stage/
+
+          # Public acceptance evidence: one lossless-verification report per sentinel.
+          for report in dist/validation/*.lossless.verification.json; do
+            [[ -f "$report" ]] || continue
+            cp -- "$report" "stage/$(basename "$report")"
+          done
+
+          # Prune assets that are no longer part of the batch, then refresh everything.
+          find stage -type f -printf '%f\n' | LC_ALL=C sort > wanted-assets.txt
+          gh release view "$SAMPLE_TAG" --json assets --jq '.assets[].name' \
+            | LC_ALL=C sort > existing-assets.txt || true
+          comm -13 wanted-assets.txt existing-assets.txt | while IFS= read -r stale; do
+            printf 'removing stale asset: %s\n' "$stale"
+            gh release delete-asset "$SAMPLE_TAG" "$stale" -y
+          done
+
+          gh release upload "$SAMPLE_TAG" stage/* --clobber
+          gh release edit "$SAMPLE_TAG" \
+            --title "$RELEASE_TITLE" \
+            --notes-file notes.md \
+            --prerelease \
+            --latest=false

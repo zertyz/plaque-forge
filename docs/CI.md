@@ -17,6 +17,11 @@ This detector is an optimization only. It must prefer a false positive over miss
 The main workflow keeps the normal Rust/code gates and adds:
 
 1. **homologation-gate**: renders the deliberately small `ci = true` capability set and validates each exact human-accepted contract. The sentinels cover static fitting, reviewed projective motion, moving foreground/parallax, and retracting portrait occlusion.
+Every gate that renders also runs `./scripts/check_analysis_cache.sh` first, so a bundled
+asset whose cache is stale (older analyzer), invalid, missing, or out of sync with its source
+bytes fails the job immediately with the exact regeneration command instead of failing later
+inside an expensive render.
+
 2. **analysis-no-ml-gate**: runs the six captured regression witnesses through `analyze_assets.sh --force --no-ml`. This protects the promised no-Python degradation path and reviewed static-layer compatibility.
 3. **segmentation-runtime-gate**: on segmentation-tooling changes, installs/reuses a CPU-profile `/tmp/plaque-forge-python`, executes the complete setup smoke, and then repeats verification with Hugging Face and Transformers offline.
 
@@ -47,6 +52,20 @@ That separation keeps “the commit passed” and “automation produced a new c
 The producer accepts JSON runner labels plus CPU/XPU setup/device inputs. This makes runner choice explicit instead of equating hardware with quality. Hosted CPU is operationally available; a prepared self-hosted XPU runner can be selected without changing the workflow. Repository settings must allow GitHub Actions to create pull requests for the PR step.
 
 The producer is manual by default. Enable automatic invocation only after choosing the canonical runner/profile from measured bake-offs; validation CI remains read-only.
+
+## Sample-video producer
+
+`.github/workflows/sample-videos.yml` is the trusted producer for the public sample set. On every push to `main` whose paths can change rendered output (`src/`, styles, fonts, bundled assets, render scripts), it re-renders every bundled asset with the sample title, runs the lossless validation render plus frame verification for representative plaque-scene sentinels (fully animated background sources are excluded because the untouched-scene threshold presumes lossless frames), and republishes the rolling pre-release tagged `sample_videos` (on GitHub under *Releases*):
+
+- rendering runs read-only under `contents: read`; only the separate publish job holds narrow `contents: write`;
+- the render job uploads only the publishable set (delivery videos, showcase previews, sentinel verification reports); the bulky lossless validation renders stay on the runner;
+- acceptance (per-asset verification) completes before anything is published;
+- release notes record the exact source commit and producing run;
+- browser-friendly MP4 previews of representative assets accompany the full HEVC set so the README can stay lightweight.
+
+`scripts/render_sample_videos.sh` owns the style policy (gold shine for real plaques, classic glow otherwise) and is exercised by `tests/cli_workflows.rs`; the workflow is only its thin remote runner.
+
+`.github/workflows/readme-loops.yml` is a manual dispatch-only helper for the committed README loops: it renders only the showcase assets and uploads fresh WebP loops as an artifact. It never writes to the repository — downloading the artifact and committing the loops stays a human decision, so README changes always receive human review.
 
 ## Segmentation bake-off workflow
 

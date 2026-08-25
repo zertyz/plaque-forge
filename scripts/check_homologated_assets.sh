@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/common.sh"
+cd "$PF_ROOT"
 
 # Audit the capability inventory first so CI retains coverage evidence even when a later
 # expensive render fails. Incomplete coverage is deliberate until a human accepts each

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/common.sh"
+cd "$PF_ROOT"
 backends="sam2 sam2-cutie"
 device="auto"
 profile="canonical"

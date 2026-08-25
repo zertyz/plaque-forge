@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "$0")/common.sh"
+root="$PF_ROOT"
 force=false
 force_ml=false
 use_ml=true
@@ -81,14 +82,11 @@ else
   printf '[ml] disabled by --no-ml; Python will not run\n'
 fi
 
-cargo build --release --quiet
+pf_build_release
 
 if (( ${#cases[@]} == 0 )); then
-  shopt -s nullglob
-  for input in assets/*.mp4; do cases+=("$(basename "$input" .mp4)"); done
-  shopt -u nullglob
+  pf_asset_cases cases
 fi
-(( ${#cases[@]} > 0 )) || { printf 'no assets/*.mp4 files found\n' >&2; exit 1; }
 
 failures=0
 for name in "${cases[@]}"; do

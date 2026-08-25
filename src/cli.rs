@@ -46,8 +46,20 @@ pub enum Command {
     HomologationCoverage(HomologationCoverageArgs),
     /// List the media available to this build.
     List(ListArgs),
+    /// Reject bundled assets whose analysis cache is stale, invalid, or missing.
+    CheckAnalysisCache(CheckAnalysisCacheArgs),
     /// Build a human-oriented HTML report from analysis and verification diagnostics.
     Review(ReviewArgs),
+}
+
+/// External FFmpeg tool locations shared by every command that shells out to them.
+#[derive(Debug, Args)]
+pub struct ExternalToolArgs {
+    #[arg(long, default_value = "ffmpeg")]
+    pub ffmpeg: PathBuf,
+
+    #[arg(long, default_value = "ffprobe")]
+    pub ffprobe: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -105,11 +117,8 @@ pub struct PlaceSurfaceArgs {
     #[arg(long)]
     pub no_preview: bool,
 
-    #[arg(long, default_value = "ffmpeg")]
-    pub ffmpeg: PathBuf,
-
-    #[arg(long, default_value = "ffprobe")]
-    pub ffprobe: PathBuf,
+    #[command(flatten)]
+    pub tools: ExternalToolArgs,
 }
 
 #[derive(Debug, Args)]
@@ -182,11 +191,8 @@ pub struct AnalyzeArgs {
     #[arg(long, default_value_t = 500)]
     pub progress_interval_ms: u64,
 
-    #[arg(long, default_value = "ffmpeg")]
-    pub ffmpeg: PathBuf,
-
-    #[arg(long, default_value = "ffprobe")]
-    pub ffprobe: PathBuf,
+    #[command(flatten)]
+    pub tools: ExternalToolArgs,
 
     #[arg(skip)]
     pub surface_hint: Option<[f64; 4]>,
@@ -392,11 +398,8 @@ pub struct RenderArgs {
     #[arg(long, default_value_t = 500)]
     pub progress_interval_ms: u64,
 
-    #[arg(long, default_value = "ffmpeg")]
-    pub ffmpeg: PathBuf,
-
-    #[arg(long, default_value = "ffprobe")]
-    pub ffprobe: PathBuf,
+    #[command(flatten)]
+    pub tools: ExternalToolArgs,
 }
 
 #[derive(Debug, Args)]
@@ -426,11 +429,8 @@ pub struct VerifyArgs {
     #[arg(long, default_value_t = 500)]
     pub progress_interval_ms: u64,
 
-    #[arg(long, default_value = "ffmpeg")]
-    pub ffmpeg: PathBuf,
-
-    #[arg(long, default_value = "ffprobe")]
-    pub ffprobe: PathBuf,
+    #[command(flatten)]
+    pub tools: ExternalToolArgs,
 }
 
 #[derive(Debug, Args)]
@@ -451,11 +451,15 @@ pub struct HomologateArgs {
     #[arg(long)]
     pub diagnostics: Option<PathBuf>,
 
-    #[arg(long, default_value = "ffmpeg")]
-    pub ffmpeg: PathBuf,
+    #[command(flatten)]
+    pub tools: ExternalToolArgs,
+}
 
-    #[arg(long, default_value = "ffprobe")]
-    pub ffprobe: PathBuf,
+#[derive(Debug, Args)]
+pub struct CheckAnalysisCacheArgs {
+    /// Directory holding the bundled <stem>.mp4 sources and analysis/<stem> caches.
+    #[arg(long, default_value = "assets")]
+    pub assets_dir: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -533,8 +537,8 @@ impl From<AnalyzeArgs> for AnalyzeRequest {
             force_ml: args.force_ml,
             progress: args.progress,
             progress_interval_ms: args.progress_interval_ms,
-            ffmpeg: args.ffmpeg,
-            ffprobe: args.ffprobe,
+            ffmpeg: args.tools.ffmpeg,
+            ffprobe: args.tools.ffprobe,
             surface_hint: args.surface_hint,
             surface_frame: args.surface_frame,
             writable_region_hint: args.writable_region_hint,
@@ -587,8 +591,8 @@ impl RenderArgs {
             encoder_args: self.encoder_args,
             progress: self.progress,
             progress_interval_ms: self.progress_interval_ms,
-            ffmpeg: self.ffmpeg,
-            ffprobe: self.ffprobe,
+            ffmpeg: self.tools.ffmpeg,
+            ffprobe: self.tools.ffprobe,
         }
     }
 }
@@ -604,8 +608,8 @@ impl From<VerifyArgs> for VerifyRequest {
             minimum_score: args.minimum_score,
             progress: args.progress,
             progress_interval_ms: args.progress_interval_ms,
-            ffmpeg: args.ffmpeg,
-            ffprobe: args.ffprobe,
+            ffmpeg: args.tools.ffmpeg,
+            ffprobe: args.tools.ffprobe,
         }
     }
 }
@@ -617,8 +621,8 @@ impl From<HomologateArgs> for HomologateRequest {
             rendered: args.rendered,
             report: args.report,
             diagnostics: args.diagnostics,
-            ffmpeg: args.ffmpeg,
-            ffprobe: args.ffprobe,
+            ffmpeg: args.tools.ffmpeg,
+            ffprobe: args.tools.ffprobe,
         }
     }
 }
@@ -840,6 +844,11 @@ impl Command {
                 textures(&index, &cache)?;
             }
             Command::List(_) | Command::Homologate(_) | Command::HomologationCoverage(_) => {}
+            Command::CheckAnalysisCache(_args) => {
+                // The audit walks every bundled asset's source video and
+                // analysis pack below --assets-dir.
+                index.extract_prefix(&cache, "assets/")?;
+            }
         }
         Ok(())
     }

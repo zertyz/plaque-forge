@@ -15,6 +15,7 @@ use crate::{
     geometry::{Point as GeoPoint, Quad as GeoQuad, homography},
     model::{Mat3, MotionSample, PointF, RectF},
     progress::ProgressReporter,
+    stats::percentile,
     surface::Surface,
     video::VideoInfo,
 };
@@ -771,15 +772,6 @@ pub(crate) fn transform_quad(quad: GeoQuad, transform: Mat3) -> GeoQuad {
         GeoPoint::new(mapped.x, mapped.y)
     });
     GeoQuad::new(points[0], points[1], points[2], points[3])
-}
-
-pub(crate) fn percentile(values: &mut [f64], quantile: f64) -> f64 {
-    if values.is_empty() {
-        return f64::INFINITY;
-    }
-    values.sort_by(f64::total_cmp);
-    let index = ((values.len() - 1) as f64 * quantile.clamp(0.0, 1.0)).round() as usize;
-    values[index]
 }
 
 pub(crate) fn source_flow_confidence(p95: f64, p99: f64) -> f64 {

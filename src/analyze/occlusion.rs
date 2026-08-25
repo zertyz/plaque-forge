@@ -6,7 +6,6 @@
 use std::{collections::VecDeque, fs, path::Path};
 
 use anyhow::{Context, Result};
-use image::{GrayImage, ImageBuffer, Luma};
 
 use crate::{
     analysis::{
@@ -27,6 +26,8 @@ use super::{
     tracking,
 };
 use crate::geometry::Quad;
+use crate::image_io::save_luma_png;
+use crate::stats::mean;
 
 pub struct OcclusionResult {
     pub has_occluder: bool,
@@ -409,7 +410,7 @@ pub fn extract(
             transformed_rect(rect, motion[frame_index].transform),
             1.0,
         )?;
-        save_luma(
+        save_luma_png(
             info.width,
             info.height,
             &full.alpha_mask(),
@@ -839,7 +840,7 @@ fn save_canonical_source_mask(
         // channel; automatic web material keeps its measured porous alpha.
         layers::apply_matte_policy(&mut alpha, matte);
     }
-    save_luma(info.width, info.height, &alpha, path)
+    save_luma_png(info.width, info.height, &alpha, path)
 }
 
 fn recover_temporal_details(
@@ -1033,19 +1034,6 @@ fn mask_iou(a: &[u8], b: &[u8]) -> Option<f64> {
     } else {
         Some(i as f64 / u as f64)
     }
-}
-fn mean(v: &[f64]) -> f64 {
-    if v.is_empty() {
-        0.0
-    } else {
-        v.iter().sum::<f64>() / v.len() as f64
-    }
-}
-fn save_luma(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
-    let image: GrayImage = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, data.to_vec())
-        .context("invalid luma mask")?;
-    image.save(path)?;
-    Ok(())
 }
 
 #[cfg(test)]

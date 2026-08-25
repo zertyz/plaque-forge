@@ -1,10 +1,23 @@
 # Plaque Forge
 
+[![CI](https://github.com/zertyz/plaque-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/zertyz/plaque-forge/actions/workflows/ci.yml)
+
 Plaque Forge replaces or adds artistic title text on moving video surfaces while preserving camera/surface motion and objects that cross in front of the title.
 
 A **writing surface** may be a rectangle, rounded plaque, circle/ellipse, polygon, irregular mask, or an injected transparent PNG. Plaque Forge does as much as it can automatically before asking for small human corrections.
 
 Normal use is **setup once → analyze once → render many → review**.
+
+## Sample output
+
+Rendered with one command per style — golden shine for real plaques, classic glow for plaque-less and background scenes:
+
+| | |
+|---|---|
+| [![Classic glow over a text-free digital waterfall](docs/media/16_9_background_digifall.classic-glow.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Golden shine on a mountainside plaque under a cloudy sky](docs/media/16_9_mountain_top_day_hummingbird_cloudy_plaque.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
+| [![Foreground chains crossing the rendered title](docs/media/16_9_scrapyard_iron_plaque_foreground_chains.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Golden shine on a wooden plaque](docs/media/16_9_swamp_wooden_plaque.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
+
+The [sample videos release](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) carries the full set — every bundled asset in both aspect families, plus browser-friendly MP4 previews — regenerated automatically by CI whenever a push to `main` may change rendered output. Each video there was machine-verified against its analysis cache before publication.
 
 ## 1. Install prerequisites
 
@@ -28,7 +41,7 @@ Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, incl
 
 Plaque Forge requires Rust, FFmpeg/FFprobe, OpenCV, Clang, fontconfig, and the Noto fonts. Production rendering uses the font file selected by `--font` (or resolved by `--font-family` in the helper scripts); when neither is given, the helper scripts default to the repository-pinned `fonts/NotoSerif-Regular.ttf`, which deterministic text-mask tests and homologation also use. The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
 
-> The authoritative, continuously-validated dependency set is the `code-gate` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (its `Install native dependencies` step). That workflow is the real source of truth; the command above is a convenience summary and may lag behind it.
+> The authoritative, continuously-validated dependency set is the `code-gate` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (its install step). That workflow is the real source of truth; the command above is a convenience summary and may lag behind it.
 
 ## 2. Analyze once
 

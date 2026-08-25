@@ -27,22 +27,38 @@ pub enum SegmentationProfile {
 
 impl SegmentationProfile {
     pub fn parse(value: &str) -> Result<Self> {
-        match value {
-            "preview" => Ok(Self::Preview),
-            "balanced" => Ok(Self::Balanced),
-            "canonical" => Ok(Self::Canonical),
-            other => bail!("unsupported segmentation profile {other:?}"),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Preview => "preview",
-            Self::Balanced => "balanced",
-            Self::Canonical => "canonical",
-        }
+        Self::from_label(value).context(format!("unsupported segmentation profile {value:?}"))
     }
 }
+
+/// Declare the canonical kebab-case wire names of a strategy enum once so its
+/// parsing and labeling cannot drift apart.
+macro_rules! impl_kebab_names {
+    ($type:ty, [$($variant:path => $name:literal),+ $(,)?]) => {
+        impl $type {
+            pub fn label(self) -> &'static str {
+                match self {
+                    $($variant => $name),+
+                }
+            }
+
+            pub fn from_label(value: &str) -> Option<Self> {
+                $(
+                    if value == $name {
+                        return Some($variant);
+                    }
+                )+
+                None
+            }
+        }
+    };
+}
+
+impl_kebab_names!(SegmentationProfile, [
+    SegmentationProfile::Preview => "preview",
+    SegmentationProfile::Balanced => "balanced",
+    SegmentationProfile::Canonical => "canonical",
+]);
 
 /// Numeric policy is independent from the execution device.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -56,19 +72,17 @@ impl SegmentationPrecision {
     pub fn parse(value: &str) -> Result<Option<Self>> {
         match value {
             "auto" => Ok(None),
-            "fp32" => Ok(Some(Self::Fp32)),
-            "bf16" => Ok(Some(Self::Bf16)),
-            other => bail!("unsupported segmentation precision {other:?}"),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Fp32 => "fp32",
-            Self::Bf16 => "bf16",
+            other => Self::from_label(other)
+                .map(Some)
+                .context(format!("unsupported segmentation precision {other:?}")),
         }
     }
 }
+
+impl_kebab_names!(SegmentationPrecision, [
+    SegmentationPrecision::Fp32 => "fp32",
+    SegmentationPrecision::Bf16 => "bf16",
+]);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
