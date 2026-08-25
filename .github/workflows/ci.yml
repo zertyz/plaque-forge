@@ -243,10 +243,15 @@ jobs:
           version: "0.12.5"
 
       - name: Restore pinned CPU segmentation runtime
+        # Cache key inputs are the single source of truth for the
+        # segmentation runtime. Keep in sync with
+        # `.github/workflows/generated-analysis.yml` and
+        # `scripts/setup_segmentation.sh`; add new inputs there and update
+        # both workflows together (see `docs/CI.md`).
         uses: actions/cache@v4
         with:
           path: /tmp/plaque-forge-python
-          key: segmentation-runtime-cpu-v1-${{ runner.os }}-${{ hashFiles('scripts/setup_segmentation.sh', 'tools/segmentation-requirements.txt') }}
+          key: segmentation-runtime-cpu-v1-${{ runner.os }}-${{ hashFiles('scripts/setup_segmentation.sh', 'tools/segmentation-requirements.txt', 'tools/segmentation_runtime.py') }}
 
       - name: Build or verify the complete ML runtime
         run: ./scripts/setup_segmentation.sh --torch-profile cpu

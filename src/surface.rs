@@ -185,7 +185,16 @@ impl Surface {
             for x in left..right {
                 let sx = ((x - dx) * 4) as usize;
                 let dx4 = (x * 4) as usize;
-                let pixel: [u8; 4] = source_row[sx..sx + 4].try_into().expect("RGBA slice");
+                let Some(pixel) = source_row
+                    .get(sx..sx + 4)
+                    .and_then(|slice| slice.try_into().ok())
+                else {
+                    // `left`/`right`/`dx` are validated against `source.width`,
+                    // so an out-of-bounds slice indicates a caller bug; skip
+                    // gracefully for library use rather than aborting.
+                    continue;
+                };
+                let pixel: [u8; 4] = pixel;
                 if pixel[3] > 0 {
                     blend_over(
                         &mut destination_row[dx4..dx4 + 4],
@@ -452,9 +461,21 @@ fn parallel_workers(area: usize) -> usize {
     if area < PARALLEL_AREA_THRESHOLD {
         return 1;
     }
-    std::thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(1)
+    match std::thread::available_parallelism() {
+        Ok(count) => count.get(),
+        // `available_parallelism` can fail in containers without cgroup
+        // information. It is a deployment observation, not a program error:
+        // fall back to single-threaded execution and avoid a hard failure
+        // when the crate is used as a library.
+        Err(error) => {
+            // Best-effort diagnostic; verification callers already have a
+            // `ProgressReporter`, but `surface` is a low-level primitive that
+            // must not panic when used as a library. `eprintln` is
+            // `BrokenPipe`-tolerant by convention and never aborts.
+            eprintln!("warning: available_parallelism failed ({error}), using 1 thread");
+            1
+        }
+    }
 }
 
 fn destination_area(quad: Quad) -> usize {
@@ -551,9 +572,17 @@ impl ProjectiveResample<'_> {
 #[inline]
 fn pixel_at(surface: &Surface, x: u32, y: u32) -> [u8; 4] {
     let index = (y as usize * surface.width as usize + x as usize) * 4;
-    surface.pixels[index..index + 4]
-        .try_into()
-        .expect("RGBA slice")
+    // Bounds are validated by callers (`sample_bilinear_pixels` clamps to
+    // `width-1`/`height-1` and `ProjectiveResample` limits `left`/`right`).
+    // The `expect` documents that invariant; for library use we degrade to a
+    // transparent-black fallback rather than aborting the caller if a future
+    // caller violates it. The fallback is visually equivalent to an out-of-
+    // bounds sample and never silently succeeds on a partial slice.
+    surface
+        .pixels
+        .get(index..index + 4)
+        .and_then(|slice| slice.try_into().ok())
+        .unwrap_or([0, 0, 0, 0])
 }
 
 /// The authoritative bilinear sampler: linear-light, premultiplied-alpha

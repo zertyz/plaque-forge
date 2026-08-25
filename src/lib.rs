@@ -46,7 +46,10 @@ pub mod geometry;
 pub mod homologation;
 mod image_io;
 pub mod infrastructure;
+mod io;
 mod layers;
+#[cfg(feature = "bundle-media")]
+mod materialize;
 pub mod media;
 pub mod model;
 mod portable_path;
@@ -77,7 +80,7 @@ pub fn run() -> Result<()> {
     #[cfg(not(feature = "bundle-media"))]
     let cli = Cli::parse();
     #[cfg(feature = "bundle-media")]
-    cli.command.materialize_embedded_media()?;
+    crate::materialize::materialize_command(&mut cli.command)?;
     match cli.command {
         Command::CreateScene(args) => scene_commands::create(args),
         Command::PlaceSurface(args) => scene_commands::place_surface(args),
@@ -135,9 +138,7 @@ fn production_media_catalog() -> Result<Box<dyn media::MediaCatalog>> {
 
 /// Print a finished report, tolerating a closed downstream pipe (`| head`).
 fn print_stdout(text: &str) -> Result<()> {
-    use std::io::Write;
-
     let mut out = std::io::stdout().lock();
-    cli::write_stdout_line(&mut out, text)?;
-    out.flush().map_err(Into::into)
+    crate::io::write_stdout_line(&mut out, text)?;
+    crate::io::flush_tolerating_broken_pipe(&mut out)
 }

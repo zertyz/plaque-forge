@@ -84,18 +84,24 @@ impl EmbeddedIndex {
     /// The static bytes of one entry, sliced out of the bundle blob.
     pub fn asset_bytes(&self, asset: &EmbeddedAsset) -> &'static [u8] {
         let start = asset.offset;
-        let end = start
+        let Some(end) = start
             .checked_add(asset.len)
             .filter(|end| *end <= self.blob.len())
-            .unwrap_or_else(|| {
-                panic!(
-                    "embedded asset {} [{}..{}] escapes the {}-byte blob",
-                    asset.path,
-                    start,
-                    start + asset.len,
-                    self.blob.len()
-                )
-            });
+        else {
+            // Build invariant: `build.rs` guarantees offsets are in-bounds.
+            // A corrupted binary is unrecoverable, but as a library we avoid
+            // aborting the caller with `panic!` and surface an empty slice
+            // with a diagnostic. Downstream callers treat empty asset bytes as
+            // a missing-asset error and return `Err` rather than panicking.
+            eprintln!(
+                "error: embedded asset {} [{}..{}] escapes the {}-byte blob; returning empty slice",
+                asset.path,
+                start,
+                start + asset.len,
+                self.blob.len()
+            );
+            return &[];
+        };
         &self.blob[start..end]
     }
 

@@ -33,10 +33,14 @@ pub fn blob() -> &'static [u8] {
         let start = std::ptr::addr_of!(_binary_bundle_blob_bin_start);
         let end = std::ptr::addr_of!(_binary_bundle_blob_bin_end);
         let len = end.offset_from(start) as usize;
-        assert!(
-            end >= start && len <= isize::MAX as usize,
-            "bundle blob symbols are inconsistent"
-        );
+        if end < start || len > isize::MAX as usize {
+            // Build invariant: `build.rs` links the blob with `ld -r -b binary`.
+            // A corrupted link is unrecoverable, but as a library we must not
+            // abort the process. Return an empty blob and let callers surface
+            // a diagnostic `Err` when they find no entries.
+            eprintln!("error: bundle blob symbols are inconsistent; returning empty blob");
+            return &[];
+        }
         std::slice::from_raw_parts(start, len)
     }
 }
