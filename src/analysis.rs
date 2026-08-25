@@ -271,18 +271,7 @@ impl Analysis {
     }
 
     pub fn require_asset_path(&self, name: &Path) -> Result<PathBuf> {
-        if name.is_absolute()
-            || name
-                .components()
-                .any(|component| matches!(component, std::path::Component::ParentDir))
-        {
-            bail!("analysis asset path is not relative: {}", name.display());
-        }
-        let path = self.root.join(name);
-        if !path.is_file() {
-            bail!("analysis is missing required asset {}", path.display());
-        }
-        Ok(path)
+        resolve_asset(&self.root, name)
     }
 
     pub fn require_current_analyzer(&self) -> Result<()> {
@@ -384,6 +373,23 @@ fn validate_portable_paths(manifest: &AnalysisManifest) -> Result<()> {
             .with_context(|| format!("provenance path is not portable: {}", file.path.display()))?;
     }
     Ok(())
+}
+
+/// Resolve one analysis-relative asset, rejecting anything that escapes the
+/// cache directory.
+pub fn resolve_asset(root: &Path, name: &Path) -> Result<PathBuf> {
+    if name.is_absolute()
+        || name
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        bail!("analysis asset path is not relative: {}", name.display());
+    }
+    let path = root.join(name);
+    if !path.is_file() {
+        bail!("analysis is missing required asset {}", path.display());
+    }
+    Ok(path)
 }
 
 pub fn sequence_path(pattern: &Path, frame: usize) -> PathBuf {

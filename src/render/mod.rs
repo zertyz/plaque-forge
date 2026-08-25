@@ -1,25 +1,25 @@
+pub mod compositor;
 pub mod effects;
 mod font_system;
 pub mod typography;
 
-use std::{collections::HashMap, fs, path::Path};
+use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use image::{RgbaImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    analysis::{Analysis, CONTENT_MASK_FILE, LAYERS_DIR, OCCLUDER_DIR},
-    analyze::extraction::transformed_rect,
+    analysis::{Analysis, CONTENT_MASK_FILE, LAYERS_DIR},
     application::{RenderRequest, TitleSource},
     image_io::load_luma,
-    layers::{ForegroundReader, apply_matte_policy, merge_mask},
     model::TypographyMetrics,
     portable_path::PortablePath,
     progress::ProgressReporter,
-    surface::Surface,
     video::{self, Decoder, Encoder},
 };
+
+use compositor::{CompositorSetup, FrameCompositor};
 
 pub const RENDER_MANIFEST_SCHEMA_VERSION: u32 = 4;
 pub const DECISION_TRACE_SCHEMA_VERSION: u32 = 2;
@@ -280,23 +280,7 @@ fn render_to(
         pack.manifest.canonical_width,
         pack.manifest.canonical_height,
     )?;
-    let injected_surface = pack
-        .manifest
-        .injected_surface
-        .as_ref()
-        .map(|asset| {
-            let path = pack.require_asset_path(asset.path.as_path())?;
-            let image = image::open(&path)
-                .with_context(|| format!("failed to load injected plaque {}", path.display()))?
-                .to_rgba8();
-            anyhow::ensure!(
-                image.width() == pack.manifest.canonical_width
-                    && image.height() == pack.manifest.canonical_height,
-                "injected plaque dimensions do not match canonical analysis"
-            );
-            Surface::from_rgba(image.width(), image.height(), image.into_raw())
-        })
-        .transpose()?;
+    let injected_surface = compositor::load_injected_surface(&pack)?;
     progress.finish("source and analysis cache are valid");
 
     progress.start(2, 3, "Shape and fit typography", None);
@@ -315,7 +299,6 @@ fn render_to(
             shadow_color: &args.shadow_color,
         },
     )?;
-    let text_style = style.describe();
     let style_file = args.style_file.as_ref().and_then(|path| {
         path.file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -325,13 +308,15 @@ fn render_to(
         .as_deref()
         .map(crate::digest::file_sha256)
         .transpose()?;
-    let text_render = typography::render(typography::RenderRequest {
-        width: pack.manifest.canonical_width,
-        height: pack.manifest.canonical_height,
-        mask: &mask,
-        text: &text,
-        font_path: &args.font,
-        fit_mode: args.fit,
+    let title_text = text.clone();
+    let mut compositor = FrameCompositor::open(CompositorSetup {
+        pack,
+        mask,
+        injected_surface,
+        style,
+        font_path: args.font.clone(),
+        text,
+        fit: args.fit,
         requested_font_size: args.font_size,
         supersampling: args.supersampling,
         target_fill: args.target_fill,
@@ -340,27 +325,18 @@ fn render_to(
         line_height_ratio: args.line_height,
         text_align: args.text_align,
         vertical_align: args.vertical_align,
-        style: &style,
     })?;
-    if text_render.metrics.missing_glyphs > 0 || text_render.metrics.fallback_glyphs > 0 {
-        bail!(
-            "font cannot render the requested title deterministically: {} missing glyphs, {} fallback glyphs",
-            text_render.metrics.missing_glyphs,
-            text_render.metrics.fallback_glyphs
-        );
-    }
     let canonical_text_mask_path = args.output.with_extension("text-mask.png");
-    crate::image_io::save_luma_png(
-        text_render.layer.width(),
-        text_render.layer.height(),
-        &text_render.layer.alpha_mask(),
-        &canonical_text_mask_path,
-    )?;
+    compositor.write_canonical_mask(&canonical_text_mask_path)?;
+    let typography_metrics = compositor.metrics().clone();
+    let used_injected_surface = compositor.pack().manifest.injected_surface.is_some();
+    let scene_foreground_layers = compositor.scene_foreground_layers();
+    let style_description = compositor.style().describe();
     progress.finish(format!(
         "{:.2}px, {} lines, {:.1}% fill",
-        text_render.metrics.font_size,
-        text_render.metrics.lines,
-        text_render.metrics.fill_ratio * 100.0
+        typography_metrics.font_size,
+        typography_metrics.lines,
+        typography_metrics.fill_ratio * 100.0
     ));
 
     let encoder_args = if args.encoder_args.is_empty() {
@@ -389,27 +365,12 @@ fn render_to(
     validate_portable_encoder_args(&encoder_args)?;
     let mut decoder = Decoder::spawn(&args.ffmpeg, &source, &info)?;
     let mut encoder = Encoder::spawn(&args.ffmpeg, &source, &args.output, &info, &encoder_args)?;
-    let masks_dir = pack.root.join(OCCLUDER_DIR);
-    let use_masks = should_use_analysis_occluders(&pack) && masks_dir.is_dir();
-    let analysis_inputs_sha256 = pack.render_inputs_sha256(use_masks)?;
-    let authored_occluder_matte = authored_occluder_matte(&pack);
-    // Opaque source masks carry semantic identity, not material alpha. When the
-    // analyzer has produced a frame-local fused matte, restoring the semantic mask
-    // too would turn prompt boxes/blobs into solid foreground and close porous gaps.
-    let foregrounds = ForegroundReader::open(&pack, use_masks)?;
-    let scene_foreground_layers = pack
-        .manifest
-        .layers
-        .iter()
-        .filter(|layer| layer.role == crate::scene::LayerRole::Foreground)
-        .count();
+    let analysis_inputs_sha256 = compositor
+        .pack()
+        .render_inputs_sha256(compositor.uses_analysis_occluders())?;
     let mut frame_index = 0usize;
     let diagnostic_indices = crate::stats::evenly_spaced(info.frames, 12);
     let mut diagnostic_frames = Vec::with_capacity(diagnostic_indices.len());
-    let static_presented = (!style.has_frame_variation()).then(|| text_render.layer.clone());
-    let dynamic_target = text_render.metrics.resolved_text.clone();
-    let mut dynamic_text_cache = HashMap::<String, typography::TextRender>::new();
-    let needs_original_frame = use_masks || !foregrounds.is_empty();
     progress.start(3, 3, "Composite and encode", Some(info.frames));
     while let Some(mut frame) = decoder.next_frame()? {
         if frame_index >= info.frames {
@@ -418,124 +379,7 @@ fn render_to(
                 info.frames
             );
         }
-        let original = needs_original_frame.then(|| frame.clone());
-        let sample = pack
-            .motion
-            .get(frame_index)
-            .with_context(|| format!("motion sample missing for frame {frame_index}"))?;
-
-        let plaque_quad = transformed_rect(pack.manifest.source_plaque_rect, sample.transform);
-        if let Some(plaque_layer) = &injected_surface {
-            frame.warp_blend(
-                plaque_layer,
-                plaque_quad,
-                sample.plaque_visibility.clamp(0.0, 1.0) as f32,
-            )?;
-        }
-
-        // Static shaping/fitting is reused. Scramble and split-flap intentionally render
-        // discrete character states, cached by state string, without recomputing scene analysis.
-        let time_seconds = frame_index as f64 / info.fps.max(f64::EPSILON);
-        let dynamic_key = style.dynamic_text(&dynamic_target, time_seconds);
-        if let Some(ref key) = dynamic_key
-            && key != &dynamic_target
-            && !dynamic_text_cache.contains_key(key)
-        {
-            let rendered = typography::render(typography::RenderRequest {
-                width: pack.manifest.canonical_width,
-                height: pack.manifest.canonical_height,
-                mask: &mask,
-                text: key,
-                font_path: &args.font,
-                fit_mode: crate::application::FitMode::Fixed,
-                requested_font_size: Some(text_render.metrics.font_size * 0.97),
-                supersampling: args.supersampling,
-                target_fill: args.target_fill,
-                max_lines: args.max_lines,
-                padding_ratio: args.padding,
-                line_height_ratio: args.line_height,
-                text_align: args.text_align,
-                vertical_align: args.vertical_align,
-                style: &style,
-            });
-            if let Ok(rendered) = rendered {
-                dynamic_text_cache.insert(key.clone(), rendered);
-            }
-        }
-        let using_dynamic = dynamic_key
-            .as_ref()
-            .is_some_and(|key| key != &dynamic_target && dynamic_text_cache.contains_key(key));
-        let frame_text = dynamic_key
-            .as_ref()
-            .and_then(|key| dynamic_text_cache.get(key))
-            .filter(|_| using_dynamic)
-            .unwrap_or(&text_render);
-
-        let opacity =
-            sample.plaque_visibility.clamp(0.0, 1.0) as f32 * style.frame_opacity(time_seconds);
-        let animated_presented = if static_presented.is_none() || using_dynamic {
-            let mut layer = frame_text.layer.clone();
-            if let Some(overlay) = style.frame_overlay(
-                &frame_text.glyph_mask,
-                frame_text.layer.width(),
-                frame_text.layer.height(),
-                time_seconds,
-            )? {
-                layer.blend_surface(&overlay, 0, 0, 1.0);
-            }
-            Some(style.frame_transform(&layer, time_seconds)?)
-        } else {
-            None
-        };
-        let presented = if using_dynamic {
-            animated_presented.as_ref()
-        } else {
-            static_presented.as_ref().or(animated_presented.as_ref())
-        }
-        .context("title presentation was not created")?;
-
-        if style.has_surface_effects() {
-            let canonical_plaque = Surface::extract_quad(
-                &frame,
-                plaque_quad,
-                pack.manifest.canonical_width,
-                pack.manifest.canonical_height,
-            )?;
-            let transformed_mask = style.frame_transform_mask(
-                &frame_text.glyph_mask,
-                frame_text.layer.width(),
-                frame_text.layer.height(),
-                time_seconds,
-            )?;
-            if let Some(surface_layer) =
-                style.surface_overlay(&canonical_plaque, &transformed_mask)?
-            {
-                frame.warp_blend(&surface_layer, plaque_quad, opacity)?;
-            }
-        }
-
-        frame.warp_blend(presented, plaque_quad, opacity)?;
-        let mut restore = foregrounds
-            .frame_mask(frame_index, sample.transform)?
-            .unwrap_or_default();
-        if use_masks {
-            let path = masks_dir.join(format!("{frame_index:06}.png"));
-            if path.exists() {
-                let mut detail = load_full_luma(&path, info.width, info.height)?;
-                if let Some(matte) = authored_occluder_matte {
-                    apply_matte_policy(&mut detail, matte);
-                }
-                merge_mask(&mut restore, &detail);
-            }
-        }
-        if !restore.is_empty() {
-            frame.restore_from_mask(
-                original
-                    .as_ref()
-                    .context("foreground restoration source is unavailable")?,
-                &restore,
-            )?;
-        }
+        compositor.composite(&mut frame, frame_index)?;
         if diagnostic_indices
             .get(diagnostic_frames.len())
             .is_some_and(|&index| index == frame_index)
@@ -557,6 +401,10 @@ fn render_to(
         );
     }
     progress.finish(format!("{} frames", frame_index));
+    let used_occluder_any =
+        compositor.uses_analysis_occluders() || compositor.restores_foregrounds();
+    let used_analysis = compositor.uses_analysis_occluders();
+    let pack = compositor.into_pack();
 
     let report_path = args.output.with_extension("render-manifest.json");
     let render_contact_sheet = if let Some(diagnostics) = &args.diagnostics {
@@ -591,6 +439,7 @@ fn render_to(
     let canonical_text_mask_sha256 = crate::digest::file_sha256(&canonical_text_mask_path)?;
     let analysis_manifest_sha256 =
         crate::digest::file_sha256(&pack.root.join(crate::analysis::MANIFEST_FILE))?;
+    // `pack` below refers to the analysis returned by the compositor.
 
     let scene_surface_id = pack
         .manifest
@@ -636,7 +485,7 @@ fn render_to(
                 .map(|layer| layer.id.clone())
                 .collect(),
         },
-        typography: text_render.metrics.clone(),
+        typography: typography_metrics.clone(),
         compositing_layers: pack
             .manifest
             .layers
@@ -669,12 +518,12 @@ fn render_to(
         renderer_build: crate::build_info::RENDERER_BUILD_VERSION.to_string(),
         renderer_source_sha256: crate::build_info::RENDERER_SOURCE_SHA256.to_string(),
         analyzer_build: pack.manifest.analyzer_build.clone(),
-        typography: text_render.metrics,
+        typography: typography_metrics,
         frames: frame_index,
-        used_occluder_masks: use_masks || !foregrounds.is_empty(),
-        used_analysis_occluder_masks: use_masks,
+        used_occluder_masks: used_occluder_any,
+        used_analysis_occluder_masks: used_analysis,
         scene_foreground_layers,
-        used_injected_surface: injected_surface.is_some(),
+        used_injected_surface,
         injected_surface_sha256: pack
             .manifest
             .injected_surface
@@ -690,12 +539,12 @@ fn render_to(
                 .context("canonical text mask has no file name")?,
         )?,
         canonical_text_mask_sha256,
-        text_style,
+        text_style: style_description,
         style_file,
         style_sha256,
         render_contact_sheet,
         render_contact_sheet_sha256,
-        title_text: text,
+        title_text,
         font_file,
         font_sha256,
         encoder_args,
@@ -722,19 +571,6 @@ pub(crate) fn should_use_analysis_occluders(pack: &Analysis) -> bool {
         pack.manifest.has_occluder,
         authored_opaque_source_foreground,
     )
-}
-
-fn authored_occluder_matte(pack: &Analysis) -> Option<crate::scene::LayerMatte> {
-    (pack.manifest.occlusion_mode == crate::scene::DepthMode::DeclaredOnly)
-        .then(|| {
-            pack.manifest.layers.iter().find_map(|layer| {
-                (layer.role == crate::scene::LayerRole::Foreground
-                    && layer.coordinates == crate::scene::LayerCoordinates::SourcePixels
-                    && layer.matte.mode == crate::scene::LayerMatteMode::Opaque)
-                    .then_some(layer.matte)
-            })
-        })
-        .flatten()
 }
 
 fn analysis_occluders_are_renderable(
@@ -790,7 +626,7 @@ fn ensure_trace_hash(bytes: &[u8], expected: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn load_full_luma(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {
+pub fn load_full_luma(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {
     let image = image::open(path)
         .with_context(|| format!("failed to load occluder mask {}", path.display()))?
         .to_luma8();

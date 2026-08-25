@@ -17,6 +17,14 @@ pub trait FamilyIndex {
     /// Resolve a fontconfig-style pattern to its canonical family name.
     fn match_pattern(&self, pattern: &str) -> Option<String>;
 
+    /// The representative font file backing one exact family name.
+    fn face_file(&self, family: &str) -> Option<std::path::PathBuf> {
+        self.face_file_and_family(family).map(|(path, _)| path)
+    }
+
+    /// Representative file plus canonical name for one exact family name.
+    fn face_file_and_family(&self, family: &str) -> Option<(std::path::PathBuf, String)>;
+
     /// Distinct family names sorted alphabetically, minus the excluded labels
     /// (compared case-insensitively).
     fn families_excluding(&self, exclude_lowercase: &BTreeSet<String>) -> Vec<String>;
@@ -74,6 +82,21 @@ impl SystemFonts {
 impl FamilyIndex for SystemFonts {
     fn match_pattern(&self, pattern: &str) -> Option<String> {
         self.candidate_families(pattern).into_iter().next()
+    }
+
+    fn face_file_and_family(&self, family: &str) -> Option<(std::path::PathBuf, String)> {
+        let candidates = self.candidate_families(family);
+        let canonical = candidates.first()?.clone();
+        for face in self.db.faces() {
+            let matches_family = face
+                .families
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(&canonical));
+            if matches_family && let fontdb::Source::File(path) = &face.source {
+                return Some((path.clone(), canonical));
+            }
+        }
+        None
     }
 
     fn families_excluding(&self, exclude_lowercase: &BTreeSet<String>) -> Vec<String> {
