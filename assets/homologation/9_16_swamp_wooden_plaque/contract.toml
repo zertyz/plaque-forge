@@ -1,0 +1,66 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_swamp_wooden_plaque"
+source = "../../9_16_swamp_wooden_plaque.mp4"
+scene = "../../scenes/9_16_swamp_wooden_plaque/scene.toml"
+analysis = "../../analysis/9_16_swamp_wooden_plaque"
+surface = "main"
+source_sha256 = "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33"
+
+[geometry]
+tracking_bounds = [0.0, 64.0, 720.0, 380.0]
+writable_bounds = [55.0, 105.0, 610.0, 290.0]
+
+[render]
+text = "Seeing what others cannot see!"
+style = "../../../styles/gold-shine.toml"
+style_sha256 = "58bdec1129a9812be071185d856b2c90776dcc2167932fbbbacf5141bfc02070"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "Seeing what\nothers\ncannot see!"
+
+[typography]
+lines = 3
+maximum_font_size = 88.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0
+
+# The ogre's hat is a persistent low-contrast occluder: it covers the same plaque
+# region in most frames, so it is baked into the robust plaque model and the
+# photometric channel cannot see it. Reviewed samples pin the dome where it
+# crosses the title near the end of the clip, plus the walking lizard.
+
+[[source_preservation]]
+frame = 238
+mask = "hat-occlusion/000238.png"
+mask_sha256 = "af8737f2c0d87e64e8a170313ae8bd67c7660a403bef2a79002bfb0c5f9d40f6"
+minimum_selected_pixels = 1800
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 220
+mask = "hat-occlusion/000220.png"
+mask_sha256 = "5ca44e976e19fc898458633ab4f58d57c265f5fc95edd32d7400f5036ffa7221"
+minimum_selected_pixels = 700
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+[[source_preservation]]
+frame = 92
+mask = "lizard/000092.png"
+mask_sha256 = "b7228474e86eaafb1ce93d28855067eb7159e749364a92fb1c68ecf590630afd"
+minimum_selected_pixels = 2500
+maximum_mean_absolute_error = 12.0
+maximum_p95_absolute_error = 25.0
+
+# Reviewed title pixels inside the third text line. An over-restoring occluder or
+# an over-closed foreground mask would erase these strokes and fail here.
+
+[[title_visibility]]
+frame = 12
+mask = "title/000012.png"
+mask_sha256 = "6352e4e5a3ca2151ea1e00ec8cfff88464d5c0d35c11d71df66e1605573924a2"
+minimum_selected_pixels = 15000
+minimum_mean_absolute_error = 30.0
+minimum_p50_absolute_error = 15.0

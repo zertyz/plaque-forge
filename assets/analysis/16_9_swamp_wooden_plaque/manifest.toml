@@ -2,7 +2,7 @@
 format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
-analyzer_build = "surface-analysis-v11-bounded-semantic-material-depth-reviewed-dynamics"
+analyzer_build = "surface-analysis-v12-transitional-semantic-occlusion-bounded-semantic-material-depth-reviewed-dynamics"
 reference_frame = 10
 canonical_width = 606
 canonical_height = 193
@@ -11,7 +11,7 @@ trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regu
 loop_closed = false
 has_occluder = true
 occlusion_mode = "automatic"
-automatic_ml_foreground = true
+automatic_ml_foreground = false
 analysis_gate_passed = true
 
 [source]
@@ -28,15 +28,6 @@ x = 342.0
 y = 50.0
 width = 606.0
 height = 193.0
-
-[segmentation]
-backend = "auto"
-model = "auto"
-device = "auto"
-profile = "canonical"
-precision = "auto"
-worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
-runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [[layers]]
 id = "plaque-foreground"
@@ -62,8 +53,8 @@ requested_device = "auto"
 source_sha256 = "5336784452c6473c5cc41258cb605b4bd1c48e264ce609948ba4a24bc53ac0db"
 prompt_sha256 = "cd3931384b51f48d60416195c5617071174f37d082c01b00e009550d28b729da"
 worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
-runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
-request_sha256 = "0adbcc62c1989f1e1fdea7cc6b18dc16ec0080a389c678e8e431f0b50f06a030"
+runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
+request_sha256 = "2a1053fba3277ee579b84c9490a3258bf6d1a6981f1d9b66a131b584611b20e9"
 plan_sha256 = "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93"
 
 [scenes]
@@ -78,12 +69,12 @@ semantic_sha256 = "14e51c945632fb74d205b66afcb38303d36755c5c3f09265e8939ae3a3709
 
 [[scenes.layer_artifacts]]
 path = "layers/plaque-foreground/artifact.toml"
-sha256 = "abc87694b24e7f2c60da1aed0e45c56dd22fbafa0d8395e22f7de6a1d27292a1"
-semantic_sha256 = "5373341c0537657d9ed061c65f542877b9c5bdc161d261d95cd6d46f5ff3a3a4"
+sha256 = "1c9df32e3678e6acfe0ccced633e2bcd000a617227609f4ef5640b35a8e84cb2"
+semantic_sha256 = "39d3e5ce35c44ccfa3c17821ee2f8bf2228ca457fe7ac37d4fcf42b87f10a38a"
 
 [confidence]
 plaque_detection = 0.98
-motion = 0.8751623300528671
-extraction = 0.9451598009541886
-occlusion = 0.9234123451945071
-overall = 0.9301519535545764
+motion = 0.8750897153969452
+extraction = 0.9451482583491511
+occlusion = 0.9194967436655355
+overall = 0.9291422255370132

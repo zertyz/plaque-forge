@@ -3,7 +3,7 @@
   "confidence": 0.8898815032261426,
   "coverage_persistence": 0.2288424651004958,
   "has_occluder": true,
-  "mask_basis": "lossless-photometric-material-intersected-with-semantic-two-pixel-object-support",
+  "mask_basis": "occlusion-aware-lossless-photometric-material-intersected-with-semantic-two-pixel-object-support",
   "mask_coordinates": "source-pixels",
   "mask_frames_summarized": 206,
   "max_coverage": 0.31402609750797045,

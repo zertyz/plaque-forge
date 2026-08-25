@@ -8,11 +8,11 @@
   "frames": 206,
   "mean_confidence": 1.0,
   "minimum_confidence": 1.0,
-  "request_sha256": "27ca531e7535e9768a8af5defbe7ee2e3c8c5ad22438bf828ce58377780c98ff",
+  "request_sha256": "e8b8d6ef69c21c0bc6b9f6322e48aa5835a9b5c61ef7776c13ea9e9961d2dce9",
   "source_sha256": "cd2439785043dc724666d7010d10cdf232d68e7b079185b5efecff8871e949df",
   "prompt_sha256": "4b178a2a4010ba009ad79c2db54b721effd6c3aed2a3c4d439c8726596cbb758",
   "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
-  "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
+  "runtime_sha256": "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4",
   "nonempty_frames": 206,
   "mean_coverage": 0.1276143115392395,
   "maximum_coverage": 0.13741644965277777,
@@ -24,32 +24,32 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 12972.801
     },
     {
       "stage": "SAM 2",
       "device": "xpu",
       "precision": "fp32",
-      "seconds": 674.257043,
+      "seconds": 1267.892565,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977,
-      "accelerator_peak_mib": 3664.166
+      "process_peak_rss_mib": 12972.801,
+      "accelerator_peak_mib": 2671.461
     },
     {
       "stage": "Cutie",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 244.104223,
+      "seconds": 464.228554,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 12972.801
     },
     {
       "stage": "Temporal stabilization",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 0.0,
+      "seconds": 1e-06,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 12972.801
     }
   ]
 }

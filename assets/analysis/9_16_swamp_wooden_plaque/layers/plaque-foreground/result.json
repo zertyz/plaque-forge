@@ -6,17 +6,17 @@
   "plan_sha256": "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93",
   "precision": "fp32",
   "frames": 240,
-  "mean_confidence": 0.7066819260517756,
-  "minimum_confidence": 0.6313287019729614,
-  "request_sha256": "fb71f747a533723eb1d4abe4b0844f8bfd5ac4e0c573827ec968d95dbb7a9a61",
+  "mean_confidence": 0.706671035538117,
+  "minimum_confidence": 0.6312137842178345,
+  "request_sha256": "1a6417cb41f93366cce7253906df1db263ea28e259a39251cda83f499a607e55",
   "source_sha256": "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33",
   "prompt_sha256": "88e15c2b9d8ddb29e518f6e58e31f97ec448cf4c5377325a362cbec6e41fb001",
   "worker_sha256": "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165",
-  "runtime_sha256": "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c",
+  "runtime_sha256": "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4",
   "nonempty_frames": 240,
-  "mean_coverage": 0.07875376157407409,
-  "maximum_coverage": 0.085078125,
-  "soft_edge_pixels": 18882792,
+  "mean_coverage": 0.07875572374131945,
+  "maximum_coverage": 0.08508355034722222,
+  "soft_edge_pixels": 18883298,
   "execution": [
     {
       "stage": "Decode frames",
@@ -24,41 +24,41 @@
       "precision": "lossless",
       "seconds": 0.0,
       "cache_hit": true,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 55.285
     },
     {
       "stage": "SAM 2",
       "device": "xpu",
       "precision": "fp32",
-      "seconds": 1273.789871,
-      "cache_hit": false,
-      "process_peak_rss_mib": 9430.977,
-      "accelerator_peak_mib": 4457.343
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 1056.051,
+      "accelerator_peak_mib": 0.0
     },
     {
       "stage": "Cutie",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 284.594005,
-      "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "seconds": 0.0,
+      "cache_hit": true,
+      "process_peak_rss_mib": 1056.926
     },
     {
       "stage": "ViTMatte",
       "device": "xpu",
       "precision": "fp32",
-      "seconds": 85.364078,
+      "seconds": 326.304414,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977,
-      "accelerator_peak_mib": 2864.827
+      "process_peak_rss_mib": 3655.18,
+      "accelerator_peak_mib": 891.875
     },
     {
       "stage": "Temporal stabilization",
       "device": "cpu",
       "precision": "fp32",
-      "seconds": 28.19811,
+      "seconds": 56.926558,
       "cache_hit": false,
-      "process_peak_rss_mib": 9430.977
+      "process_peak_rss_mib": 9000.469
     }
   ]
 }

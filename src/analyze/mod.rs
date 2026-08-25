@@ -356,6 +356,8 @@ pub fn run(
                 scenes.trajectory.as_ref(),
                 &scenes.layers,
                 automatic_occlusion,
+                None,
+                args.extraction_samples,
                 &mut progress,
             )
             .context("foreground occlusion extraction failed")?
@@ -497,6 +499,7 @@ pub fn run(
             .context("failed to rebuild the plaque/background model after masked tracking")?;
             injected_surface_asset = apply_surface_intent(&surface_intent, &mut extraction)?;
             progress.start(7, 7, "Rebuild foreground occlusion", Some(info.frames));
+            let semantic_masks = partial.join("ml-foreground");
             occlusion = occlusion::extract(
                 &args.ffmpeg,
                 &args.input,
@@ -511,6 +514,8 @@ pub fn run(
                 scenes.trajectory.as_ref(),
                 &scenes.layers,
                 true,
+                semantic_masks.is_dir().then_some(semantic_masks.as_path()),
+                args.extraction_samples,
                 &mut progress,
             )
             .context("failed to rebuild foreground masks after masked tracking")?;

@@ -23,7 +23,7 @@ use crate::{
 };
 
 use super::{
-    extraction::{ExtractionResult, rectify, transformed_rect},
+    extraction::{ExtractionResult, evenly_spaced, rectify, transformed_rect},
     tracking,
 };
 use crate::geometry::Quad;
@@ -164,7 +164,7 @@ pub fn summarize_installed_masks(
     );
     object.insert(
         "mask_basis".into(),
-        "lossless-photometric-material-intersected-with-semantic-two-pixel-object-support".into(),
+        "occlusion-aware-lossless-photometric-material-intersected-with-semantic-two-pixel-object-support".into(),
     );
     object.insert("mask_coordinates".into(), "source-pixels".into());
     object.insert(
@@ -198,6 +198,8 @@ pub fn extract(
     scene_track: Option<&SurfaceTrajectory>,
     authored_layers: &[LayerInput],
     automatic_candidates: bool,
+    semantic_masks: Option<&Path>,
+    extraction_samples: usize,
     progress: &mut ProgressReporter,
 ) -> Result<OcclusionResult> {
     let masks_dir = output_root.join(OCCLUDER_DIR);
@@ -216,15 +218,36 @@ pub fn extract(
     }
     let width = extraction.median.width() as usize;
     let height = extraction.median.height() as usize;
-    // The robust median is the canonical plaque appearance for the supported
-    // text-free source contract; no synthetic blanking is needed.
-    let model = extraction.median.pixels();
     let mut decoder = Decoder::spawn(ffmpeg, input, info)?;
     let mut structural_scores = Vec::with_capacity(info.frames);
     let mut residuals = Vec::with_capacity(info.frames);
     let mut automatic_masks = Vec::with_capacity(info.frames);
     let mut authored_masks = Vec::with_capacity(info.frames);
     let structural_guard = dilate(&extraction.structural_mask, width, height, 4);
+    // The robust median is the canonical plaque appearance for the supported
+    // text-free source contract; when the automatic semantic track is available it
+    // is replaced per pixel by the median over unoccluded samples so persistent
+    // occluders keep photometric evidence (see `occlusion_aware_model`).
+    let model: std::borrow::Cow<'_, [u8]> = match semantic_masks {
+        Some(semantic_dir) => {
+            match occlusion_aware_background(
+                ffmpeg,
+                input,
+                info,
+                rect,
+                motion,
+                semantic_dir,
+                extraction_samples,
+                extraction,
+                progress,
+            )? {
+                Some(surface) => std::borrow::Cow::Owned(surface.pixels().to_vec()),
+                None => std::borrow::Cow::Borrowed(extraction.median.pixels()),
+            }
+        }
+        None => std::borrow::Cow::Borrowed(extraction.median.pixels()),
+    };
+    let model = &model[..];
 
     for (frame_index, sample) in motion.iter().take(info.frames).enumerate() {
         let Some(frame) = decoder.next_frame()? else {
@@ -962,6 +985,167 @@ fn visible_quad_fraction(quad: Quad, width: u32, height: u32) -> f64 {
     let visible_height = (max_y.min(height as f64) - min_y.max(0.0)).max(0.0);
     (visible_width * visible_height / full_area).clamp(0.0, 1.0)
 }
+/// Median plaque appearance computed from samples the semantic track reports
+/// unoccluded, falling back per pixel to the robust median.
+///
+/// The robust median bakes in any occluder that covers a pixel for most of the
+/// clip, which both hides that occluder from the photometric residual and inflates
+/// the local MAD until the residual threshold suppresses every observation there.
+/// Modeling the plaque from frames where the semantic track reports the pixel
+/// unoccluded restores that evidence while keeping the gate closed where the
+/// semantic track never lets go (porous silhouettes whose holes must stay open).
+/// Values are per-channel medians in `RGBA` layout, alpha forced opaque.
+fn occlusion_aware_model(
+    fallback: &[u8],
+    samples: &[&[u8]],
+    semantic_active: &[&[bool]],
+    width: usize,
+    height: usize,
+) -> Option<Vec<u8>> {
+    let pixels = width * height;
+    if fallback.len() != pixels * 4
+        || samples.is_empty()
+        || samples.len() != semantic_active.len()
+        || samples.iter().any(|sample| sample.len() != pixels)
+        || semantic_active.iter().any(|active| active.len() != pixels)
+    {
+        return None;
+    }
+    let minimum_unoccluded = (samples.len() / 8).max(2);
+    let mut model = fallback.to_vec();
+    let mut any_modeled = false;
+    let mut channel_values = Vec::with_capacity(samples.len());
+    for pixel in 0..pixels {
+        channel_values.clear();
+        for (sample, active) in samples.iter().zip(semantic_active) {
+            if !active[pixel] {
+                channel_values.push(sample[pixel]);
+            }
+        }
+        if channel_values.len() >= minimum_unoccluded {
+            channel_values.sort_unstable();
+            let base = pixel * 4;
+            for channel in 0..3 {
+                model[base + channel] = channel_values[channel_values.len() / 2];
+            }
+            model[base + 3] = 255;
+            any_modeled = true;
+        }
+    }
+    any_modeled.then_some(model)
+}
+
+/// Decode the sampled frames, rectify them and the semantic track into canonical
+/// space, and build the occlusion-aware plaque model. Returns `None` when the
+/// semantic sequence is missing or supports no pixel.
+#[allow(clippy::too_many_arguments)]
+fn occlusion_aware_background(
+    ffmpeg: &Path,
+    input: &Path,
+    info: &VideoInfo,
+    rect: RectF,
+    motion: &[MotionSample],
+    semantic_dir: &Path,
+    sample_count: usize,
+    extraction: &ExtractionResult,
+    progress: &mut ProgressReporter,
+) -> Result<Option<Surface>> {
+    let sample_indices = evenly_spaced(info.frames, info.frames.min(sample_count.max(1)).max(1));
+    let width = extraction.median.width() as usize;
+    let height = extraction.median.height() as usize;
+    let mut decoder = Decoder::spawn(ffmpeg, input, info)?;
+    let mut luma_samples: Vec<Vec<u8>> = Vec::with_capacity(sample_indices.len());
+    let mut semantic_samples: Vec<Vec<bool>> = Vec::with_capacity(sample_indices.len());
+    let mut next_needed = 0_usize;
+    progress.start(
+        0,
+        1,
+        "Occlusion-aware plaque model",
+        Some(sample_indices.len()),
+    );
+    for (taken, &frame_index) in sample_indices.iter().enumerate() {
+        while next_needed <= frame_index {
+            let Some(frame) = decoder.next_frame()? else {
+                return Err(anyhow::anyhow!(
+                    "semantic model decoding stopped at frame {next_needed}; expected {}",
+                    info.frames
+                ));
+            };
+            if next_needed == frame_index {
+                let rectified = rectify(&frame, rect, motion[frame_index].transform)?;
+                let rgba = rectified.pixels();
+                let luma: Vec<u8> = (0..width * height)
+                    .map(|pixel| {
+                        let base = pixel * 4;
+                        ((u16::from(rgba[base]) * 54
+                            + u16::from(rgba[base + 1]) * 183
+                            + u16::from(rgba[base + 2]) * 19
+                            + 128)
+                            / 256) as u8
+                    })
+                    .collect();
+                luma_samples.push(luma);
+                let semantic_path = semantic_dir.join(format!("{frame_index:06}.png"));
+                let semantic = image::open(&semantic_path)
+                    .with_context(|| {
+                        format!("failed to load semantic mask {}", semantic_path.display())
+                    })?
+                    .to_luma16();
+                let semantic_surface = Surface::from_alpha_mask(
+                    info.width,
+                    info.height,
+                    &{
+                        let raw: Vec<u8> = semantic
+                            .as_raw()
+                            .iter()
+                            .map(|&value| ((u32::from(value) * 255 + 32_767) / 65_535) as u8)
+                            .collect();
+                        raw
+                    },
+                    Rgba::new(255, 255, 255, 255),
+                )?;
+                let rectified_semantic =
+                    rectify(&semantic_surface, rect, motion[frame_index].transform)?;
+                semantic_samples.push(
+                    rectified_semantic
+                        .alpha_mask()
+                        .iter()
+                        .map(|&alpha| alpha >= 128)
+                        .collect(),
+                );
+            }
+            next_needed += 1;
+        }
+        progress.update(taken + 1, "");
+    }
+    progress.finish("plaque model rebuilt");
+    decoder.finish()?;
+    let sample_refs: Vec<&[u8]> = luma_samples
+        .iter()
+        .map(|sample| sample.as_slice())
+        .collect();
+    let active_refs: Vec<&[bool]> = semantic_samples
+        .iter()
+        .map(|active| active.as_slice())
+        .collect();
+    let model = occlusion_aware_model(
+        extraction.median.pixels(),
+        &sample_refs,
+        &active_refs,
+        width,
+        height,
+    );
+    match model {
+        Some(model) => {
+            let surface =
+                Surface::from_rgba(extraction.median.width(), extraction.median.height(), model)
+                    .context("occlusion-aware plaque model has invalid dimensions")?;
+            Ok(Some(surface))
+        }
+        None => Ok(None),
+    }
+}
+
 fn erode(src: &[u8], w: usize, h: usize, r: usize) -> Vec<u8> {
     let mut out = vec![0; src.len()];
     for y in 0..h {
@@ -1052,9 +1236,9 @@ fn save_luma(width: u32, height: u32, data: &[u8], path: &Path) -> Result<()> {
 mod tests {
     use super::{
         authored_material_changed, classify_occluder, local_range, mask_iou,
-        merge_temporal_foreground_channels, recover_authored_photometric_detail,
-        recover_temporal_details, remove_known_foreground, select_foreground_components,
-        smooth_visibility, structural_match_score, tracking_presence,
+        merge_temporal_foreground_channels, occlusion_aware_model,
+        recover_authored_photometric_detail, recover_temporal_details, remove_known_foreground,
+        select_foreground_components, smooth_visibility, structural_match_score, tracking_presence,
     };
 
     fn cavity(width: usize, height: usize) -> Vec<u8> {
@@ -1065,6 +1249,63 @@ mod tests {
             }
         }
         mask
+    }
+
+    #[test]
+    fn occlusion_aware_model_uses_unoccluded_samples_and_falls_back_per_pixel() {
+        // One pixel column per case; RGBA fallback carries the robust median.
+        let width = 1;
+        let height = 2;
+        let fallback = vec![
+            150, 150, 150, 255, // pixel A: robust median is the occluder appearance
+            90, 90, 90, 255, // pixel B: robust median is the plaque appearance
+        ];
+        // Four samples. Pixel A is occluded in samples 0 and 2 (luma 200); the
+        // plaque appears at 100. Pixel B is claimed occluded in every sample.
+        let luma = [
+            vec![200_u8, 70_u8],
+            vec![100_u8, 70_u8],
+            vec![200_u8, 70_u8],
+            vec![100_u8, 70_u8],
+        ];
+        let semantic = [
+            vec![true, true],
+            vec![false, true],
+            vec![true, true],
+            vec![false, true],
+        ];
+        let samples: Vec<&[u8]> = luma.iter().map(|v| v.as_slice()).collect();
+        let active: Vec<&[bool]> = semantic.iter().map(|v| v.as_slice()).collect();
+
+        let model = occlusion_aware_model(&fallback, &samples, &active, width, height)
+            .expect("model with usable unoccluded samples");
+
+        assert_eq!(
+            &model[0..4],
+            &[100, 100, 100, 255],
+            "pixel A must model the plaque appearance from unoccluded samples"
+        );
+        assert_eq!(
+            &model[4..8],
+            &[90, 90, 90, 255],
+            "pixel B without unoccluded samples falls back to the robust median"
+        );
+    }
+
+    #[test]
+    fn occlusion_aware_model_is_skipped_when_no_pixel_has_unoccluded_samples() {
+        let fallback = vec![10, 20, 30, 255];
+        let luma = [vec![200_u8], vec![210_u8]];
+        let semantic = [vec![true], vec![true]];
+        let samples: Vec<&[u8]> = luma.iter().map(|v| v.as_slice()).collect();
+        let active: Vec<&[bool]> = semantic.iter().map(|v| v.as_slice()).collect();
+
+        let model = occlusion_aware_model(&fallback, &samples, &active, 1, 1);
+
+        assert!(
+            model.is_none(),
+            "fully claimed pixels must keep the robust median"
+        );
     }
 
     #[test]

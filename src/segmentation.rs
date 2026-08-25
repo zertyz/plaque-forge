@@ -1731,9 +1731,13 @@ pub fn install_automatic_foreground_masks(
 ///
 /// SAM2/ViTMatte identifies the foreground object; the Rust residual establishes
 /// where visible material actually differs from the writing surface. Their
-/// intersection rejects cast shadows and background animation. A two-pixel
-/// semantic fringe absorbs matte/registration disagreement without filling holes
-/// in webs, vines, feathers, or other porous silhouettes.
+/// intersection rejects cast shadows, background animation, and semantic
+/// over-segmentation bleed. A two-pixel semantic fringe absorbs matte/registration
+/// disagreement without filling holes in webs, vines, feathers, or other porous
+/// silhouettes. Residuals for this gate are computed against an occlusion-aware
+/// plaque model (see `analyze::occlusion`), so a persistent occluder that is baked
+/// into the robust median still produces photometric evidence instead of being
+/// silently intersected away.
 fn fuse_automatic_foreground_mask(
     semantic_path: &Path,
     photometric_path: &Path,

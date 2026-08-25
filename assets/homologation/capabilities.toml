@@ -76,3 +76,11 @@ representative_asset = "9_16_dungeon_spider_iron_temporary_plaque"
 scene = "../scenes/9_16_dungeon_spider_iron_temporary_plaque/scene.toml"
 contract = "9_16_dungeon_spider_iron_temporary_plaque/contract.toml"
 ci = true
+
+[[capabilities]]
+id = "persistent-low-contrast-occluder"
+description = "An occluder that covers the same plaque region in most frames is baked into the robust plaque model; it must still remain visually in front of the title, alongside an independently walking lizard and porous moss."
+representative_asset = "9_16_swamp_wooden_plaque"
+scene = "../scenes/9_16_swamp_wooden_plaque/scene.toml"
+contract = "9_16_swamp_wooden_plaque/contract.toml"
+ci = true

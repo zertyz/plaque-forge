@@ -1004,7 +1004,7 @@ fn peak(values: &[f64], start: usize, end: usize) -> Option<usize> {
     (start..end).max_by(|&a, &b| values[a].total_cmp(&values[b]))
 }
 
-fn evenly_spaced(frames: usize, count: usize) -> Vec<usize> {
+pub(crate) fn evenly_spaced(frames: usize, count: usize) -> Vec<usize> {
     if count <= 1 {
         return vec![0];
     }

@@ -481,6 +481,23 @@ impl<'a> ForegroundReader<'a> {
                     self.pack.manifest.source.height,
                 )?;
                 apply_matte_policy(&mut mask, layer.matte);
+                // ML alpha sequences flicker on thin structures: small per-frame
+                // gaps would let typography bleed through and blink. Grayscale
+                // closing fills such gaps without moving the outer boundary.
+                let radius = (self
+                    .pack
+                    .manifest
+                    .source
+                    .width
+                    .min(self.pack.manifest.source.height)
+                    / 360)
+                    .clamp(1, 4) as usize;
+                close_small_gaps(
+                    &mut mask,
+                    self.pack.manifest.source.width as usize,
+                    self.pack.manifest.source.height as usize,
+                    radius,
+                );
                 alpha_over(&mut combined, &mask);
             }
         }
@@ -695,6 +712,71 @@ fn load_mask(path: &Path, width: u32, height: u32) -> Result<Vec<u8>> {
     }
 }
 
+/// Grayscale morphological closing: dilation followed by erosion.
+///
+/// Fills small gaps and pinholes inside foreground alpha (per-frame ML jitter on
+/// thin structures) while leaving the outer boundary and soft ramps unchanged.
+fn close_small_gaps(mask: &mut [u8], width: usize, height: usize, radius: usize) {
+    if mask.len() != width * height || radius == 0 {
+        return;
+    }
+    let horizontal_max = |src: &[u8]| -> Vec<u8> {
+        let mut out = vec![0_u8; src.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let mut value = 0_u8;
+                for xx in x.saturating_sub(radius)..=(x + radius).min(width - 1) {
+                    value = value.max(src[y * width + xx]);
+                }
+                out[y * width + x] = value;
+            }
+        }
+        out
+    };
+    let vertical_max = |src: &[u8]| -> Vec<u8> {
+        let mut out = vec![0_u8; src.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let mut value = 0_u8;
+                for yy in y.saturating_sub(radius)..=(y + radius).min(height - 1) {
+                    value = value.max(src[yy * width + x]);
+                }
+                out[y * width + x] = value;
+            }
+        }
+        out
+    };
+    let horizontal_min = |src: &[u8]| -> Vec<u8> {
+        let mut out = vec![0_u8; src.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let mut value = 255_u8;
+                for xx in x.saturating_sub(radius)..=(x + radius).min(width - 1) {
+                    value = value.min(src[y * width + xx]);
+                }
+                out[y * width + x] = value;
+            }
+        }
+        out
+    };
+    let vertical_min = |src: &[u8]| -> Vec<u8> {
+        let mut out = vec![0_u8; src.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let mut value = 255_u8;
+                for yy in y.saturating_sub(radius)..=(y + radius).min(height - 1) {
+                    value = value.min(src[yy * width + x]);
+                }
+                out[y * width + x] = value;
+            }
+        }
+        out
+    };
+    let dilated = vertical_max(&horizontal_max(mask));
+    let eroded = vertical_min(&horizontal_min(&dilated));
+    mask.copy_from_slice(&eroded);
+}
+
 pub(crate) fn apply_matte_policy(mask: &mut [u8], matte: LayerMatte) {
     if matte.mode == LayerMatteMode::Optical {
         return;
@@ -759,7 +841,7 @@ fn intersect(output: &mut [u8], input: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        LayerInput, alpha_over, apply_matte_policy, build_tracking_exclusions,
+        LayerInput, alpha_over, apply_matte_policy, build_tracking_exclusions, close_small_gaps,
         directly_restores_layer, exclude_outside_surface_support, has_authored_foreground,
         intersect, package, shared_authored_opaque_source_matte,
     };
@@ -947,6 +1029,55 @@ mod tests {
         let original = mask;
         apply_matte_policy(&mut mask, LayerMatte::default());
         assert_eq!(mask, original);
+    }
+
+    #[test]
+    fn closing_fills_small_sequence_mask_gaps_without_expanding_boundaries() {
+        let width = 13;
+        let height = 9;
+        let mut mask = vec![0_u8; width * height];
+        for y in 3..6 {
+            for x in 3..10 {
+                mask[y * width + x] = 255;
+            }
+        }
+        let hole = 4 * width + 6;
+        mask[hole] = 0;
+
+        close_small_gaps(&mut mask, width, height, 2);
+
+        assert_eq!(mask[hole], 255, "a small interior gap must be filled");
+        assert_eq!(mask[0], 0, "closing must not reach the outer boundary");
+        assert_eq!(mask[width + 1], 0);
+        assert_eq!(mask[2 * width + 2], 0, "the boundary stays put");
+        assert_eq!(mask[4 * width + 2], 0, "pixels outside stay outside");
+        assert_eq!(
+            mask[4 * width + 3],
+            255,
+            "straight boundary segments stay put"
+        );
+        assert_eq!(mask[4 * width + 9], 255);
+        assert_eq!(mask[4 * width + 10], 0, "pixels outside stay outside");
+    }
+
+    #[test]
+    fn closing_preserves_soft_alpha_ramps() {
+        // A plateau-to-ramp profile with no interior local minimum is a fixed
+        // point of grayscale closing.
+        let mut ramp = vec![0_u8; 25];
+        for y in 0..5 {
+            for x in 0..5 {
+                ramp[y * 5 + x] = [0, 0, 64, 128, 192][x];
+            }
+        }
+
+        close_small_gaps(&mut ramp, 5, 5, 1);
+
+        assert_eq!(
+            ramp,
+            [0_u8, 0, 64, 128, 192].repeat(5),
+            "a gap-free profile has nothing to close"
+        );
     }
 
     #[test]

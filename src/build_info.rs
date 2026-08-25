@@ -3,8 +3,7 @@
 /// Change this only when `analyze` changes the meaning or layout of data consumed by
 /// later runs. Renderer, CLI, documentation, or unrelated refactors must not invalidate
 /// analysis caches.
-pub const ANALYZER_CACHE_VERSION: &str =
-    "surface-analysis-v11-bounded-semantic-material-depth-reviewed-dynamics";
+pub const ANALYZER_CACHE_VERSION: &str = "surface-analysis-v12-transitional-semantic-occlusion-bounded-semantic-material-depth-reviewed-dynamics";
 
 /// Human-facing renderer release.
 pub const RENDERER_BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");

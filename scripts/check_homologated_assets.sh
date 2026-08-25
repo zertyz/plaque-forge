@@ -68,4 +68,9 @@ run_case \
   "Seeing what others cannot see!" \
   "gold-shine"
 
+run_case \
+  "9_16_swamp_wooden_plaque" \
+  "Seeing what others cannot see!" \
+  "gold-shine"
+
 printf 'coverage:    %s\n' "output/homologation-coverage.json"

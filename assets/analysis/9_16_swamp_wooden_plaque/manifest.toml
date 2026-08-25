@@ -2,16 +2,16 @@
 format = "plaque-forge.analysis/1"
 status = "complete"
 source_is_text_free = true
-analyzer_build = "surface-analysis-v11-bounded-semantic-material-depth-reviewed-dynamics"
+analyzer_build = "surface-analysis-v12-transitional-semantic-occlusion-bounded-semantic-material-depth-reviewed-dynamics"
 reference_frame = 10
 canonical_width = 720
 canonical_height = 380
 surface_space = "scene-plane"
-trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-retrack+foreground-aware-source-flow"
+trajectory_model = "bidirectional-persistent-point-homography-sift-adaptive-regularization-0.35-global-source-flow-masked-retrack-rejected+foreground-aware-source-flow"
 loop_closed = false
 has_occluder = true
 occlusion_mode = "automatic"
-automatic_ml_foreground = true
+automatic_ml_foreground = false
 analysis_gate_passed = true
 
 [source]
@@ -28,15 +28,6 @@ x = 0.0
 y = 64.0
 width = 720.0
 height = 380.0
-
-[segmentation]
-backend = "auto"
-model = "auto"
-device = "auto"
-profile = "canonical"
-precision = "auto"
-worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
-runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
 
 [[layers]]
 id = "plaque-foreground"
@@ -62,8 +53,8 @@ requested_device = "auto"
 source_sha256 = "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33"
 prompt_sha256 = "88e15c2b9d8ddb29e518f6e58e31f97ec448cf4c5377325a362cbec6e41fb001"
 worker_sha256 = "8cfb349536aaf8dd2c73a0ecaabd64a093714d11e62ac10f3ef23ef5ed628165"
-runtime_sha256 = "aaeb6dbc3496e7575cf78660f7d92558a0566e97101db784b2304996265c089c"
-request_sha256 = "fb71f747a533723eb1d4abe4b0844f8bfd5ac4e0c573827ec968d95dbb7a9a61"
+runtime_sha256 = "896ecd249de5cb03892f362fe96ae4c7efecb1baa6b125993f602e26e20e22a4"
+request_sha256 = "1a6417cb41f93366cce7253906df1db263ea28e259a39251cda83f499a607e55"
 plan_sha256 = "0f85bcd81e2587513435b2bb65334dadf82e9eb4ee7e0fc6cef8b9a7b05e6f93"
 
 [scenes]
@@ -78,12 +69,12 @@ semantic_sha256 = "4150110454cc9a55983f980277a62d0ca7ec72e633cb9f479fc217f7f1296
 
 [[scenes.layer_artifacts]]
 path = "layers/plaque-foreground/artifact.toml"
-sha256 = "7f0070144d1742dd9917a53234d4ecc3eef9cd86c4db8cb8779d1f5ecf3a77a7"
-semantic_sha256 = "c662355b78bcc7afdcff92f95fb672281f27e96bb7a5b1543bef4c610b5da618"
+sha256 = "ccae350d838528aedb0a8d461f501d75764e310419f6f14e7a8cccb76403e8fd"
+semantic_sha256 = "ce90e033165cb7811938fd3ecc45f90fb41130a223e1500045a1520f73aff71c"
 
 [confidence]
 plaque_detection = 0.98
-motion = 0.8130723610720605
-extraction = 0.9350537280701754
-occlusion = 0.9071628820708254
-overall = 0.9067118215814073
+motion = 0.8132632552679124
+extraction = 0.9350257675438598
+occlusion = 0.8494540620341721
+overall = 0.891980121254362
