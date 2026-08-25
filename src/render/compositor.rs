@@ -164,7 +164,7 @@ impl FrameCompositor {
     }
 
     pub fn write_canonical_mask(&self, path: &Path) -> Result<()> {
-        super::save_luma_png(
+        crate::image_io::save_luma_png(
             self.text_render.layer.width(),
             self.text_render.layer.height(),
             &self.text_render.layer.alpha_mask(),
