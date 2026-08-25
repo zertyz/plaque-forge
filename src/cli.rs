@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{builder::PossibleValue, ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum, builder::PossibleValue};
 
 use crate::{
     application::{
@@ -1000,13 +1000,15 @@ mod tests {
         assert!(Cli::try_parse_from(render_arguments(&[])).is_err());
         assert!(Cli::try_parse_from(render_arguments(&["--text", "Title"])).is_ok());
         assert!(Cli::try_parse_from(render_arguments(&["--text-file", "title.txt"])).is_ok());
-        assert!(Cli::try_parse_from(render_arguments(&[
-            "--text",
-            "Title",
-            "--text-file",
-            "title.txt",
-        ]))
-        .is_err());
+        assert!(
+            Cli::try_parse_from(render_arguments(&[
+                "--text",
+                "Title",
+                "--text-file",
+                "title.txt",
+            ]))
+            .is_err()
+        );
     }
 
     #[test]
