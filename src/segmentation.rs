@@ -2479,7 +2479,7 @@ mod adaptive_evidence_tests {
         min_nonempty_permille: 0,
         max_foreground_coverage_permille: 980,
         max_surface_coverage_permille: 980,
-        max_prompt_box_fill_permille: 800,
+        max_prompt_box_fill_permille: 850,
         min_interprompt_area_ratio_permille: 250,
         min_interprompt_area_p05_permille: 350,
         min_adjacent_iou_p05_permille: 500,

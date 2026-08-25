@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="/tmp/plaque-forge-python"
+root="${PLAQUE_FORGE_PYTHON_ROOT:-/tmp/plaque-forge-python}"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 export XDG_CACHE_HOME="$root/cache/xdg"
 export XDG_CONFIG_HOME="$root/config"

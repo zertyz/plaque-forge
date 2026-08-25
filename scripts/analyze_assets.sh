@@ -72,7 +72,8 @@ if [[ "$use_ml" == true ]]; then
     printf 'segmentation worker is not executable: tools/segmentation-worker\n' >&2
     exit 1
   }
-  [[ -x /tmp/plaque-forge-python/venv/bin/python && -f /tmp/plaque-forge-python/.complete ]] || {
+  python_root="${PLAQUE_FORGE_PYTHON_ROOT:-/tmp/plaque-forge-python}"
+  [[ -x "$python_root/venv/bin/python" && -f "$python_root/.complete" ]] || {
     printf '%s\n' \
       'optional ML runtime is not installed.' \
       'Run ./scripts/setup_segmentation.sh once, or use --no-ml for the pure-Rust analysis path.' >&2
