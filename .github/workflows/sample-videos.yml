@@ -59,13 +59,19 @@ jobs:
       - name: Render and verify the sample-video set
         run: ./scripts/render_sample_videos.sh --previews
 
+      - name: Stage release assets
+        run: ./scripts/render_sample_videos.sh --stage-release output/sample_videos output/release-assets
+
+      # Only the publishable artifacts travel through CI: delivery videos,
+      # showcase previews, and sentinel verification reports. The bulky
+      # lossless validation renders and per-render sidecars stay local.
       - name: Upload the sample-video batch and acceptance evidence
         uses: actions/upload-artifact@v7
         with:
           name: sample-videos-${{ github.run_id }}
           path: |
-            output/sample_videos/
-            output/validation/
+            output/release-assets
+            output/validation/*.lossless.verification.json
           if-no-files-found: error
 
   publish-release:
@@ -116,19 +122,10 @@ jobs:
               --notes-file notes.md
           fi
 
-          # Flatten the per-style render directories into release asset names
-          # like "<stem>.<style>.hevc.mkv"; only the playable artifacts ship.
+          # The render job already flattened the batch into unique release
+          # asset names (<stem>.<style>.hevc.mkv, previews, sentinel reports).
           mkdir -p stage
-          for file in dist/sample_videos/*/*; do
-            [[ -f "$file" ]] || continue
-            relative="${file#dist/sample_videos/}"
-            style="${relative%%/*}"
-            base="${relative#*/}"
-            case "$base" in
-              *.hevc.mkv|*.preview.mp4)
-                cp -- "$file" "stage/${base/.hevc./.$style.hevc.}" ;;
-            esac
-          done
+          cp dist/release-assets/* stage/
 
           # Public acceptance evidence: one lossless-verification report per sentinel.
           for report in dist/validation/*.lossless.verification.json; do

@@ -762,11 +762,6 @@ impl Style {
     }
 }
 
-/// Blend the two directional edge masks of a bevel-family overlay.
-///
-/// Raised (`bevel`) lights top/left edges; pressed (`letterpress`) swaps the
-/// color roles so edges read as inset. Blend order is preserved because the
-/// layers are translucent.
 /// Canvas geometry shared by the bevel-family overlays.
 struct ReliefCanvas<'a> {
     combined: &'a mut Surface,
@@ -775,6 +770,11 @@ struct ReliefCanvas<'a> {
     height: u32,
 }
 
+/// Blend the two directional edge masks of a bevel-family overlay.
+///
+/// Raised (`bevel`) lights top/left edges; pressed (`letterpress`) swaps the
+/// color roles so edges read as inset. Blend order is preserved because the
+/// layers are translucent.
 fn apply_relief_overlay(
     canvas: ReliefCanvas<'_>,
     width_ratio: f32,

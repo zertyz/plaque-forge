@@ -62,6 +62,11 @@ Options:
                    from previously rendered videos.
   --no-verify      Skip the per-asset verification pass entirely.
   --verify-all     Verify every video instead of only the sentinel set.
+  --stage-release BATCH DEST
+                   Flatten a rendered batch directory into unique release asset
+                   names under DEST: <style>/<stem>.hevc.mkv becomes
+                   <stem>.<style>.hevc.mkv, batch-root previews pass through,
+                   render sidecars are left behind. No rendering happens.
   --help           Show this help.
 
 By default the four representative plaque-scene sentinels pass through the
@@ -92,6 +97,35 @@ print_plan() {
   done | LC_ALL=C sort
 }
 
+# Flatten a rendered batch (output/sample_videos layout) into the unique,
+# style-prefixed asset names published on the release. Pure file staging so it
+# stays unit-testable; the workflow only adds report copying and gh calls.
+stage_release_batch() {
+  local src="$1" dest="$2" staged=0 entry style stem base
+  [[ -d "$src" ]] || pf_die "render batch directory not found: $src"
+  mkdir -p "$dest"
+
+  shopt -s nullglob
+  for entry in "$src"/*/*.hevc.mkv; do
+    [[ -f "$entry" ]] || continue
+    style="$(basename "$(dirname "$entry")")"
+    base="$(basename "$entry")"
+    stem="${base%.hevc.mkv}"
+    cp -- "$entry" "$dest/$stem.$style.hevc.mkv"
+    staged=$((staged + 1))
+  done
+  # Previews are encoded at the batch root, outside the per-style directories.
+  for entry in "$src"/*.preview.mp4; do
+    [[ -f "$entry" ]] || continue
+    cp -- "$entry" "$dest/$(basename "$entry")"
+    staged=$((staged + 1))
+  done
+  shopt -u nullglob
+
+  (( staged > 0 )) || pf_die "no *.hevc.mkv renders found under $src"
+  printf 'staged %d release asset(s) under %s\n' "$staged" "$dest" >&2
+}
+
 print_previews=false
 print_webp=false
 from_existing=false
@@ -100,6 +134,11 @@ verify_mode=representatives
 while (( $# )); do
   case "$1" in
     --print-plan) print_plan; exit 0 ;;
+    --stage-release)
+      (( $# >= 3 )) || pf_die "--stage-release requires <batch-dir> <dest-dir>"
+      stage_release_batch "$2" "$3"
+      exit $?
+      ;;
     --previews) print_previews=true; shift ;;
     --webp) print_webp=true; shift ;;
     --from-existing) from_existing=true; shift ;;

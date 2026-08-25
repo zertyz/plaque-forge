@@ -58,6 +58,7 @@ The producer is manual by default. Enable automatic invocation only after choosi
 `.github/workflows/sample-videos.yml` is the trusted producer for the public sample set. On every push to `main` whose paths can change rendered output (`src/`, styles, fonts, bundled assets, render scripts), it re-renders every bundled asset with the sample title, runs the lossless validation render plus frame verification for representative plaque-scene sentinels (fully animated background sources are excluded because the untouched-scene threshold presumes lossless frames), and republishes the rolling pre-release tagged `sample_videos` (on GitHub under *Releases*):
 
 - rendering runs read-only under `contents: read`; only the separate publish job holds narrow `contents: write`;
+- the render job uploads only the publishable set (delivery videos, showcase previews, sentinel verification reports); the bulky lossless validation renders stay on the runner;
 - acceptance (per-asset verification) completes before anything is published;
 - release notes record the exact source commit and producing run;
 - browser-friendly MP4 previews of representative assets accompany the full HEVC set so the README can stay lightweight.
