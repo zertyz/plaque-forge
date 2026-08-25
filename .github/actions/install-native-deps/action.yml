@@ -12,8 +12,10 @@ runs:
     - name: Install native dependencies
       shell: bash
       run: |
-        pacman -Syu --noconfirm --needed \
-          ${{ inputs.packages }}
+        # xargs folds the multi-line input into one argument list; appending
+        # the names directly after a line continuation would leave every
+        # package after the first as a bare shell command.
+        echo "${{ inputs.packages }}" | xargs pacman -Syu --noconfirm --needed
 
     - name: Mark the workspace as a safe directory
       shell: bash
