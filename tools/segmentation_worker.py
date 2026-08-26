@@ -12,6 +12,7 @@ import resource
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import tempfile
 import warnings
@@ -49,6 +50,7 @@ STAGE_METRICS = []
 # arithmetic/compile choices that can change executable state.
 MODEL_CACHE = {}
 _WARP_MESHGRID_CACHE = {}
+_DIS_FLOW_LOCAL = threading.local()
 
 
 # Upstream dependencies emit several warnings that are expected in Plaque Forge's
@@ -1140,7 +1142,10 @@ def dense_flow(source, target):
     )
     source_small = cv2.resize(source, size, interpolation=cv2.INTER_AREA)
     target_small = cv2.resize(target, size, interpolation=cv2.INTER_AREA)
-    estimator = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+    estimator = getattr(_DIS_FLOW_LOCAL, "estimator", None)
+    if estimator is None:
+        estimator = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+        _DIS_FLOW_LOCAL.estimator = estimator
     flow = estimator.calc(source_small, target_small, None)
     flow = cv2.resize(
         flow, (source.shape[1], source.shape[0]), interpolation=cv2.INTER_LINEAR
@@ -1959,7 +1964,7 @@ def write_output(request, output, probabilities, version):
         if not active_start <= frame <= active_end:
             prob = np.zeros_like(prob)
         encoded = np.round(prob * 65535).astype(np.uint16)
-        validation_alpha = np.round(encoded.astype(np.float64) * 255 / 65535).astype(
+        validation_alpha = np.round(encoded.astype(np.float32) * 255 / 65535).astype(
             np.uint8
         )
         support = prob[encoded > 0]
