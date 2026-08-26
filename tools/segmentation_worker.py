@@ -48,6 +48,7 @@ STAGE_METRICS = []
 # requests through the persistent segmentation service. Keys include device and all
 # arithmetic/compile choices that can change executable state.
 MODEL_CACHE = {}
+_WARP_MESHGRID_CACHE = {}
 
 
 # Upstream dependencies emit several warnings that are expected in Plaque Forge's
@@ -1068,9 +1069,9 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
         request["layer"].get("role") == "foreground"
         and request["layer"].get("matte_mode", "optical") == "optical"
     )
+    kernel = np.ones((3, 3), np.uint8)
     for frame_index, (probability, frame_path) in enumerate(zip(probabilities, frames)):
         probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
-        kernel = np.ones((3, 3), np.uint8)
         if optical_foreground:
             foreground = optical_trimap_known_foreground(
                 request, frame_index, probability
@@ -1151,7 +1152,15 @@ def dense_flow(source, target):
 
 def warp_alpha(alpha, source_gray, target_gray, forward, backward):
     h, w = target_gray.shape[:2]
-    x, y = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    key = (h, w)
+    cached = _WARP_MESHGRID_CACHE.get(key)
+    if cached is None:
+        x, y = np.meshgrid(
+            np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32)
+        )
+        _WARP_MESHGRID_CACHE[key] = (x, y)
+    else:
+        x, y = cached
     map_x = x + backward[..., 0]
     map_y = y + backward[..., 1]
     warped = cv2.remap(
