@@ -946,44 +946,70 @@ def cutie_masks(request, frames, device, guides=None):
 
     def propagate(indices):
         processor = InferenceCore(model, cfg=model.cfg)
+
+        def _load_image(frame):
+            if cv2 is not None:
+                bgr = require_cv2_image(frames[frame], cv2.IMREAD_COLOR)
+                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                return (
+                    torch.from_numpy(rgb.transpose((2, 0, 1)))
+                    .float()
+                    .div(255.0)
+                    .to(device)
+                )
+            else:
+                return (
+                    to_tensor(Image.open(frames[frame]).convert("RGB"))
+                    .to(device)
+                    .float()
+                )
+
         output = {}
         with torch.inference_mode(), precision_context(torch, device, precision):
-            for position, frame in enumerate(indices):
-                if cv2 is not None:
-                    bgr = require_cv2_image(frames[frame], cv2.IMREAD_COLOR)
-                    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            # Double-buffer: prefetch next frame's CPU decode (cv2.imread + to_tensor)
+            # while the current frame's GPU-bound processor.step runs.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as prefetch:
+                indices = list(indices)
+                # Prime prefetch for first frame
+                next_future = (
+                    prefetch.submit(_load_image, indices[0]) if indices else None
+                )
+                for position, frame in enumerate(indices):
+                    # Get current frame's image (wait for prefetch)
                     image = (
-                        torch.from_numpy(rgb.transpose((2, 0, 1)))
-                        .float()
-                        .div(255.0)
-                        .to(device)
+                        next_future.result()
+                        if next_future is not None
+                        else _load_image(frame)
                     )
-                else:
-                    image = (
-                        to_tensor(Image.open(frames[frame]).convert("RGB"))
-                        .to(device)
-                        .float()
-                    )
-                correction = position == 0 or frame in prompt_frames
-                if correction:
-                    source = (
-                        guides[frame] >= 0.5
-                        if guides is not None
-                        else np.asarray(
-                            seed_mask(request, frame, (source_width, source_height))
+                    # Prefetch next frame immediately (overlaps with current processor.step)
+                    if position + 1 < len(indices):
+                        next_frame = indices[position + 1]
+                        next_future = prefetch.submit(_load_image, next_frame)
+                    else:
+                        next_future = None
+
+                    correction = position == 0 or frame in prompt_frames
+                    if correction:
+                        source = (
+                            guides[frame] >= 0.5
+                            if guides is not None
+                            else np.asarray(
+                                seed_mask(request, frame, (source_width, source_height))
+                            )
+                            > 0
                         )
-                        > 0
+                        mask = torch.from_numpy(source.astype(np.float32)).to(device)
+                        probability = processor.step(image, mask, objects=[1])
+                    else:
+                        probability = processor.step(image)
+                    probability = probability.squeeze()
+                    if probability.ndim == 3 and probability.shape[0] > 1:
+                        probability = probability[1:].amax(dim=0)
+                    elif probability.ndim == 3:
+                        probability = probability[0]
+                    output[frame] = (
+                        probability.float().clamp(0, 1).detach().cpu().numpy()
                     )
-                    mask = torch.from_numpy(source.astype(np.float32)).to(device)
-                    probability = processor.step(image, mask, objects=[1])
-                else:
-                    probability = processor.step(image)
-                probability = probability.squeeze()
-                if probability.ndim == 3 and probability.shape[0] > 1:
-                    probability = probability[1:].amax(dim=0)
-                elif probability.ndim == 3:
-                    probability = probability[0]
-                output[frame] = probability.float().clamp(0, 1).detach().cpu().numpy()
         return output
 
     masks = propagate(range(seed, active_end + 1))
@@ -1072,35 +1098,23 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
         and request["layer"].get("matte_mode", "optical") == "optical"
     )
     kernel = np.ones((3, 3), np.uint8)
-    for frame_index, (probability, frame_path) in enumerate(zip(probabilities, frames)):
-        probability = np.asarray(probability, dtype=np.float32).clip(0, 1)
+
+    def _prepare_inputs(frame_index, probability, frame_path):
+        prob = np.asarray(probability, dtype=np.float32).clip(0, 1)
         if optical_foreground:
-            foreground = optical_trimap_known_foreground(
-                request, frame_index, probability
-            )
+            foreground = optical_trimap_known_foreground(request, frame_index, prob)
         else:
-            foreground = cv2.erode((probability >= 0.82).astype(np.uint8), kernel)
+            foreground = cv2.erode((prob >= 0.82).astype(np.uint8), kernel)
             if not foreground.any():
-                foreground = (probability >= 0.60).astype(np.uint8)
-        # SAM2 probabilities below roughly 0.35 are semantic uncertainty, not
-        # evidence that a pixel may be opaque. The former 0.08 support threshold
-        # often admitted most of a frame into ViTMatte's unknown trimap, allowing
-        # dark background/actors to become false solid occluders. A modest dilation
-        # around calibrated semantic support still leaves room for translucent
-        # hair, vines, and web strands without filling their holes.
+                foreground = (prob >= 0.60).astype(np.uint8)
         if optical_foreground:
-            support = cv2.dilate(
-                (probability >= 0.30).astype(np.uint8), kernel, iterations=1
-            )
+            support = cv2.dilate((prob >= 0.30).astype(np.uint8), kernel, iterations=1)
         else:
-            support = cv2.dilate(
-                (probability >= 0.35).astype(np.uint8), kernel, iterations=3
-            )
+            support = cv2.dilate((prob >= 0.35).astype(np.uint8), kernel, iterations=3)
         active = cv2.findNonZero(support)
         if active is None:
-            output.append(np.zeros(probability.shape, dtype=np.float32))
-            continue
-        trimap = np.zeros(probability.shape, dtype=np.uint8)
+            return None
+        trimap = np.zeros(prob.shape, dtype=np.uint8)
         trimap[support > 0] = 128
         trimap[foreground > 0] = 255
         x, y, width, height = cv2.boundingRect(active)
@@ -1122,13 +1136,50 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
         crop_trimap = Image.fromarray(trimap[top:bottom, left:right])
         inputs = processor(images=crop, trimaps=crop_trimap, return_tensors="pt")
         inputs = {key: value.to(device) for key, value in inputs.items()}
-        with torch.inference_mode(), precision_context(torch, device, precision):
-            alpha = model(**inputs).alphas[0, 0].float().clamp(0, 1).cpu().numpy()
-        alpha = alpha[: crop.height, : crop.width]
-        guard = cv2.GaussianBlur(support.astype(np.float32), (0, 0), 2.0).clip(0, 1)
-        matte = np.zeros(probability.shape, dtype=np.float32)
-        matte[top:bottom, left:right] = alpha
-        output.append((matte * guard).astype(np.float32))
+        return (prob, support, left, top, right, bottom, crop, inputs)
+
+    # Double-buffer: prefetch next frame's CPU work (cv2.imread + trimap + processor)
+    # while the current frame's GPU inference (model) runs. This overlaps
+    # CPU-bound I/O/morphology with GPU-bound inference without changing
+    # the model's batch semantics (still 1 frame per inference).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as prefetch:
+        next_future = None
+        # Prime the prefetch with frame 0
+        if probabilities:
+            next_future = prefetch.submit(
+                _prepare_inputs, 0, probabilities[0], frames[0]
+            )
+
+        for frame_index in range(len(probabilities)):
+            # Get prepared inputs for current frame (wait for prefetch)
+            prepared = next_future.result() if next_future is not None else None
+            # Prefetch next frame immediately (overlaps with current GPU)
+            if frame_index + 1 < len(probabilities):
+                next_future = prefetch.submit(
+                    _prepare_inputs,
+                    frame_index + 1,
+                    probabilities[frame_index + 1],
+                    frames[frame_index + 1],
+                )
+            else:
+                next_future = None
+
+            if prepared is None:
+                # No active support -> empty matte
+                prob_shape = np.asarray(
+                    probabilities[frame_index], dtype=np.float32
+                ).shape
+                output.append(np.zeros(prob_shape, dtype=np.float32))
+                continue
+
+            prob, support, left, top, right, bottom, crop, inputs = prepared
+            with torch.inference_mode(), precision_context(torch, device, precision):
+                alpha = model(**inputs).alphas[0, 0].float().clamp(0, 1).cpu().numpy()
+            alpha = alpha[: crop.height, : crop.width]
+            guard = cv2.GaussianBlur(support.astype(np.float32), (0, 0), 2.0).clip(0, 1)
+            matte = np.zeros(prob.shape, dtype=np.float32)
+            matte[top:bottom, left:right] = alpha
+            output.append((matte * guard).astype(np.float32))
     return output
 
 
