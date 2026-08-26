@@ -156,6 +156,24 @@ To remove obsolete pre-0.8 partial directories and completed worker request file
 
 Generated manifests use only portable relative paths. Incompatible caches are rejected and must be regenerated; they are never silently relabelled.
 
+## 6. Interactive Showcase
+
+Visual style selection with live preview:
+
+```bash
+cargo run --features showcase --bin plaque-forge-showcase
+```
+
+* `PgUp`/`PgDown` – cycle source videos (loops each)
+* `Enter` – edit title text (`Press ENTER to change this text` by default)
+* `/` – curated font picker (`↑`/`↓` live preview; type letters to search all system fonts; `Enter` confirm / `Esc` revert)
+* `↑`/`↓` – cycle styles (`styles/*.toml`), discarding draft
+* `i` – cycle inspect overlays (yellow plaque bounds, green foreground, blue writable, magenta structural, orange occluder)
+* `Shift+I` – multi-overlay checklist; when no analysis, video is greyscale with “No analysis data for this video — Consult the documentation on how to generate it”
+* `d` – demo: random curated fonts + styles per video, `Esc` exits
+* Right panel “Style Lab” – full parametric editor (fill/material, layouts, underlays, overlays, surface, animations) with mouse + sliders + color pickers; `Save…` writes `styles/<name>_custom.toml`
+* The preview renders at the source FPS (24/30) via cached typography + per-frame warp; the same `egui`/`eframe` code builds to `wasm` for a future web preview.
+
 ## Self-contained builds
 
 Everything in this section is inert unless you opt in: `plaque-forge list` works from repository directories, and no media is compiled into the binary by default. With `--features bundle-media`, the source videos, analysis caches, scenes, styles, plaques, textures, and the curated fonts are linked into a single self-sufficient binary (system fonts stay external). See [Bundled media](docs/BUNDLING.md) for what is embedded, the curated font format, build cost, and limitations.
