@@ -6,7 +6,17 @@ Plaque Forge replaces or adds artistic title text on moving video surfaces while
 
 A **writing surface** may be a rectangle, rounded plaque, circle/ellipse, polygon, irregular mask, or an injected transparent PNG. Plaque Forge does as much as it can automatically before asking for small human corrections.
 
-Normal use is **setup once → analyze once → render many → review**.
+Normal use is:
+ - For your own set of videos: **setup once → analyze once → render many → review**.
+ - For the provided videos: **render many** -- analysis and review were already made for the example videos.
+
+## Features
+[X] Multiple configurable text styles:
+  [X] In/Out Animations: fade, dissolve, ...
+  [X] Loop Animations: shine, rotate, pulse, ...
+  [X] Textures: golden, ...
+  [X] ... more
+[X] Compile flag to bundle all the needed media, styles, analysis, and selected fonts in the binary -- creating a portable deployment without the need for any installation.
 
 ## Sample output
 
