@@ -1,15 +1,16 @@
 //! Video player – opencv VideoCapture wrapper, FPS-aware loop.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
 use opencv::prelude::*;
-use opencv::videoio::{VideoCapture, CAP_ANY, CAP_PROP_FPS, CAP_PROP_FRAME_COUNT, CAP_PROP_FRAME_WIDTH, CAP_PROP_FRAME_HEIGHT, CAP_PROP_POS_FRAMES};
+use opencv::videoio::{
+    CAP_ANY, CAP_PROP_FPS, CAP_PROP_FRAME_COUNT, CAP_PROP_FRAME_HEIGHT, CAP_PROP_FRAME_WIDTH,
+    CAP_PROP_POS_FRAMES, VideoCapture,
+};
 
 use crate::surface::Surface;
-use crate::color::Rgba;
 
 /// Simple synchronous player; UI thread drives `next_frame` at FPS cadence.
 pub struct VideoPlayer {
@@ -34,16 +35,21 @@ impl VideoPlayer {
         let width = cap.get(CAP_PROP_FRAME_WIDTH)? as u32;
         let height = cap.get(CAP_PROP_FRAME_HEIGHT)? as u32;
         let fps = cap.get(CAP_PROP_FPS)?;
-        let fps = if fps.is_finite() && fps > 0.0 { fps } else { 24.0 };
+        let fps = if fps.is_finite() && fps > 0.0 {
+            fps
+        } else {
+            24.0
+        };
         let frames = cap.get(CAP_PROP_FRAME_COUNT)? as usize;
-        let analysis_path = crate::workspace::analysis_path(path).unwrap_or(PathBuf::from("assets/analysis/unknown"));
+        let analysis_path = crate::workspace::analysis_path(path)
+            .unwrap_or(PathBuf::from("assets/analysis/unknown"));
         let has_analysis = analysis_path.is_dir();
         Ok(Self {
             capture: Some(cap),
             path: path.to_path_buf(),
             width,
             height,
-            fps: fps as f64,
+            fps,
             frames: if frames == 0 { 1 } else { frames },
             current_frame: 0,
             has_analysis,
@@ -69,7 +75,13 @@ impl VideoPlayer {
         self.current_frame = cap.get(CAP_PROP_POS_FRAMES)? as usize;
         // Convert BGR Mat to RGBA Surface
         let mut rgba = opencv::core::Mat::default();
-        opencv::imgproc::cvt_color(&mat, &mut rgba, opencv::imgproc::COLOR_BGR2RGBA, 0, opencv::core::AlgorithmHint::ALGO_HINT_DEFAULT)?;
+        opencv::imgproc::cvt_color(
+            &mat,
+            &mut rgba,
+            opencv::imgproc::COLOR_BGR2RGBA,
+            0,
+            opencv::core::AlgorithmHint::ALGO_HINT_DEFAULT,
+        )?;
         let w = rgba.cols() as u32;
         let h = rgba.rows() as u32;
         let bytes = rgba.data_bytes()?.to_vec();
@@ -105,7 +117,13 @@ pub struct MockPlayer {
 
 impl MockPlayer {
     pub fn new(path: &str, fps: f64) -> Self {
-        Self { path: PathBuf::from(path), width: 1280, height: 720, fps, frames: 100 }
+        Self {
+            path: PathBuf::from(path),
+            width: 1280,
+            height: 720,
+            fps,
+            frames: 100,
+        }
     }
     pub fn frame_duration(&self) -> Duration {
         Duration::from_secs_f64(1.0 / self.fps)
@@ -120,6 +138,6 @@ mod tests {
     fn mock_frame_duration() {
         let p = MockPlayer::new("a.mp4", 24.0);
         let d = p.frame_duration();
-        assert!((d.as_secs_f64() - 1.0/24.0).abs() < 1e-6);
+        assert!((d.as_secs_f64() - 1.0 / 24.0).abs() < 1e-6);
     }
 }

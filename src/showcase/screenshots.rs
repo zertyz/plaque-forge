@@ -4,8 +4,8 @@
 
 use std::path::Path;
 
-use crate::surface::Surface;
 use crate::color::Rgba;
+use crate::surface::Surface;
 
 use super::preview::PreviewCache;
 
@@ -27,8 +27,12 @@ pub fn capture_preview_screenshot(
         }
     }
     let rendered = preview.render_frame(&bg, 0.0, None)?;
-    let img = image::RgbaImage::from_raw(rendered.width(), rendered.height(), rendered.pixels().to_vec())
-        .ok_or_else(|| anyhow::anyhow!("invalid rendered pixels"))?;
+    let img = image::RgbaImage::from_raw(
+        rendered.width(),
+        rendered.height(),
+        rendered.pixels().to_vec(),
+    )
+    .ok_or_else(|| anyhow::anyhow!("invalid rendered pixels"))?;
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -47,22 +51,39 @@ pub fn simulate_navigation_and_capture(dest_dir: &Path) -> anyhow::Result<()> {
     capture_preview_screenshot(&mut preview, 320, 180, &dest_dir.join("01_default.png"))?;
 
     preview.set_text("Hello from Enter".into());
-    capture_preview_screenshot(&mut preview, 320, 180, &dest_dir.join("02_text_changed.png"))?;
+    capture_preview_screenshot(
+        &mut preview,
+        320,
+        180,
+        &dest_dir.join("02_text_changed.png"),
+    )?;
 
     // Simulate font change to DejaVu if available else keep
     preview.set_font(PathBuf::from("fonts/NotoSerif-Regular.ttf"));
-    capture_preview_screenshot(&mut preview, 320, 180, &dest_dir.join("03_font_changed.png"))?;
+    capture_preview_screenshot(
+        &mut preview,
+        320,
+        180,
+        &dest_dir.join("03_font_changed.png"),
+    )?;
 
     // Simulate style change (add gold)
-    let mut draft = super::styles::StyleDraft::default();
-    draft.fill_kind = super::styles::FillKind::Gold {
-        dark: "#5B3210FF".into(),
-        mid: "#C98B3CFF".into(),
-        light: "#F3D38AFF".into(),
-        highlight: "#FFF1C4FF".into(),
+    let draft = super::styles::StyleDraft {
+        fill_kind: super::styles::FillKind::Gold {
+            dark: "#5B3210FF".into(),
+            mid: "#C98B3CFF".into(),
+            light: "#F3D38AFF".into(),
+            highlight: "#FFF1C4FF".into(),
+        },
+        ..Default::default()
     };
     preview.set_style(draft);
-    capture_preview_screenshot(&mut preview, 320, 180, &dest_dir.join("04_style_changed.png"))?;
+    capture_preview_screenshot(
+        &mut preview,
+        320,
+        180,
+        &dest_dir.join("04_style_changed.png"),
+    )?;
 
     Ok(())
 }
@@ -77,15 +98,26 @@ mod tests {
         let dir = PathBuf::from("/tmp/plaque-forge-showcase-screenshots");
         let _ = std::fs::remove_dir_all(&dir);
         simulate_navigation_and_capture(&dir).expect("screenshot capture should succeed");
-        for name in ["01_default.png", "02_text_changed.png", "03_font_changed.png", "04_style_changed.png"] {
+        for name in [
+            "01_default.png",
+            "02_text_changed.png",
+            "03_font_changed.png",
+            "04_style_changed.png",
+        ] {
             let path = dir.join(name);
             assert!(path.is_file(), "screenshot {} should exist", path.display());
             let img = image::open(&path).expect("screenshot should be valid PNG");
-            assert!(img.width() == 320 && img.height() == 180, "screenshot dimensions should be 320x180");
+            assert!(
+                img.width() == 320 && img.height() == 180,
+                "screenshot dimensions should be 320x180"
+            );
             // Ensure not just blank black – has visible variation
             let rgba = img.to_rgba8();
             let has_non_black = rgba.pixels().any(|p| p[0] > 20 || p[1] > 20 || p[2] > 20);
-            assert!(has_non_black, "screenshot {name} should have visible content");
+            assert!(
+                has_non_black,
+                "screenshot {name} should have visible content"
+            );
         }
         // Clean up
         let _ = std::fs::remove_dir_all(&dir);

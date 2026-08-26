@@ -10,7 +10,9 @@ fn main() -> ExitCode {
         println!("Keys:");
         println!("  PgUp/PgDown  next/prev video (loops)");
         println!("  Enter        edit title text");
-        println!("  /            font picker (↑/↓ preview, type to search, Enter confirm, Esc revert)");
+        println!(
+            "  /            font picker (↑/↓ preview, type to search, Enter confirm, Esc revert)"
+        );
         println!("  ↑/↓          cycle styles (discarding draft)");
         println!("  i            cycle inspect overlays (yellow plaque, green foreground, etc.)");
         println!("  Shift+I      multi-overlay checklist");
@@ -18,11 +20,16 @@ fn main() -> ExitCode {
         println!("  s / Save     save draft to styles/<name>_custom.toml");
         println!();
         println!("When analysis is missing, video is greyscale with:");
-        println!("  \"No analysis data for this video\\nConsult the documentation on how to generate it\"");
+        println!(
+            "  \"No analysis data for this video\\nConsult the documentation on how to generate it\""
+        );
         return ExitCode::SUCCESS;
     }
     if let Some(pos) = args.iter().position(|a| a == "--screenshot") {
-        let dir = args.get(pos + 1).map(|s| s.as_str()).unwrap_or("/tmp/plaque-forge-showcase-screenshots");
+        let dir = args
+            .get(pos + 1)
+            .map(|s| s.as_str())
+            .unwrap_or("/tmp/plaque-forge-showcase-screenshots");
         let dir = std::path::PathBuf::from(dir);
         match plaque_forge::showcase::screenshots::simulate_navigation_and_capture(&dir) {
             Ok(()) => {

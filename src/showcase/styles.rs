@@ -1,7 +1,6 @@
 //! Parametric style draft for the showcase full-widget composer.
 
 use anyhow::Result;
-use std::path::PathBuf;
 
 use crate::render::effects::{Style, presets::Style as StyleType};
 
@@ -20,17 +19,59 @@ pub struct StyleDraft {
 #[derive(Clone, Debug, PartialEq)]
 pub enum FillKind {
     Flat(String),
-    LinearGradient { top: String, bottom: String },
-    Gold { dark: String, mid: String, light: String, highlight: String },
-    Chrome { dark: String, mid: String, light: String },
+    LinearGradient {
+        top: String,
+        bottom: String,
+    },
+    Gold {
+        dark: String,
+        mid: String,
+        light: String,
+        highlight: String,
+    },
+    Chrome {
+        dark: String,
+        mid: String,
+        light: String,
+    },
     Holographic,
-    Fire { dark: String, mid: String, light: String },
-    Ice { dark: String, mid: String, light: String },
-    Nebula { dark: String, mid: String, light: String },
-    Liquid { first: String, second: String, frequency: f32 },
-    Halftone { foreground: String, background: String, cell: u32 },
-    Blueprint { dark: String, light: String, grid: String, cell: u32 },
-    Paper { light: String, mid: String, dark: String, seed: u32 },
+    Fire {
+        dark: String,
+        mid: String,
+        light: String,
+    },
+    Ice {
+        dark: String,
+        mid: String,
+        light: String,
+    },
+    Nebula {
+        dark: String,
+        mid: String,
+        light: String,
+    },
+    Liquid {
+        first: String,
+        second: String,
+        frequency: f32,
+    },
+    Halftone {
+        foreground: String,
+        background: String,
+        cell: u32,
+    },
+    Blueprint {
+        dark: String,
+        light: String,
+        grid: String,
+        cell: u32,
+    },
+    Paper {
+        light: String,
+        mid: String,
+        dark: String,
+        seed: u32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -41,39 +82,134 @@ pub struct LayoutDraft {
 
 #[derive(Clone, Debug)]
 pub enum UnderlayDraft {
-    Stroke { width: f32, color: String },
-    Glow { radius: u32, color: String },
-    Shadow { offset_x: f32, offset_y: f32, blur: u32, color: String },
-    Extrude { depth: f32, angle: f32, color: String },
-    ChromaticSplit { offset: f32, red: String, cyan: String },
-    Trail { distance: f32, copies: u32, angle: f32, color: String },
+    Stroke {
+        width: f32,
+        color: String,
+    },
+    Glow {
+        radius: u32,
+        color: String,
+    },
+    Shadow {
+        offset_x: f32,
+        offset_y: f32,
+        blur: u32,
+        color: String,
+    },
+    Extrude {
+        depth: f32,
+        angle: f32,
+        color: String,
+    },
+    ChromaticSplit {
+        offset: f32,
+        red: String,
+        cyan: String,
+    },
+    Trail {
+        distance: f32,
+        copies: u32,
+        angle: f32,
+        color: String,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub enum OverlayDraft {
-    Bevel { width: f32, highlight: String, shadow: String },
-    Letterpress { width: f32, highlight: String, shadow: String },
+    Bevel {
+        width: f32,
+        highlight: String,
+        shadow: String,
+    },
+    Letterpress {
+        width: f32,
+        highlight: String,
+        shadow: String,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub enum SurfaceEffectDraft {
-    LaserBurn { depth: f32, warmth: f32, edge: u32, seed: u32 },
-    Emboss { depth: f32, highlight: f32, shadow: f32, light_angle: Option<f32>, cast: u32 },
+    LaserBurn {
+        depth: f32,
+        warmth: f32,
+        edge: u32,
+        seed: u32,
+    },
+    Emboss {
+        depth: f32,
+        highlight: f32,
+        shadow: f32,
+        light_angle: Option<f32>,
+        cast: u32,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub enum AnimationDraft {
-    Pulse { period: f32, min: f32, max: f32, phase: f32 },
-    Shine { period: f32, width: f32, angle: f32, color: String },
-    Flicker { period: f32, min: f32, strength: f32, phase: f32 },
-    Wave { period: f32, amp: f32, wave: f32, phase: f32 },
-    Typewriter { period: f32, hold: f32 },
-    Dissolve { period: f32, hold: f32, seed: u32 },
-    Scramble { period: f32, hold: f32, steps: f32, seed: u32 },
-    SplitFlap { period: f32, hold: f32, steps: f32 },
-    Confetti { period: f32, hold: f32, pieces: u32, spread: f32, seed: u32 },
-    Glitch { period: f32, ripple: f32, slice: f32, burst: f32, seed: u32 },
-    Orbit { period: f32, degrees: f32, phase: f32 },
+    Pulse {
+        period: f32,
+        min: f32,
+        max: f32,
+        phase: f32,
+    },
+    Shine {
+        period: f32,
+        width: f32,
+        angle: f32,
+        color: String,
+    },
+    Flicker {
+        period: f32,
+        min: f32,
+        strength: f32,
+        phase: f32,
+    },
+    Wave {
+        period: f32,
+        amp: f32,
+        wave: f32,
+        phase: f32,
+    },
+    Typewriter {
+        period: f32,
+        hold: f32,
+    },
+    Dissolve {
+        period: f32,
+        hold: f32,
+        seed: u32,
+    },
+    Scramble {
+        period: f32,
+        hold: f32,
+        steps: f32,
+        seed: u32,
+    },
+    SplitFlap {
+        period: f32,
+        hold: f32,
+        steps: f32,
+    },
+    Confetti {
+        period: f32,
+        hold: f32,
+        pieces: u32,
+        spread: f32,
+        seed: u32,
+    },
+    Glitch {
+        period: f32,
+        ripple: f32,
+        slice: f32,
+        burst: f32,
+        seed: u32,
+    },
+    Orbit {
+        period: f32,
+        degrees: f32,
+        phase: f32,
+    },
 }
 
 impl Default for StyleDraft {
@@ -104,7 +240,7 @@ impl StyleDraft {
             .and_then(|v| v.as_integer())
             .map(|w| w as u16)
             .unwrap_or(600);
-        let mut draft = Self {
+        let draft = Self {
             font_weight: weight,
             ..Default::default()
         };
@@ -123,7 +259,12 @@ impl StyleDraft {
                     "[material]\ntype = \"linear-gradient\"\ntop = {top:?}\nbottom = {bottom:?}\n\n"
                 ));
             }
-            FillKind::Gold { dark, mid, light, highlight } => {
+            FillKind::Gold {
+                dark,
+                mid,
+                light,
+                highlight,
+            } => {
                 out.push_str(&format!(
                     "[material]\ntype = \"gold\"\ndark = {dark:?}\nmid = {mid:?}\nlight = {light:?}\nhighlight = {highlight:?}\n\n"
                 ));
@@ -149,22 +290,40 @@ impl StyleDraft {
                     "[material]\ntype = \"nebula\"\ndark = {dark:?}\nmid = {mid:?}\nlight = {light:?}\n\n"
                 ));
             }
-            FillKind::Liquid { first, second, frequency } => {
+            FillKind::Liquid {
+                first,
+                second,
+                frequency,
+            } => {
                 out.push_str(&format!(
                     "[material]\ntype = \"liquid\"\nfirst = {first:?}\nsecond = {second:?}\nfrequency = {frequency}\n\n"
                 ));
             }
-            FillKind::Halftone { foreground, background, cell } => {
+            FillKind::Halftone {
+                foreground,
+                background,
+                cell,
+            } => {
                 out.push_str(&format!(
                     "[material]\ntype = \"halftone\"\nforeground = {foreground:?}\nbackground = {background:?}\ncell = {cell}\n\n"
                 ));
             }
-            FillKind::Blueprint { dark, light, grid, cell } => {
+            FillKind::Blueprint {
+                dark,
+                light,
+                grid,
+                cell,
+            } => {
                 out.push_str(&format!(
                     "[material]\ntype = \"blueprint\"\ndark = {dark:?}\nlight = {light:?}\ngrid = {grid:?}\ncell = {cell}\n\n"
                 ));
             }
-            FillKind::Paper { light, mid, dark, seed } => {
+            FillKind::Paper {
+                light,
+                mid,
+                dark,
+                seed,
+            } => {
                 out.push_str(&format!(
                     "[material]\ntype = \"paper\"\nlight = {light:?}\nmid = {mid:?}\ndark = {dark:?}\nseed = {seed}\n\n"
                 ));
@@ -179,41 +338,78 @@ impl StyleDraft {
         for e in &self.underlays {
             match e {
                 UnderlayDraft::Stroke { width, color } => {
-                    out.push_str(&format!("[[effects]]\ntype = \"stroke\"\nwidth = {width}\ncolor = {color:?}\n\n"));
+                    out.push_str(&format!(
+                        "[[effects]]\ntype = \"stroke\"\nwidth = {width}\ncolor = {color:?}\n\n"
+                    ));
                 }
                 UnderlayDraft::Glow { radius, color } => {
-                    out.push_str(&format!("[[effects]]\ntype = \"glow\"\nradius = {radius}\ncolor = {color:?}\n\n"));
+                    out.push_str(&format!(
+                        "[[effects]]\ntype = \"glow\"\nradius = {radius}\ncolor = {color:?}\n\n"
+                    ));
                 }
-                UnderlayDraft::Shadow { offset_x, offset_y, blur, color } => {
+                UnderlayDraft::Shadow {
+                    offset_x,
+                    offset_y,
+                    blur,
+                    color,
+                } => {
                     out.push_str(&format!("[[effects]]\ntype = \"shadow\"\noffset_x = {offset_x}\noffset_y = {offset_y}\nblur_radius = {blur}\ncolor = {color:?}\n\n"));
                 }
-                UnderlayDraft::Extrude { depth, angle, color } => {
+                UnderlayDraft::Extrude {
+                    depth,
+                    angle,
+                    color,
+                } => {
                     out.push_str(&format!("[[effects]]\ntype = \"extrude\"\ndepth = {depth}\nangle_degrees = {angle}\ncolor = {color:?}\n\n"));
                 }
                 UnderlayDraft::ChromaticSplit { offset, red, cyan } => {
                     out.push_str(&format!("[[effects]]\ntype = \"chromatic-split\"\noffset = {offset}\nred = {red:?}\ncyan = {cyan:?}\n\n"));
                 }
-                UnderlayDraft::Trail { distance, copies, angle, color } => {
+                UnderlayDraft::Trail {
+                    distance,
+                    copies,
+                    angle,
+                    color,
+                } => {
                     out.push_str(&format!("[[effects]]\ntype = \"trail\"\ndistance = {distance}\ncopies = {copies}\nangle_degrees = {angle}\ncolor = {color:?}\n\n"));
                 }
             }
         }
         for e in &self.overlays {
             match e {
-                OverlayDraft::Bevel { width, highlight, shadow } => {
+                OverlayDraft::Bevel {
+                    width,
+                    highlight,
+                    shadow,
+                } => {
                     out.push_str(&format!("[[effects]]\ntype = \"bevel\"\nwidth = {width}\nhighlight = {highlight:?}\nshadow = {shadow:?}\n\n"));
                 }
-                OverlayDraft::Letterpress { width, highlight, shadow } => {
+                OverlayDraft::Letterpress {
+                    width,
+                    highlight,
+                    shadow,
+                } => {
                     out.push_str(&format!("[[effects]]\ntype = \"letterpress\"\nwidth = {width}\nhighlight = {highlight:?}\nshadow = {shadow:?}\n\n"));
                 }
             }
         }
         for e in &self.surface_effects {
             match e {
-                SurfaceEffectDraft::LaserBurn { depth, warmth, edge, seed } => {
+                SurfaceEffectDraft::LaserBurn {
+                    depth,
+                    warmth,
+                    edge,
+                    seed,
+                } => {
                     out.push_str(&format!("[[surface_effects]]\ntype = \"laser-burn\"\ndepth = {depth}\nwarmth = {warmth}\nedge_width = {edge}\nseed = {seed}\n\n"));
                 }
-                SurfaceEffectDraft::Emboss { depth, highlight, shadow, light_angle, cast } => {
+                SurfaceEffectDraft::Emboss {
+                    depth,
+                    highlight,
+                    shadow,
+                    light_angle,
+                    cast,
+                } => {
                     if let Some(a) = light_angle {
                         out.push_str(&format!("[[surface_effects]]\ntype = \"emboss\"\ndepth = {depth}\nhighlight_strength = {highlight}\nshadow_strength = {shadow}\nlight_angle_degrees = {a}\ncast_shadow = {cast}\n\n"));
                     } else {
@@ -224,16 +420,36 @@ impl StyleDraft {
         }
         for a in &self.animations {
             match a {
-                AnimationDraft::Pulse { period, min, max, phase } => {
+                AnimationDraft::Pulse {
+                    period,
+                    min,
+                    max,
+                    phase,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"pulse\"\nperiod_seconds = {period}\nminimum_opacity = {min}\nmaximum_opacity = {max}\nphase = {phase}\n\n"));
                 }
-                AnimationDraft::Shine { period, width, angle, color } => {
+                AnimationDraft::Shine {
+                    period,
+                    width,
+                    angle,
+                    color,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"shine\"\nperiod_seconds = {period}\nwidth = {width}\nangle_degrees = {angle}\ncolor = {color:?}\n\n"));
                 }
-                AnimationDraft::Flicker { period, min, strength, phase } => {
+                AnimationDraft::Flicker {
+                    period,
+                    min,
+                    strength,
+                    phase,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"flicker\"\nperiod_seconds = {period}\nminimum_opacity = {min}\nstrength = {strength}\nphase = {phase}\n\n"));
                 }
-                AnimationDraft::Wave { period, amp, wave, phase } => {
+                AnimationDraft::Wave {
+                    period,
+                    amp,
+                    wave,
+                    phase,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"wave\"\nperiod_seconds = {period}\namplitude = {amp}\nwavelength = {wave}\nphase = {phase}\n\n"));
                 }
                 AnimationDraft::Typewriter { period, hold } => {
@@ -242,19 +458,44 @@ impl StyleDraft {
                 AnimationDraft::Dissolve { period, hold, seed } => {
                     out.push_str(&format!("[[animations]]\ntype = \"dissolve\"\nperiod_seconds = {period}\nhold_fraction = {hold}\nseed = {seed}\n\n"));
                 }
-                AnimationDraft::Scramble { period, hold, steps, seed } => {
+                AnimationDraft::Scramble {
+                    period,
+                    hold,
+                    steps,
+                    seed,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"scramble\"\nperiod_seconds = {period}\nhold_fraction = {hold}\nsteps_per_second = {steps}\nseed = {seed}\n\n"));
                 }
-                AnimationDraft::SplitFlap { period, hold, steps } => {
+                AnimationDraft::SplitFlap {
+                    period,
+                    hold,
+                    steps,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"split-flap\"\nperiod_seconds = {period}\nhold_fraction = {hold}\nsteps_per_second = {steps}\n\n"));
                 }
-                AnimationDraft::Confetti { period, hold, pieces, spread, seed } => {
+                AnimationDraft::Confetti {
+                    period,
+                    hold,
+                    pieces,
+                    spread,
+                    seed,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"confetti-converge\"\nperiod_seconds = {period}\nhold_fraction = {hold}\npieces = {pieces}\nspread = {spread}\nseed = {seed}\n\n"));
                 }
-                AnimationDraft::Glitch { period, ripple, slice, burst, seed } => {
+                AnimationDraft::Glitch {
+                    period,
+                    ripple,
+                    slice,
+                    burst,
+                    seed,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"glitch\"\nperiod_seconds = {period}\nripple = {ripple}\nslice = {slice}\nburst_fraction = {burst}\nseed = {seed}\n\n"));
                 }
-                AnimationDraft::Orbit { period, degrees, phase } => {
+                AnimationDraft::Orbit {
+                    period,
+                    degrees,
+                    phase,
+                } => {
                     out.push_str(&format!("[[animations]]\ntype = \"orbit\"\nperiod_seconds = {period}\ndegrees_per_cycle = {degrees}\nphase = {phase}\n\n"));
                 }
             }
@@ -265,7 +506,8 @@ impl StyleDraft {
     pub fn build_style(&self) -> Result<Style> {
         // Write to temp file then load via existing parser – reuses validation.
         let toml = self.to_toml_string()?;
-        let path = std::env::temp_dir().join(format!("plaque-forge-showcase-{}.toml", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("plaque-forge-showcase-{}.toml", std::process::id()));
         std::fs::write(&path, &toml)?;
         let s = Style::from_file(&path);
         let _ = std::fs::remove_file(&path);
@@ -297,12 +539,27 @@ mod tests {
 
     #[test]
     fn toml_roundtrip_with_effects() {
-        let mut d = StyleDraft::default();
-        d.fill_kind = FillKind::Gold { dark: "#111111FF".into(), mid: "#222222FF".into(), light: "#333333FF".into(), highlight: "#444444FF".into() };
-        d.underlays.push(UnderlayDraft::Stroke { width: 0.05, color: "#FF0000FF".into() });
-        d.animations.push(AnimationDraft::Pulse { period: 2.0, min: 0.5, max: 1.0, phase: 0.0 });
+        let mut d = StyleDraft {
+            fill_kind: FillKind::Gold {
+                dark: "#111111FF".into(),
+                mid: "#222222FF".into(),
+                light: "#333333FF".into(),
+                highlight: "#444444FF".into(),
+            },
+            ..Default::default()
+        };
+        d.underlays.push(UnderlayDraft::Stroke {
+            width: 0.05,
+            color: "#FF0000FF".into(),
+        });
+        d.animations.push(AnimationDraft::Pulse {
+            period: 2.0,
+            min: 0.5,
+            max: 1.0,
+            phase: 0.0,
+        });
         let s = d.build_style().unwrap();
-        assert!(!s.has_frame_variation() == false);
+        assert!(s.has_frame_variation());
     }
 
     #[test]

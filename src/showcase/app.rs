@@ -1,15 +1,14 @@
 //! Egui application for the showcase.
 
-use std::path::{Path, PathBuf};
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
-use anyhow::Result;
 use egui::{Color32, RichText, TextureHandle, TextureOptions, Vec2};
 
 use crate::{
-    media::{MediaCatalog, FilesystemCatalog},
-    surface::Surface,
     color::Rgba,
+    media::{FilesystemCatalog, MediaCatalog},
+    surface::Surface,
 };
 
 use super::{
@@ -42,7 +41,7 @@ impl ShowcaseApp {
         let videos = Self::load_videos();
         let styles = Self::load_styles();
         let system_fonts = Self::load_system_fonts();
-        let mut state = ShowcaseState::new(videos.clone(), styles.clone());
+        let state = ShowcaseState::new(videos.clone(), styles.clone());
         let mut preview = PreviewCache::new();
         // try to set font file based on chosen font label
         let font_path = Self::resolve_font(&state.font);
@@ -78,20 +77,20 @@ impl ShowcaseApp {
 
     fn load_videos() -> Vec<String> {
         let catalog = FilesystemCatalog::production().ok();
-        if let Some(cat) = catalog {
-            if let Ok(v) = cat.videos() {
-                return v.into_iter().map(|x| x.stem).collect();
-            }
+        if let Some(cat) = catalog
+            && let Ok(v) = cat.videos()
+        {
+            return v.into_iter().map(|x| x.stem).collect();
         }
         // fallback scan assets/*.mp4
         let mut out = Vec::new();
         if let Ok(entries) = std::fs::read_dir("assets") {
             for e in entries.flatten() {
                 let p = e.path();
-                if p.extension().and_then(|x| x.to_str()) == Some("mp4") {
-                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                        out.push(stem.to_string());
-                    }
+                if p.extension().and_then(|x| x.to_str()) == Some("mp4")
+                    && let Some(stem) = p.file_stem().and_then(|s| s.to_str())
+                {
+                    out.push(stem.to_string());
                 }
             }
         }
@@ -101,19 +100,19 @@ impl ShowcaseApp {
 
     fn load_styles() -> Vec<String> {
         let catalog = FilesystemCatalog::production().ok();
-        if let Some(cat) = catalog {
-            if let Ok(s) = cat.styles() {
-                return s.into_iter().map(|x| x.name).collect();
-            }
+        if let Some(cat) = catalog
+            && let Ok(s) = cat.styles()
+        {
+            return s.into_iter().map(|x| x.name).collect();
         }
         let mut out = Vec::new();
         if let Ok(entries) = std::fs::read_dir("styles") {
             for e in entries.flatten() {
                 let p = e.path();
-                if p.extension().and_then(|x| x.to_str()) == Some("toml") {
-                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                        out.push(stem.to_string());
-                    }
+                if p.extension().and_then(|x| x.to_str()) == Some("toml")
+                    && let Some(stem) = p.file_stem().and_then(|s| s.to_str())
+                {
+                    out.push(stem.to_string());
                 }
             }
         }
@@ -122,11 +121,14 @@ impl ShowcaseApp {
     }
 
     fn load_system_fonts() -> Vec<String> {
-        use crate::media::fonts::{SystemFonts, FamilyIndex};
+        use crate::media::fonts::{FamilyIndex, SystemFonts};
         let sys = SystemFonts::load();
         // get curated exclude
         let curated_lower: BTreeSet<_> = CURATED_FONTS.iter().map(|s| s.to_lowercase()).collect();
-        let mut fonts = CURATED_FONTS.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mut fonts = CURATED_FONTS
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
         let mut sys_families = sys.families_excluding(&curated_lower);
         sys_families.sort();
         fonts.extend(sys_families);
@@ -159,7 +161,8 @@ impl ShowcaseApp {
                 Ok(p) => {
                     self.player = Some(p);
                     // Try to set analysis root for preview
-                    let analysis_path = crate::workspace::analysis_path(&path).unwrap_or(PathBuf::from(format!("assets/analysis/{stem}")));
+                    let analysis_path = crate::workspace::analysis_path(&path)
+                        .unwrap_or(PathBuf::from(format!("assets/analysis/{stem}")));
                     if analysis_path.is_dir() {
                         self.preview.set_analysis(Some(analysis_path));
                     } else {
@@ -178,10 +181,10 @@ impl ShowcaseApp {
     fn current_analysis(&self) -> Option<crate::analysis::Analysis> {
         if let Some(stem) = self.state.current_video_stem() {
             let path = PathBuf::from(format!("assets/{stem}.mp4"));
-            if let Ok(ap) = crate::workspace::analysis_path(&path) {
-                if let Ok(a) = crate::analysis::Analysis::open(&ap) {
-                    return Some(a);
-                }
+            if let Ok(ap) = crate::workspace::analysis_path(&path)
+                && let Ok(a) = crate::analysis::Analysis::open(&ap)
+            {
+                return Some(a);
             }
         }
         None
@@ -191,13 +194,19 @@ impl ShowcaseApp {
         let input = ctx.input(|i| {
             let mut keys = Vec::new();
             for ev in &i.events {
-                if let egui::Event::Key { key, pressed: true, modifiers, .. } = ev {
+                if let egui::Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } = ev
+                {
                     keys.push((*key, *modifiers));
                 }
             }
             keys
         });
-        for (key, mods) in input {
+        for (key, _mods) in input {
             // Prioritize modal handling
             if self.state.text_edit_open {
                 if key == egui::Key::Escape {
@@ -213,19 +222,20 @@ impl ShowcaseApp {
             if self.state.save_dialog_open {
                 if key == egui::Key::Escape {
                     self.state.cancel_save();
-                } else if key == egui::Key::Enter {
-                    if let Some(name) = self.state.commit_save() {
-                        let draft = self.style_draft.clone();
-                        let dest = PathBuf::from(format!("styles/{name}.toml"));
-                        match draft.save_to_file(&dest) {
-                            Ok(_) => {
-                                self.state.styles.push(name.clone());
-                                self.state.styles.sort();
-                                self.state.current_style = self.state.styles.iter().position(|s| s == &name);
-                                self.error_message = Some(format!("Saved style to {}", dest.display()));
-                            }
-                            Err(e) => self.error_message = Some(format!("Save failed: {e}")),
+                } else if key == egui::Key::Enter
+                    && let Some(name) = self.state.commit_save()
+                {
+                    let draft = self.style_draft.clone();
+                    let dest = PathBuf::from(format!("styles/{name}.toml"));
+                    match draft.save_to_file(&dest) {
+                        Ok(_) => {
+                            self.state.styles.push(name.clone());
+                            self.state.styles.sort();
+                            self.state.current_style =
+                                self.state.styles.iter().position(|s| s == &name);
+                            self.error_message = Some(format!("Saved style to {}", dest.display()));
                         }
+                        Err(e) => self.error_message = Some(format!("Save failed: {e}")),
                     }
                 }
                 continue;
@@ -254,7 +264,12 @@ impl ShowcaseApp {
                     }
                     egui::Key::Backspace => {
                         self.state.font_picker.backspace(&self.system_fonts);
-                        if let Some(sel) = self.state.font_picker.current_selection().map(|s| s.to_string()) {
+                        if let Some(sel) = self
+                            .state
+                            .font_picker
+                            .current_selection()
+                            .map(|s| s.to_string())
+                        {
                             self.state.font = sel.clone();
                             let p = Self::resolve_font(&sel);
                             self.preview.set_font(p);
@@ -285,11 +300,9 @@ impl ShowcaseApp {
                     self.state.style_down();
                     self.apply_current_style();
                 }
-                egui::Key::Escape => {
-                    if self.state.demo_mode {
-                        self.state.exit_demo();
-                        self.apply_current_style();
-                    }
+                egui::Key::Escape if self.state.demo_mode => {
+                    self.state.exit_demo();
+                    self.apply_current_style();
                 }
                 _ => {
                     // Check char '/' 'd' 'i'
@@ -301,18 +314,26 @@ impl ShowcaseApp {
         ctx.input(|i| {
             for ev in &i.events {
                 if let egui::Event::Text(text) = ev {
-                    if self.state.text_edit_open || self.state.save_dialog_open || self.state.font_picker.open {
+                    if self.state.text_edit_open
+                        || self.state.save_dialog_open
+                        || self.state.font_picker.open
+                    {
                         //Handled differently: font picker typing
                         if self.state.font_picker.open {
                             for c in text.chars() {
                                 if c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_' {
-                                    let handled = self.state.font_picker.handle_char(c, &self.system_fonts);
-                                    if handled {
-                                        if let Some(sel) = self.state.font_picker.current_selection().map(|s| s.to_string()) {
-                                            self.state.font = sel.clone();
-                                            let p = Self::resolve_font(&sel);
-                                            self.preview.set_font(p);
-                                        }
+                                    let handled =
+                                        self.state.font_picker.handle_char(c, &self.system_fonts);
+                                    if handled
+                                        && let Some(sel) = self
+                                            .state
+                                            .font_picker
+                                            .current_selection()
+                                            .map(|s| s.to_string())
+                                    {
+                                        self.state.font = sel.clone();
+                                        let p = Self::resolve_font(&sel);
+                                        self.preview.set_font(p);
                                     }
                                 }
                             }
@@ -378,7 +399,11 @@ impl ShowcaseApp {
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
         // Spec: random combos of fonts from hard-coded list
-        let font = CURATED_FONTS.choose(&mut rng).cloned().unwrap_or(CURATED_FONTS[0]).to_string();
+        let font = CURATED_FONTS
+            .choose(&mut rng)
+            .cloned()
+            .unwrap_or(CURATED_FONTS[0])
+            .to_string();
         let style_idx = if self.state.styles.is_empty() {
             None
         } else {
@@ -390,8 +415,15 @@ impl ShowcaseApp {
         self.apply_current_style();
     }
 
-    fn draw_inspect_overlays(&self, surface: &mut Surface, analysis: Option<&crate::analysis::Analysis>) {
-        if self.state.overlay == super::state::OverlayMode::None && self.state.overlay_multi.is_empty() && !self.state.demo_mode {
+    fn draw_inspect_overlays(
+        &self,
+        surface: &mut Surface,
+        analysis: Option<&crate::analysis::Analysis>,
+    ) {
+        if self.state.overlay == super::state::OverlayMode::None
+            && self.state.overlay_multi.is_empty()
+            && !self.state.demo_mode
+        {
             return;
         }
         let modes: Vec<OverlayMode> = if self.state.multi_overlay_mode {
@@ -407,20 +439,26 @@ impl ShowcaseApp {
                 OverlayMode::PlaqueBounds => {
                     // Use current motion sample; approximate with first frame transform
                     if let Some(sample) = pack.motion.first() {
-                        let quad = crate::analyze::extraction::transformed_rect(pack.manifest.source_plaque_rect, sample.transform);
-                        draw_quad_border(surface, quad, Rgba::new(255,255,0,255), 2);
+                        let quad = crate::analyze::extraction::transformed_rect(
+                            pack.manifest.source_plaque_rect,
+                            sample.transform,
+                        );
+                        draw_quad_border(surface, quad, Rgba::new(255, 255, 0, 255), 2);
                     }
                 }
                 OverlayMode::Foreground => {
                     // Try to load foreground masks: for demo, load first occluder frame
-                    let path = pack.root.join(crate::analysis::OCCLUDER_DIR).join("000000.png");
-                    if path.is_file() {
-                        if let Ok(img) = image::open(&path) {
-                            let luma = img.to_luma8();
-                            let mask = luma.into_raw();
-                            if mask.len() == surface.width() as usize * surface.height() as usize {
-                                fill_mask_overlay(surface, &mask, Rgba::new(0,255,0,180));
-                            }
+                    let path = pack
+                        .root
+                        .join(crate::analysis::OCCLUDER_DIR)
+                        .join("000000.png");
+                    if path.is_file()
+                        && let Ok(img) = image::open(&path)
+                    {
+                        let luma = img.to_luma8();
+                        let mask = luma.into_raw();
+                        if mask.len() == surface.width() as usize * surface.height() as usize {
+                            fill_mask_overlay(surface, &mask, Rgba::new(0, 255, 0, 180));
                         }
                     }
                 }
@@ -428,25 +466,25 @@ impl ShowcaseApp {
                     let p = pack.root.join(crate::analysis::CONTENT_MASK_FILE);
                     if let Ok(img) = image::open(&p) {
                         let mask = img.to_luma8().into_raw();
-                        fill_mask_overlay(surface, &mask, Rgba::new(80,140,255,140));
+                        fill_mask_overlay(surface, &mask, Rgba::new(80, 140, 255, 140));
                     }
                 }
                 OverlayMode::StructuralMask => {
                     let p = pack.root.join(crate::analysis::STRUCTURAL_MASK_FILE);
                     if let Ok(img) = image::open(&p) {
                         let mask = img.to_luma8().into_raw();
-                        fill_mask_overlay(surface, &mask, Rgba::new(255,0,255,140));
+                        fill_mask_overlay(surface, &mask, Rgba::new(255, 0, 255, 140));
                     }
                 }
                 OverlayMode::Occluder => {
                     let dir = pack.root.join(crate::analysis::OCCLUDER_DIR);
-                    if dir.is_dir() {
-                        if let Ok(entries) = std::fs::read_dir(&dir) {
-                            for e in entries.flatten().take(1) {
-                                if let Ok(img) = image::open(e.path()) {
-                                    let mask = img.to_luma8().into_raw();
-                                    fill_mask_overlay(surface, &mask, Rgba::new(255,165,0,140));
-                                }
+                    if dir.is_dir()
+                        && let Ok(entries) = std::fs::read_dir(&dir)
+                    {
+                        for e in entries.flatten().take(1) {
+                            if let Ok(img) = image::open(e.path()) {
+                                let mask = img.to_luma8().into_raw();
+                                fill_mask_overlay(surface, &mask, Rgba::new(255, 165, 0, 140));
                             }
                         }
                     }
@@ -680,9 +718,8 @@ impl eframe::App for ShowcaseApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Poll video frame
             let mut surface_opt: Option<Surface> = None;
-            let mut has_analysis = false;
             let analysis = self.current_analysis();
-            has_analysis = analysis.is_some();
+            let mut has_analysis = analysis.is_some();
             let mut demo_wrapped = false;
             if let Some(player) = &mut self.player {
                 match player.next_surface() {
@@ -699,7 +736,10 @@ impl eframe::App for ShowcaseApp {
                 let dur = player.frame_duration();
                 ctx.request_repaint_after(dur);
                 let cur = player.current_frame;
-                demo_wrapped = self.state.demo_mode && cur < self.prev_frame_idx && cur < 5 && self.prev_frame_idx > 10;
+                demo_wrapped = self.state.demo_mode
+                    && cur < self.prev_frame_idx
+                    && cur < 5
+                    && self.prev_frame_idx > 10;
                 self.prev_frame_idx = cur;
             }
             if demo_wrapped {
@@ -719,7 +759,11 @@ impl eframe::App for ShowcaseApp {
             }
 
             if let Some(mut surface) = surface_opt {
-                let time = self.player.as_ref().map(|p| p.time_seconds()).unwrap_or(0.0);
+                let time = self
+                    .player
+                    .as_ref()
+                    .map(|p| p.time_seconds())
+                    .unwrap_or(0.0);
                 // Analysis missing -> greyscale + dark bar (diagnostics handles bar; we do greyscale here)
                 if !has_analysis {
                     to_greyscale(&mut surface);
@@ -755,21 +799,38 @@ impl eframe::App for ShowcaseApp {
 
                 let available = ui.available_size();
                 let img_size = Vec2::new(w as f32, h as f32);
-                let scale = (available.x / img_size.x).min(available.y / img_size.y).min(1.5);
+                let scale = (available.x / img_size.x)
+                    .min(available.y / img_size.y)
+                    .min(1.5);
                 let display_size = img_size * scale;
-                let rect = egui::Rect::from_center_size(ui.available_rect_before_wrap().center(), display_size);
+                let rect = egui::Rect::from_center_size(
+                    ui.available_rect_before_wrap().center(),
+                    display_size,
+                );
                 ui.put(rect, egui::Image::from_texture((tex.id(), display_size)));
 
                 // Overlay missing analysis notice as egui text (centered)
                 if !has_analysis {
-                    let center = rect.center();
+                    let _center = rect.center();
                     egui::Area::new(egui::Id::new("missing_notice"))
                         .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
                         .show(ctx, |ui| {
-                            egui::Frame::new().fill(Color32::from_black_alpha(180)).corner_radius(6).inner_margin(12).show(ui, |ui| {
-                                ui.colored_label(Color32::WHITE, RichText::new("No analysis data for this video").heading().strong());
-                                ui.colored_label(Color32::LIGHT_GRAY, "Consult the documentation on how to generate it");
-                            });
+                            egui::Frame::new()
+                                .fill(Color32::from_black_alpha(180))
+                                .corner_radius(6)
+                                .inner_margin(12)
+                                .show(ui, |ui| {
+                                    ui.colored_label(
+                                        Color32::WHITE,
+                                        RichText::new("No analysis data for this video")
+                                            .heading()
+                                            .strong(),
+                                    );
+                                    ui.colored_label(
+                                        Color32::LIGHT_GRAY,
+                                        "Consult the documentation on how to generate it",
+                                    );
+                                });
                         });
                 }
 
@@ -779,9 +840,13 @@ impl eframe::App for ShowcaseApp {
                     egui::Area::new(egui::Id::new("demo_label"))
                         .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -20.0))
                         .show(ctx, |ui| {
-                            egui::Frame::new().fill(Color32::from_black_alpha(150)).corner_radius(4).inner_margin(6).show(ui, |ui| {
-                                ui.colored_label(Color32::YELLOW, combo);
-                            });
+                            egui::Frame::new()
+                                .fill(Color32::from_black_alpha(150))
+                                .corner_radius(4)
+                                .inner_margin(6)
+                                .show(ui, |ui| {
+                                    ui.colored_label(Color32::YELLOW, combo);
+                                });
                         });
                 }
                 // Inspect badge already in top bar; also show overlay label near bottom
@@ -793,29 +858,38 @@ impl eframe::App for ShowcaseApp {
                 ui.centered_and_justified(|ui| {
                     ui.label("No video loaded");
                 });
-                if self.player.is_none() && !self.state.videos.is_empty() {
-                    if ui.button("Retry open").clicked() {
-                        self.open_current_video();
-                    }
+                if self.player.is_none()
+                    && !self.state.videos.is_empty()
+                    && ui.button("Retry open").clicked()
+                {
+                    self.open_current_video();
                 }
             }
         });
 
         // Font picker popup
         if self.state.font_picker.open {
-            egui::Window::new("Fonts – Up/Down to preview, type to search, Enter confirm, Esc cancel")
-                .collapsible(false)
-                .resizable(true)
-                .show(ctx, |ui| {
-                    ui.label(format!("Mode: {:?}  Query: '{}'  Selected: {}", self.state.font_picker.mode, self.state.font_picker.query, self.state.font));
-                    ui.separator();
-                    let filter_text = if self.state.font_picker.mode == super::state::FontPickerMode::Search {
+            egui::Window::new(
+                "Fonts – Up/Down to preview, type to search, Enter confirm, Esc cancel",
+            )
+            .collapsible(false)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Mode: {:?}  Query: '{}'  Selected: {}",
+                    self.state.font_picker.mode, self.state.font_picker.query, self.state.font
+                ));
+                ui.separator();
+                let filter_text =
+                    if self.state.font_picker.mode == super::state::FontPickerMode::Search {
                         format!("Filter: {}", self.state.font_picker.query)
                     } else {
                         "Curated list – start typing to search all system fonts".to_string()
                     };
-                    ui.label(filter_text);
-                    egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                ui.label(filter_text);
+                egui::ScrollArea::vertical()
+                    .max_height(300.0)
+                    .show(ui, |ui| {
                         for (idx, font) in self.state.font_picker.filtered.iter().enumerate() {
                             let selected = idx == self.state.font_picker.selected;
                             if ui.selectable_label(selected, font).clicked() {
@@ -826,14 +900,30 @@ impl eframe::App for ShowcaseApp {
                             }
                         }
                     });
-                    ui.horizontal(|ui| {
-                        if ui.button("Up").clicked() { self.state.font_picker_up(); let p = Self::resolve_font(&self.state.font); self.preview.set_font(p); }
-                        if ui.button("Down").clicked() { self.state.font_picker_down(); let p = Self::resolve_font(&self.state.font); self.preview.set_font(p); }
-                        if ui.button("Enter – Confirm").clicked() { self.state.close_font_picker_commit(); let p = Self::resolve_font(&self.state.font); self.preview.set_font(p); }
-                        if ui.button("Esc – Cancel").clicked() { self.state.cancel_font_picker(); let p = Self::resolve_font(&self.state.font); self.preview.set_font(p); }
-                    });
-                    // Mouse support: Up/Down already, plus typing handled via ctx.input above
+                ui.horizontal(|ui| {
+                    if ui.button("Up").clicked() {
+                        self.state.font_picker_up();
+                        let p = Self::resolve_font(&self.state.font);
+                        self.preview.set_font(p);
+                    }
+                    if ui.button("Down").clicked() {
+                        self.state.font_picker_down();
+                        let p = Self::resolve_font(&self.state.font);
+                        self.preview.set_font(p);
+                    }
+                    if ui.button("Enter – Confirm").clicked() {
+                        self.state.close_font_picker_commit();
+                        let p = Self::resolve_font(&self.state.font);
+                        self.preview.set_font(p);
+                    }
+                    if ui.button("Esc – Cancel").clicked() {
+                        self.state.cancel_font_picker();
+                        let p = Self::resolve_font(&self.state.font);
+                        self.preview.set_font(p);
+                    }
                 });
+                // Mouse support: Up/Down already, plus typing handled via ctx.input above
+            });
         }
 
         // Text edit modal
@@ -862,19 +952,21 @@ impl eframe::App for ShowcaseApp {
                     ui.label("Style name (without .toml):");
                     ui.text_edit_singleline(&mut self.state.save_name);
                     ui.horizontal(|ui| {
-                        if ui.button("Save (Enter)").clicked() {
-                            if let Some(name) = self.state.commit_save() {
-                                let draft = self.style_draft.clone();
-                                let dest = PathBuf::from(format!("styles/{name}.toml"));
-                                match draft.save_to_file(&dest) {
-                                    Ok(_) => {
-                                        self.state.styles.push(name.clone());
-                                        self.state.styles.sort();
-                                        self.state.current_style = self.state.styles.iter().position(|s| s == &name);
-                                        self.error_message = Some(format!("Saved to {}", dest.display()));
-                                    }
-                                    Err(e) => self.error_message = Some(format!("Save failed: {e}")),
+                        if ui.button("Save (Enter)").clicked()
+                            && let Some(name) = self.state.commit_save()
+                        {
+                            let draft = self.style_draft.clone();
+                            let dest = PathBuf::from(format!("styles/{name}.toml"));
+                            match draft.save_to_file(&dest) {
+                                Ok(_) => {
+                                    self.state.styles.push(name.clone());
+                                    self.state.styles.sort();
+                                    self.state.current_style =
+                                        self.state.styles.iter().position(|s| s == &name);
+                                    self.error_message =
+                                        Some(format!("Saved to {}", dest.display()));
                                 }
+                                Err(e) => self.error_message = Some(format!("Save failed: {e}")),
                             }
                         }
                         if ui.button("Cancel (Esc)").clicked() {
@@ -937,8 +1029,12 @@ fn format_color(c: Color32) -> String {
     format!("#{:02X}{:02X}{:02X}{:02X}", c.r(), c.g(), c.b(), c.a())
 }
 fn ui_color_picker(ui: &mut egui::Ui, col: &mut Color32) -> bool {
-    let mut changed = false;
-    let mut hsva = egui::color_picker::color_edit_button_srgba(ui, col, egui::color_picker::Alpha::BlendOrAdditive);
+    let changed = false;
+    let _hsva = egui::color_picker::color_edit_button_srgba(
+        ui,
+        col,
+        egui::color_picker::Alpha::BlendOrAdditive,
+    );
     // simpler: use color_edit_button_srgba
     // The above already handles picking; detect change via comparison
     // For simplicity, use button

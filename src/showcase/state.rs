@@ -173,7 +173,11 @@ pub struct ShowcaseState {
 
 impl ShowcaseState {
     pub fn new(videos: Vec<String>, styles: Vec<String>) -> Self {
-        let font = CURATED_FONTS.first().copied().unwrap_or("Noto Serif").to_string();
+        let font = CURATED_FONTS
+            .first()
+            .copied()
+            .unwrap_or("Noto Serif")
+            .to_string();
         Self {
             videos,
             current_video: 0,
@@ -273,7 +277,8 @@ impl ShowcaseState {
         if self.font_picker.filtered.is_empty() {
             return;
         }
-        self.font_picker.selected = (self.font_picker.selected + 1) % self.font_picker.filtered.len();
+        self.font_picker.selected =
+            (self.font_picker.selected + 1) % self.font_picker.filtered.len();
         if let Some(sel) = self.font_picker.current_selection() {
             self.font = sel.to_string();
         }
@@ -302,7 +307,8 @@ impl ShowcaseState {
         }
     }
     pub fn current_style_name(&self) -> Option<&str> {
-        self.current_style.and_then(|idx| self.styles.get(idx).map(|s| s.as_str()))
+        self.current_style
+            .and_then(|idx| self.styles.get(idx).map(|s| s.as_str()))
     }
 
     // Demo (#5)
@@ -383,7 +389,11 @@ mod tests {
     fn state() -> ShowcaseState {
         ShowcaseState::new(
             vec!["a".into(), "b".into(), "c".into()],
-            vec!["gold-shine".into(), "classic-glow".into(), "chrome-shine".into()],
+            vec![
+                "gold-shine".into(),
+                "classic-glow".into(),
+                "chrome-shine".into(),
+            ],
         )
     }
 
@@ -443,15 +453,12 @@ mod tests {
         s.font_picker_down();
         assert_ne!(s.font, initial_font);
         assert_eq!(s.font, s.font_picker.current_selection().unwrap());
-        let after_down = s.font.clone();
+        let _after_down = s.font.clone();
         s.font_picker_up();
         assert_eq!(s.font, initial_font);
         // wrap
         s.font_picker_up();
-        assert_eq!(
-            s.font,
-            CURATED_FONTS.last().copied().unwrap()
-        );
+        assert_eq!(s.font, CURATED_FONTS.last().copied().unwrap());
         s.cancel_font_picker();
         assert_eq!(s.font, initial_font);
         assert!(!s.font_picker.open);
@@ -474,7 +481,12 @@ mod tests {
         assert_eq!(s.font_picker.mode, FontPickerMode::Search);
         assert_eq!(s.font_picker.query, "a");
         // filtered contains 'a' case insensitive
-        assert!(s.font_picker.filtered.iter().any(|f| f.to_lowercase().contains('a')));
+        assert!(
+            s.font_picker
+                .filtered
+                .iter()
+                .any(|f| f.to_lowercase().contains('a'))
+        );
         // backspace works
         s.font_picker.handle_char('r', &system);
         assert_eq!(s.font_picker.query, "ar");
@@ -498,7 +510,10 @@ mod tests {
         assert_ne!(s.font, first);
         s.close_font_picker_commit();
         assert!(!s.font_picker.open);
-        assert_eq!(s.font, s.font_picker.filtered[s.font_picker.selected].clone());
+        assert_eq!(
+            s.font,
+            s.font_picker.filtered[s.font_picker.selected].clone()
+        );
     }
 
     #[test]

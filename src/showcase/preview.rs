@@ -1,17 +1,14 @@
 //! Preview renderer – caches typography and composites per frame.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 
 use crate::{
     analysis::Analysis,
     application::{FitMode, TextAlign, VerticalAlign},
-    render::{
-        effects::{Style, presets::Style as StyleType, types::DirectStyleOptions},
-        typography,
-    },
+    render::typography,
     surface::Surface,
 };
 
@@ -25,6 +22,12 @@ pub struct PreviewCache {
     pub cached_text_render: Option<typography::TextRender>,
     pub dynamic_cache: HashMap<String, typography::TextRender>,
     pub last_error: Option<String>,
+}
+
+impl Default for PreviewCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PreviewCache {
@@ -124,8 +127,14 @@ impl PreviewCache {
             // load content mask if available else full
             let content_path = pack.root.join(crate::analysis::CONTENT_MASK_FILE);
             if content_path.is_file() {
-                let img = image::open(&content_path).map(|i| i.to_luma8().into_raw()).unwrap_or(vec![255; width as usize * height as usize]);
-                if img.len() == width as usize * height as usize { img } else { vec![255; width as usize * height as usize] }
+                let img = image::open(&content_path)
+                    .map(|i| i.to_luma8().into_raw())
+                    .unwrap_or(vec![255; width as usize * height as usize]);
+                if img.len() == width as usize * height as usize {
+                    img
+                } else {
+                    vec![255; width as usize * height as usize]
+                }
             } else {
                 vec![255; width as usize * height as usize]
             }
@@ -138,29 +147,32 @@ impl PreviewCache {
 
         // Dynamic text handling like render/mod.rs
         let dynamic_key = style.dynamic_text(&text_render.metrics.resolved_text, time_seconds);
-        let using_dynamic = dynamic_key.as_ref().is_some_and(|k| k != &text_render.metrics.resolved_text && self.dynamic_cache.contains_key(k));
-        if let Some(ref key) = dynamic_key {
-            if key != &text_render.metrics.resolved_text && !self.dynamic_cache.contains_key(key) {
-                let r = typography::render(typography::RenderRequest {
-                    width,
-                    height,
-                    mask: &mask,
-                    text: key,
-                    font_path: &self.font_path,
-                    fit_mode: FitMode::Fixed,
-                    requested_font_size: Some(text_render.metrics.font_size * 0.97),
-                    supersampling: 2,
-                    target_fill: 0.94,
-                    max_lines: 5,
-                    padding_ratio: 0.03,
-                    line_height_ratio: 1.08,
-                    text_align: TextAlign::Center,
-                    vertical_align: VerticalAlign::Center,
-                    style: &style,
-                });
-                if let Ok(r) = r {
-                    self.dynamic_cache.insert(key.clone(), r);
-                }
+        let using_dynamic = dynamic_key.as_ref().is_some_and(|k| {
+            k != &text_render.metrics.resolved_text && self.dynamic_cache.contains_key(k)
+        });
+        if let Some(ref key) = dynamic_key
+            && key != &text_render.metrics.resolved_text
+            && !self.dynamic_cache.contains_key(key)
+        {
+            let r = typography::render(typography::RenderRequest {
+                width,
+                height,
+                mask: &mask,
+                text: key,
+                font_path: &self.font_path,
+                fit_mode: FitMode::Fixed,
+                requested_font_size: Some(text_render.metrics.font_size * 0.97),
+                supersampling: 2,
+                target_fill: 0.94,
+                max_lines: 5,
+                padding_ratio: 0.03,
+                line_height_ratio: 1.08,
+                text_align: TextAlign::Center,
+                vertical_align: VerticalAlign::Center,
+                style: &style,
+            });
+            if let Ok(r) = r {
+                self.dynamic_cache.insert(key.clone(), r);
             }
         }
         let frame_text = dynamic_key
@@ -172,28 +184,48 @@ impl PreviewCache {
         let mut out = frame.clone();
         if let Some(pack) = analysis {
             // simplified: no plaque warp if analysis present – use transformed plaque quad
-            if let Some(sample) = pack.motion.get(0) {
+            if let Some(sample) = pack.motion.first() {
                 // use first motion sample for preview fallback – actual per-frame motion handled by caller who passes time-based sample
                 // Caller should have provided transformed quad; we replicate warp_blend with plaque quad from manifest
                 let _ = sample;
             }
             // For showcase preview we composite centered when no motion transform available – fallback to centered warp
             // Try to use motion at time_seconds
-            let idx = ((time_seconds * pack.manifest.source.fps) as usize).min(pack.motion.len().saturating_sub(1));
+            let idx = ((time_seconds * pack.manifest.source.fps) as usize)
+                .min(pack.motion.len().saturating_sub(1));
             if let Some(sample) = pack.motion.get(idx) {
-                let plaque_quad = crate::analyze::extraction::transformed_rect(pack.manifest.source_plaque_rect, sample.transform);
-                let opacity = sample.plaque_visibility.clamp(0.0, 1.0) as f32 * style.frame_opacity(time_seconds);
-                let static_presented = (!style.has_frame_variation()).then(|| frame_text.layer.clone());
+                let plaque_quad = crate::analyze::extraction::transformed_rect(
+                    pack.manifest.source_plaque_rect,
+                    sample.transform,
+                );
+                let opacity = sample.plaque_visibility.clamp(0.0, 1.0) as f32
+                    * style.frame_opacity(time_seconds);
+                let static_presented =
+                    (!style.has_frame_variation()).then(|| frame_text.layer.clone());
                 let mut animated: Option<Surface> = None;
                 if static_presented.is_none() || using_dynamic {
                     let mut layer = frame_text.layer.clone();
-                    if let Some(overlay) = style.frame_overlay(&frame_text.glyph_mask, frame_text.layer.width(), frame_text.layer.height(), time_seconds).unwrap_or(None) {
+                    if let Some(overlay) = style
+                        .frame_overlay(
+                            &frame_text.glyph_mask,
+                            frame_text.layer.width(),
+                            frame_text.layer.height(),
+                            time_seconds,
+                        )
+                        .unwrap_or(None)
+                    {
                         layer.blend_surface(&overlay, 0, 0, 1.0);
                     }
                     animated = Some(style.frame_transform(&layer, time_seconds).unwrap_or(layer));
                 }
-                let presented = if using_dynamic { animated.as_ref() } else { static_presented.as_ref().or(animated.as_ref()) }.unwrap();
-                out.warp_blend(presented, plaque_quad, opacity).unwrap_or(());
+                let presented = if using_dynamic {
+                    animated.as_ref()
+                } else {
+                    static_presented.as_ref().or(animated.as_ref())
+                }
+                .unwrap();
+                out.warp_blend(presented, plaque_quad, opacity)
+                    .unwrap_or(());
                 // foreground restore omitted for preview simplicity (heavy)
             } else {
                 out.blend_surface(&frame_text.layer, 0, 0, 1.0);
