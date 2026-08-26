@@ -10,15 +10,11 @@ license = "MIT"
 # plaques, textures, curated fonts) so listings and workflows read only
 # internal data plus system fonts. Produces a large binary; off by default.
 bundle-media = []
-showcase = ["dep:egui", "dep:eframe", "dep:egui_extras"]
 
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 cosmic-text = "0.19"
-egui = { version = "0.32", optional = true }
-eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"], optional = true }
-egui_extras = { version = "0.32", features = ["image", "all_loaders"], optional = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
 opencv = { version = "0.100", default-features = false, features = [
   "clang-runtime",
@@ -31,7 +27,6 @@ opencv = { version = "0.100", default-features = false, features = [
   "video",
   "videoio",
 ] }
-rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
@@ -41,10 +36,7 @@ unicode-script = "0.5"
 [dev-dependencies]
 approx = "0.5"
 
-[[bin]]
-name = "plaque-forge-showcase"
-path = "src/bin/showcase.rs"
-required-features = ["showcase"]
+
 
 [build-dependencies]
 anyhow = "1.0"

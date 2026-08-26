@@ -1,7 +1,7 @@
-pub(crate) mod candidate;
-pub(crate) mod extraction;
+pub mod candidate;
+pub mod extraction;
 mod occlusion;
-pub(crate) mod tracking;
+pub mod tracking;
 
 use std::{fs, path::Path};
 

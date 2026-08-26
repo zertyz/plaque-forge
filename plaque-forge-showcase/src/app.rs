@@ -5,13 +5,13 @@ use std::path::PathBuf;
 
 use egui::{Color32, RichText, TextureHandle, TextureOptions, Vec2};
 
-use crate::{
+use plaque_forge::{
     color::Rgba,
     media::{FilesystemCatalog, MediaCatalog},
     surface::Surface,
 };
 
-use super::{
+use plaque_forge::showcase::{
     diagnostics::{draw_quad_border, fill_mask_overlay, to_greyscale},
     fonts::CURATED_FONTS,
     preview::PreviewCache,
@@ -121,7 +121,7 @@ impl ShowcaseApp {
     }
 
     fn load_system_fonts() -> Vec<String> {
-        use crate::media::fonts::{FamilyIndex, SystemFonts};
+        use plaque_forge::media::fonts::{FamilyIndex, SystemFonts};
         let sys = SystemFonts::load();
         // get curated exclude
         let curated_lower: BTreeSet<_> = CURATED_FONTS.iter().map(|s| s.to_lowercase()).collect();
@@ -161,7 +161,7 @@ impl ShowcaseApp {
                 Ok(p) => {
                     self.player = Some(p);
                     // Try to set analysis root for preview
-                    let analysis_path = crate::workspace::analysis_path(&path)
+                    let analysis_path = plaque_forge::workspace::analysis_path(&path)
                         .unwrap_or(PathBuf::from(format!("assets/analysis/{stem}")));
                     if analysis_path.is_dir() {
                         self.preview.set_analysis(Some(analysis_path));
@@ -178,11 +178,11 @@ impl ShowcaseApp {
         }
     }
 
-    fn current_analysis(&self) -> Option<crate::analysis::Analysis> {
+    fn current_analysis(&self) -> Option<plaque_forge::analysis::Analysis> {
         if let Some(stem) = self.state.current_video_stem() {
             let path = PathBuf::from(format!("assets/{stem}.mp4"));
-            if let Ok(ap) = crate::workspace::analysis_path(&path)
-                && let Ok(a) = crate::analysis::Analysis::open(&ap)
+            if let Ok(ap) = plaque_forge::workspace::analysis_path(&path)
+                && let Ok(a) = plaque_forge::analysis::Analysis::open(&ap)
             {
                 return Some(a);
             }
@@ -418,9 +418,9 @@ impl ShowcaseApp {
     fn draw_inspect_overlays(
         &self,
         surface: &mut Surface,
-        analysis: Option<&crate::analysis::Analysis>,
+        analysis: Option<&plaque_forge::analysis::Analysis>,
     ) {
-        if self.state.overlay == super::state::OverlayMode::None
+        if self.state.overlay == plaque_forge::showcase::state::OverlayMode::None
             && self.state.overlay_multi.is_empty()
             && !self.state.demo_mode
         {
@@ -439,7 +439,7 @@ impl ShowcaseApp {
                 OverlayMode::PlaqueBounds => {
                     // Use current motion sample; approximate with first frame transform
                     if let Some(sample) = pack.motion.first() {
-                        let quad = crate::analyze::extraction::transformed_rect(
+                        let quad = plaque_forge::analyze::extraction::transformed_rect(
                             pack.manifest.source_plaque_rect,
                             sample.transform,
                         );
@@ -450,7 +450,7 @@ impl ShowcaseApp {
                     // Try to load foreground masks: for demo, load first occluder frame
                     let path = pack
                         .root
-                        .join(crate::analysis::OCCLUDER_DIR)
+                        .join(plaque_forge::analysis::OCCLUDER_DIR)
                         .join("000000.png");
                     if path.is_file()
                         && let Ok(img) = image::open(&path)
@@ -463,21 +463,21 @@ impl ShowcaseApp {
                     }
                 }
                 OverlayMode::WritableMask => {
-                    let p = pack.root.join(crate::analysis::CONTENT_MASK_FILE);
+                    let p = pack.root.join(plaque_forge::analysis::CONTENT_MASK_FILE);
                     if let Ok(img) = image::open(&p) {
                         let mask = img.to_luma8().into_raw();
                         fill_mask_overlay(surface, &mask, Rgba::new(80, 140, 255, 140));
                     }
                 }
                 OverlayMode::StructuralMask => {
-                    let p = pack.root.join(crate::analysis::STRUCTURAL_MASK_FILE);
+                    let p = pack.root.join(plaque_forge::analysis::STRUCTURAL_MASK_FILE);
                     if let Ok(img) = image::open(&p) {
                         let mask = img.to_luma8().into_raw();
                         fill_mask_overlay(surface, &mask, Rgba::new(255, 0, 255, 140));
                     }
                 }
                 OverlayMode::Occluder => {
-                    let dir = pack.root.join(crate::analysis::OCCLUDER_DIR);
+                    let dir = pack.root.join(plaque_forge::analysis::OCCLUDER_DIR);
                     if dir.is_dir()
                         && let Ok(entries) = std::fs::read_dir(&dir)
                     {
@@ -566,18 +566,18 @@ impl eframe::App for ShowcaseApp {
                                 .selected_text(format!("{:?}", self.style_draft.fill_kind).split('(').next().unwrap_or(""))
                                 .show_ui(ui, |ui| {
                                     let kinds = [
-                                        ("Flat", super::styles::FillKind::Flat("#FFFFFFFF".into())),
-                                        ("Linear Gradient", super::styles::FillKind::LinearGradient { top: "#FF0000FF".into(), bottom: "#0000FFFF".into() }),
-                                        ("Gold", super::styles::FillKind::Gold { dark: "#5B3210FF".into(), mid: "#C98B3CFF".into(), light: "#F3D38AFF".into(), highlight: "#FFF1C4FF".into() }),
-                                        ("Chrome", super::styles::FillKind::Chrome { dark: "#182436FF".into(), mid: "#8EA9C7FF".into(), light: "#F7FBFFFF".into() }),
-                                        ("Holographic", super::styles::FillKind::Holographic),
-                                        ("Fire", super::styles::FillKind::Fire { dark: "#380707FF".into(), mid: "#D84A0FFF".into(), light: "#FFE066FF".into() }),
-                                        ("Ice", super::styles::FillKind::Ice { dark: "#0B2447FF".into(), mid: "#408EE0FF".into(), light: "#EBF6FFFF".into() }),
-                                        ("Nebula", super::styles::FillKind::Nebula { dark: "#140728FF".into(), mid: "#7622A8FF".into(), light: "#F18AEBFF".into() }),
-                                        ("Liquid", super::styles::FillKind::Liquid { first: "#184E77FF".into(), second: "#52B69AFF".into(), frequency: 4.0 }),
-                                        ("Halftone", super::styles::FillKind::Halftone { foreground: "#111827FF".into(), background: "#F3F4F6FF".into(), cell: 6 }),
-                                        ("Blueprint", super::styles::FillKind::Blueprint { dark: "#082E5EFF".into(), light: "#5FD8FFFF".into(), grid: "#D7F6FFB8".into(), cell: 8 }),
-                                        ("Paper", super::styles::FillKind::Paper { light: "#FFF3D2FF".into(), mid: "#D6B988FF".into(), dark: "#7B5B38FF".into(), seed: 0x5041_5045 }),
+                                        ("Flat", plaque_forge::showcase::styles::FillKind::Flat("#FFFFFFFF".into())),
+                                        ("Linear Gradient", plaque_forge::showcase::styles::FillKind::LinearGradient { top: "#FF0000FF".into(), bottom: "#0000FFFF".into() }),
+                                        ("Gold", plaque_forge::showcase::styles::FillKind::Gold { dark: "#5B3210FF".into(), mid: "#C98B3CFF".into(), light: "#F3D38AFF".into(), highlight: "#FFF1C4FF".into() }),
+                                        ("Chrome", plaque_forge::showcase::styles::FillKind::Chrome { dark: "#182436FF".into(), mid: "#8EA9C7FF".into(), light: "#F7FBFFFF".into() }),
+                                        ("Holographic", plaque_forge::showcase::styles::FillKind::Holographic),
+                                        ("Fire", plaque_forge::showcase::styles::FillKind::Fire { dark: "#380707FF".into(), mid: "#D84A0FFF".into(), light: "#FFE066FF".into() }),
+                                        ("Ice", plaque_forge::showcase::styles::FillKind::Ice { dark: "#0B2447FF".into(), mid: "#408EE0FF".into(), light: "#EBF6FFFF".into() }),
+                                        ("Nebula", plaque_forge::showcase::styles::FillKind::Nebula { dark: "#140728FF".into(), mid: "#7622A8FF".into(), light: "#F18AEBFF".into() }),
+                                        ("Liquid", plaque_forge::showcase::styles::FillKind::Liquid { first: "#184E77FF".into(), second: "#52B69AFF".into(), frequency: 4.0 }),
+                                        ("Halftone", plaque_forge::showcase::styles::FillKind::Halftone { foreground: "#111827FF".into(), background: "#F3F4F6FF".into(), cell: 6 }),
+                                        ("Blueprint", plaque_forge::showcase::styles::FillKind::Blueprint { dark: "#082E5EFF".into(), light: "#5FD8FFFF".into(), grid: "#D7F6FFB8".into(), cell: 8 }),
+                                        ("Paper", plaque_forge::showcase::styles::FillKind::Paper { light: "#FFF3D2FF".into(), mid: "#D6B988FF".into(), dark: "#7B5B38FF".into(), seed: 0x5041_5045 }),
                                     ];
                                     for (label, kind) in kinds {
                                         if ui.selectable_label(false, label).clicked() {
@@ -590,10 +590,10 @@ impl eframe::App for ShowcaseApp {
                         });
                         // Color pickers for current fill
                         match &mut self.style_draft.fill_kind.clone() {
-                            super::styles::FillKind::Flat(c) => {
+                            plaque_forge::showcase::styles::FillKind::Flat(c) => {
                                 let mut col = parse_color(c);
                                 if ui_color_picker(ui, &mut col) {
-                                    self.style_draft.fill_kind = super::styles::FillKind::Flat(format_color(col));
+                                    self.style_draft.fill_kind = plaque_forge::showcase::styles::FillKind::Flat(format_color(col));
                                     self.preview.set_style(self.style_draft.clone());
                                 }
                             }
@@ -627,12 +627,12 @@ impl eframe::App for ShowcaseApp {
                             self.preview.set_style(self.style_draft.clone());
                         }
                         if ui.button("+ Add Arc").clicked() {
-                            self.style_draft.layouts.push(super::styles::LayoutDraft { sweep_degrees: 58.0, radius_scale: 1.0 });
+                            self.style_draft.layouts.push(plaque_forge::showcase::styles::LayoutDraft { sweep_degrees: 58.0, radius_scale: 1.0 });
                             self.preview.set_style(self.style_draft.clone());
                         }
                         if ui.button("+ Add Orbit (Arc + Animation)").clicked() {
-                            self.style_draft.layouts.push(super::styles::LayoutDraft { sweep_degrees: 60.0, radius_scale: 1.0 });
-                            self.style_draft.animations.push(super::styles::AnimationDraft::Orbit { period: 8.0, degrees: 360.0, phase: 0.0 });
+                            self.style_draft.layouts.push(plaque_forge::showcase::styles::LayoutDraft { sweep_degrees: 60.0, radius_scale: 1.0 });
+                            self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Orbit { period: 8.0, degrees: 360.0, phase: 0.0 });
                             self.preview.set_style(self.style_draft.clone());
                         }
                     });
@@ -650,49 +650,49 @@ impl eframe::App for ShowcaseApp {
                             }
                         }
                         ui.horizontal(|ui| {
-                            if ui.button("+ Stroke").clicked() { self.style_draft.underlays.push(super::styles::UnderlayDraft::Stroke { width: 0.05, color: "#03181ED2".into() }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Glow").clicked() { self.style_draft.underlays.push(super::styles::UnderlayDraft::Glow { radius: 10, color: "#69F2FA90".into() }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Shadow").clicked() { self.style_draft.underlays.push(super::styles::UnderlayDraft::Shadow { offset_x: 0.03, offset_y: 0.04, blur: 6, color: "#000000A0".into() }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Stroke").clicked() { self.style_draft.underlays.push(plaque_forge::showcase::styles::UnderlayDraft::Stroke { width: 0.05, color: "#03181ED2".into() }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Glow").clicked() { self.style_draft.underlays.push(plaque_forge::showcase::styles::UnderlayDraft::Glow { radius: 10, color: "#69F2FA90".into() }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Shadow").clicked() { self.style_draft.underlays.push(plaque_forge::showcase::styles::UnderlayDraft::Shadow { offset_x: 0.03, offset_y: 0.04, blur: 6, color: "#000000A0".into() }); self.preview.set_style(self.style_draft.clone()); }
                         });
                         ui.horizontal(|ui| {
-                            if ui.button("+ Extrude").clicked() { self.style_draft.underlays.push(super::styles::UnderlayDraft::Extrude { depth: 0.1, angle: 55.0, color: "#2A1608D8".into() }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Chromatic").clicked() { self.style_draft.underlays.push(super::styles::UnderlayDraft::ChromaticSplit { offset: 0.025, red: "#FF2A55CC".into(), cyan: "#2AD5FFCC".into() }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Trail").clicked() { self.style_draft.underlays.push(super::styles::UnderlayDraft::Trail { distance: 0.16, copies: 4, angle: 180.0, color: "#FFB70366".into() }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Extrude").clicked() { self.style_draft.underlays.push(plaque_forge::showcase::styles::UnderlayDraft::Extrude { depth: 0.1, angle: 55.0, color: "#2A1608D8".into() }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Chromatic").clicked() { self.style_draft.underlays.push(plaque_forge::showcase::styles::UnderlayDraft::ChromaticSplit { offset: 0.025, red: "#FF2A55CC".into(), cyan: "#2AD5FFCC".into() }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Trail").clicked() { self.style_draft.underlays.push(plaque_forge::showcase::styles::UnderlayDraft::Trail { distance: 0.16, copies: 4, angle: 180.0, color: "#FFB70366".into() }); self.preview.set_style(self.style_draft.clone()); }
                         });
                     });
                     ui.collapsing("Overlays (Bevel/Letterpress)", |ui| {
                         for idx in 0..self.style_draft.overlays.len() {
                             ui.label(format!("Overlay {idx}: {:?}", self.style_draft.overlays[idx]));
                         }
-                        if ui.button("+ Bevel").clicked() { self.style_draft.overlays.push(super::styles::OverlayDraft::Bevel { width: 0.05, highlight: "#FFF1C0B8".into(), shadow: "#321B08B8".into() }); self.preview.set_style(self.style_draft.clone()); }
-                        if ui.button("+ Letterpress").clicked() { self.style_draft.overlays.push(super::styles::OverlayDraft::Letterpress { width: 0.04, highlight: "#FFFFFF55".into(), shadow: "#00000077".into() }); self.preview.set_style(self.style_draft.clone()); }
+                        if ui.button("+ Bevel").clicked() { self.style_draft.overlays.push(plaque_forge::showcase::styles::OverlayDraft::Bevel { width: 0.05, highlight: "#FFF1C0B8".into(), shadow: "#321B08B8".into() }); self.preview.set_style(self.style_draft.clone()); }
+                        if ui.button("+ Letterpress").clicked() { self.style_draft.overlays.push(plaque_forge::showcase::styles::OverlayDraft::Letterpress { width: 0.04, highlight: "#FFFFFF55".into(), shadow: "#00000077".into() }); self.preview.set_style(self.style_draft.clone()); }
                     });
                     ui.collapsing("Surface Effects (Laser/Emboss)", |ui| {
                         for idx in 0..self.style_draft.surface_effects.len() {
                             ui.label(format!("Surface {idx}: {:?}", self.style_draft.surface_effects[idx]));
                         }
-                        if ui.button("+ Laser Burn").clicked() { self.style_draft.surface_effects.push(super::styles::SurfaceEffectDraft::LaserBurn { depth: 0.72, warmth: 0.65, edge: 2, seed: 0x4255_524E }); self.preview.set_style(self.style_draft.clone()); }
-                        if ui.button("+ Emboss").clicked() { self.style_draft.surface_effects.push(super::styles::SurfaceEffectDraft::Emboss { depth: 0.65, highlight: 0.72, shadow: 0.68, light_angle: None, cast: 2 }); self.preview.set_style(self.style_draft.clone()); }
+                        if ui.button("+ Laser Burn").clicked() { self.style_draft.surface_effects.push(plaque_forge::showcase::styles::SurfaceEffectDraft::LaserBurn { depth: 0.72, warmth: 0.65, edge: 2, seed: 0x4255_524E }); self.preview.set_style(self.style_draft.clone()); }
+                        if ui.button("+ Emboss").clicked() { self.style_draft.surface_effects.push(plaque_forge::showcase::styles::SurfaceEffectDraft::Emboss { depth: 0.65, highlight: 0.72, shadow: 0.68, light_angle: None, cast: 2 }); self.preview.set_style(self.style_draft.clone()); }
                     });
                     ui.collapsing("Animations", |ui| {
                         for idx in 0..self.style_draft.animations.len() {
                             ui.label(format!("Anim {idx}: {:?}", self.style_draft.animations[idx]));
                         }
                         egui::Grid::new("anim_buttons").show(ui, |ui| {
-                            if ui.button("+ Pulse").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Pulse { period: 2.4, min: 0.82, max: 1.0, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Shine").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Shine { period: 2.8, width: 0.18, angle: 35.0, color: "#FFFFFFB8".into() }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Flicker").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Flicker { period: 1.6, min: 0.65, strength: 0.32, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Pulse").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Pulse { period: 2.4, min: 0.82, max: 1.0, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Shine").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Shine { period: 2.8, width: 0.18, angle: 35.0, color: "#FFFFFFB8".into() }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Flicker").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Flicker { period: 1.6, min: 0.65, strength: 0.32, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
                             ui.end_row();
-                            if ui.button("+ Wave").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Wave { period: 2.8, amp: 0.035, wave: 0.42, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Typewriter").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Typewriter { period: 4.0, hold: 0.35 }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Dissolve").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Dissolve { period: 4.0, hold: 0.35, seed: 0x504C_4151 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Wave").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Wave { period: 2.8, amp: 0.035, wave: 0.42, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Typewriter").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Typewriter { period: 4.0, hold: 0.35 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Dissolve").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Dissolve { period: 4.0, hold: 0.35, seed: 0x504C_4151 }); self.preview.set_style(self.style_draft.clone()); }
                             ui.end_row();
-                            if ui.button("+ Scramble").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Scramble { period: 3.8, hold: 0.30, steps: 15.0, seed: 0x5343_524D }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ SplitFlap").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::SplitFlap { period: 4.2, hold: 0.30, steps: 16.0 }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Confetti").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Confetti { period: 4.4, hold: 0.35, pieces: 720, spread: 0.48, seed: 0x434F_4E46 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Scramble").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Scramble { period: 3.8, hold: 0.30, steps: 15.0, seed: 0x5343_524D }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ SplitFlap").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::SplitFlap { period: 4.2, hold: 0.30, steps: 16.0 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Confetti").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Confetti { period: 4.4, hold: 0.35, pieces: 720, spread: 0.48, seed: 0x434F_4E46 }); self.preview.set_style(self.style_draft.clone()); }
                             ui.end_row();
-                            if ui.button("+ Glitch").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Glitch { period: 2.6, ripple: 0.018, slice: 0.085, burst: 0.20, seed: 0x474C_4954 }); self.preview.set_style(self.style_draft.clone()); }
-                            if ui.button("+ Orbit").clicked() { self.style_draft.animations.push(super::styles::AnimationDraft::Orbit { period: 8.0, degrees: 360.0, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Glitch").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Glitch { period: 2.6, ripple: 0.018, slice: 0.085, burst: 0.20, seed: 0x474C_4954 }); self.preview.set_style(self.style_draft.clone()); }
+                            if ui.button("+ Orbit").clicked() { self.style_draft.animations.push(plaque_forge::showcase::styles::AnimationDraft::Orbit { period: 8.0, degrees: 360.0, phase: 0.0 }); self.preview.set_style(self.style_draft.clone()); }
                             ui.end_row();
                         });
                         if !self.style_draft.animations.is_empty() && ui.button("Clear Animations").clicked() {
@@ -880,12 +880,13 @@ impl eframe::App for ShowcaseApp {
                     self.state.font_picker.mode, self.state.font_picker.query, self.state.font
                 ));
                 ui.separator();
-                let filter_text =
-                    if self.state.font_picker.mode == super::state::FontPickerMode::Search {
-                        format!("Filter: {}", self.state.font_picker.query)
-                    } else {
-                        "Curated list – start typing to search all system fonts".to_string()
-                    };
+                let filter_text = if self.state.font_picker.mode
+                    == plaque_forge::showcase::state::FontPickerMode::Search
+                {
+                    format!("Filter: {}", self.state.font_picker.query)
+                } else {
+                    "Curated list – start typing to search all system fonts".to_string()
+                };
                 ui.label(filter_text);
                 egui::ScrollArea::vertical()
                     .max_height(300.0)
@@ -982,7 +983,7 @@ impl eframe::App for ShowcaseApp {
                 .collapsible(false)
                 .show(ctx, |ui| {
                     ui.label("Yellow: plaque bounds • Green: foreground • Blue: writable • Magenta: structural • Orange: occluder");
-                    for &mode in super::state::OverlayMode::ALL {
+                    for &mode in plaque_forge::showcase::state::OverlayMode::ALL {
                         if mode == OverlayMode::None { continue; }
                         let mut checked = self.state.overlay_multi.contains(&mode);
                         if mode == OverlayMode::AllDiagnostics {
@@ -1019,7 +1020,7 @@ impl eframe::App for ShowcaseApp {
 }
 
 fn parse_color(s: &str) -> Color32 {
-    if let Ok(rgba) = crate::color::Rgba::parse(s) {
+    if let Ok(rgba) = plaque_forge::color::Rgba::parse(s) {
         Color32::from_rgba_unmultiplied(rgba.r, rgba.g, rgba.b, rgba.a)
     } else {
         Color32::WHITE

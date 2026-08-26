@@ -38,7 +38,7 @@
 use anyhow::Result;
 use clap::Parser;
 
-mod analysis;
+pub mod analysis;
 pub mod analyze;
 pub mod application;
 mod build_info;

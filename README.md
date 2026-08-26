@@ -161,7 +161,7 @@ Generated manifests use only portable relative paths. Incompatible caches are re
 Visual style selection with live preview:
 
 ```bash
-cargo run --features showcase --bin plaque-forge-showcase
+cargo run --manifest-path plaque-forge-showcase/Cargo.toml
 ```
 
 * `PgUp`/`PgDown` – cycle source videos (loops each)

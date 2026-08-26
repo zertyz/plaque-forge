@@ -38,6 +38,12 @@ fn main() {
         PathBuf::from("build.rs"),
     ];
     source_files(&root, &root.join("src"), &mut files);
+    // Showcase UI is not part of the renderer; exclude it from the renderer identity
+    // so adding/previewing does not invalidate homologated renders.
+    files.retain(|p| {
+        let s = p.to_string_lossy();
+        !s.starts_with("src/showcase") && s != "src/bin/showcase.rs"
+    });
     files.sort();
 
     let mut digest = Sha256::new();
