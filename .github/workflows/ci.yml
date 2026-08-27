@@ -67,6 +67,12 @@ jobs:
       - name: Run deterministic code gate
         run: ./scripts/check.sh
 
+      - name: Check showcase crate
+        run: |
+          cargo fmt --manifest-path plaque-forge-showcase/Cargo.toml -- --check
+          cargo clippy --manifest-path plaque-forge-showcase/Cargo.toml --all-targets -- -D warnings
+          cargo check --manifest-path plaque-forge-showcase/Cargo.toml --all-targets
+
       # check.sh builds every target with --all-features, so the debug binary
       # already carries embedded media; the checks below reuse it instead of
       # recompiling the whole dependency graph on a separate runner.

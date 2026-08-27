@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_str_replace)]
+
 mod app;
 
 use std::process::ExitCode;

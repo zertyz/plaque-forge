@@ -1,3 +1,7 @@
+[workspace]
+members = ["plaque-forge-showcase"]
+resolver = "2"
+
 [package]
 name = "plaque-forge"
 version = "0.10.0"

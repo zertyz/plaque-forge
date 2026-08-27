@@ -20,6 +20,45 @@ use plaque_forge::showcase::{
     video::VideoPlayer,
 };
 
+fn workspace_root() -> PathBuf {
+    // Showcase crate's manifest dir is plaque-forge-showcase; parent is workspace root.
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let candidate = manifest_dir.join("..");
+    if candidate.join("assets").is_dir() && candidate.join("styles").is_dir() {
+        return candidate.canonicalize().unwrap_or(candidate);
+    }
+    // Search upwards from cwd (handles `cargo run` from any directory)
+    if let Ok(mut cur) = std::env::current_dir() {
+        for _ in 0..6 {
+            if cur.join("assets").is_dir() && cur.join("styles").is_dir() {
+                return cur;
+            }
+            if let Some(parent) = cur.parent() {
+                cur = parent.to_path_buf();
+            } else {
+                break;
+            }
+        }
+    }
+    // Fallback to executable's directory parent
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let mut cur = dir.to_path_buf();
+            for _ in 0..4 {
+                if cur.join("assets").is_dir() {
+                    return cur;
+                }
+                if let Some(parent) = cur.parent() {
+                    cur = parent.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    manifest_dir.join("..")
+}
+
 pub struct ShowcaseApp {
     state: ShowcaseState,
     preview: PreviewCache,
@@ -32,6 +71,8 @@ pub struct ShowcaseApp {
     // UI toggles
     show_style_editor: bool,
     show_inspect_window: bool,
+    show_help: bool,
+    fullscreen: bool,
     prev_frame_idx: usize,
 }
 
@@ -50,8 +91,13 @@ impl ShowcaseApp {
         let style_draft = StyleDraft::default();
         // if has initial style, load it
         if let Some(name) = state.current_style_name() {
-            let p = PathBuf::from(format!("styles/{name}.toml"));
+            let p = workspace_root().join(format!("styles/{name}.toml"));
             if let Ok(d) = StyleDraft::from_style_file(&p) {
+                preview.set_style(d.clone());
+            }
+            // fallback to cwd relative
+            let p2 = PathBuf::from(format!("styles/{name}.toml"));
+            if let Ok(d) = StyleDraft::from_style_file(&p2) {
                 preview.set_style(d.clone());
             }
         } else {
@@ -69,6 +115,8 @@ impl ShowcaseApp {
             error_message: None,
             show_style_editor: true,
             show_inspect_window: false,
+            show_help: false,
+            fullscreen: false,
             prev_frame_idx: 0,
         };
         app.open_current_video();
@@ -76,15 +124,44 @@ impl ShowcaseApp {
     }
 
     fn load_videos() -> Vec<String> {
+        // Try workspace-root-relative catalog first (works from showcase dir)
+        let root = workspace_root();
+        let catalog = FilesystemCatalog::new(
+            root.clone(),
+            std::sync::Arc::new(plaque_forge::media::fonts::SystemFonts::load()),
+        )
+        .ok();
+        if let Some(cat) = catalog
+            && let Ok(v) = cat.videos()
+        {
+            if !v.is_empty() {
+                return v.into_iter().map(|x| x.stem).collect();
+            }
+        }
         let catalog = FilesystemCatalog::production().ok();
         if let Some(cat) = catalog
             && let Ok(v) = cat.videos()
         {
-            return v.into_iter().map(|x| x.stem).collect();
+            if !v.is_empty() {
+                return v.into_iter().map(|x| x.stem).collect();
+            }
         }
         // fallback scan assets/*.mp4
         let mut out = Vec::new();
-        if let Ok(entries) = std::fs::read_dir("assets") {
+        let assets_dir = root.join("assets");
+        if let Ok(entries) = std::fs::read_dir(&assets_dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) == Some("mp4")
+                    && let Some(stem) = p.file_stem().and_then(|s| s.to_str())
+                {
+                    out.push(stem.to_string());
+                }
+            }
+        }
+        if out.is_empty()
+            && let Ok(entries) = std::fs::read_dir("assets")
+        {
             for e in entries.flatten() {
                 let p = e.path();
                 if p.extension().and_then(|x| x.to_str()) == Some("mp4")
@@ -99,14 +176,42 @@ impl ShowcaseApp {
     }
 
     fn load_styles() -> Vec<String> {
+        let root = workspace_root();
+        let catalog = FilesystemCatalog::new(
+            root.clone(),
+            std::sync::Arc::new(plaque_forge::media::fonts::SystemFonts::load()),
+        )
+        .ok();
+        if let Some(cat) = catalog
+            && let Ok(s) = cat.styles()
+        {
+            if !s.is_empty() {
+                return s.into_iter().map(|x| x.name).collect();
+            }
+        }
         let catalog = FilesystemCatalog::production().ok();
         if let Some(cat) = catalog
             && let Ok(s) = cat.styles()
         {
-            return s.into_iter().map(|x| x.name).collect();
+            if !s.is_empty() {
+                return s.into_iter().map(|x| x.name).collect();
+            }
         }
         let mut out = Vec::new();
-        if let Ok(entries) = std::fs::read_dir("styles") {
+        let styles_dir = root.join("styles");
+        if let Ok(entries) = std::fs::read_dir(&styles_dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) == Some("toml")
+                    && let Some(stem) = p.file_stem().and_then(|s| s.to_str())
+                {
+                    out.push(stem.to_string());
+                }
+            }
+        }
+        if out.is_empty()
+            && let Ok(entries) = std::fs::read_dir("styles")
+        {
             for e in entries.flatten() {
                 let p = e.path();
                 if p.extension().and_then(|x| x.to_str()) == Some("toml")
@@ -136,33 +241,77 @@ impl ShowcaseApp {
     }
 
     fn resolve_font(label: &str) -> PathBuf {
-        // Try curated file first
-        let curated_path = PathBuf::from(format!("fonts/{label}.ttf"));
+        let root = workspace_root();
+        // Try curated file first (workspace-root relative)
+        let curated_path = root.join(format!("fonts/{label}.ttf"));
         if curated_path.is_file() {
             return curated_path;
         }
-        // Try fonts/NotoSerif-Regular.ttf for label NotoSerif-Regular
-        let alt = PathBuf::from(format!("fonts/{label}"));
+        let alt = root.join(format!("fonts/{label}"));
         if alt.is_file() {
             return alt;
+        }
+        let curated_path2 = PathBuf::from(format!("fonts/{label}.ttf"));
+        if curated_path2.is_file() {
+            return curated_path2;
+        }
+        let alt2 = PathBuf::from(format!("fonts/{label}"));
+        if alt2.is_file() {
+            return alt2;
+        }
+        // Try system font via fontdb
+        if let Some(sys_path) = Self::system_font_file(label) {
+            if sys_path.is_file() {
+                return sys_path;
+            }
+        }
+        let fallback = root.join("fonts/NotoSerif-Regular.ttf");
+        if fallback.is_file() {
+            return fallback;
         }
         if PathBuf::from("fonts/NotoSerif-Regular.ttf").is_file() {
             return PathBuf::from("fonts/NotoSerif-Regular.ttf");
         }
-        // System font via fontdb: find file path via SystemFonts candidate? Fallback to curated
-        // Use fc-match via SystemFonts::match_pattern then lookup file? Simpler: return fonts/NotoSerif-Regular.ttf
         PathBuf::from("fonts/NotoSerif-Regular.ttf")
+    }
+
+    fn system_font_file(label: &str) -> Option<PathBuf> {
+        use cosmic_text::fontdb;
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        for face in db.faces() {
+            for (name, _) in &face.families {
+                if name.eq_ignore_ascii_case(label) {
+                    if let fontdb::Source::File(path) = &face.source {
+                        return Some(path.clone());
+                    }
+                }
+            }
+        }
+        // Also try partial match (e.g. "Noto Serif" vs "NotoSerif")
+        let lower = label.to_lowercase().replace([' ', '-'], "");
+        for face in db.faces() {
+            for (name, _) in &face.families {
+                let norm = name.to_lowercase().replace([' ', '-'], "");
+                if norm == lower
+                    && let fontdb::Source::File(path) = &face.source
+                {
+                    return Some(path.clone());
+                }
+            }
+        }
+        None
     }
 
     fn open_current_video(&mut self) {
         if let Some(stem) = self.state.current_video_stem().map(|s| s.to_string()) {
-            let path = PathBuf::from(format!("assets/{stem}.mp4"));
+            let path = workspace_root().join(format!("assets/{stem}.mp4"));
             match VideoPlayer::open(&path) {
                 Ok(p) => {
                     self.player = Some(p);
                     // Try to set analysis root for preview
                     let analysis_path = plaque_forge::workspace::analysis_path(&path)
-                        .unwrap_or(PathBuf::from(format!("assets/analysis/{stem}")));
+                        .unwrap_or(workspace_root().join(format!("assets/analysis/{stem}")));
                     if analysis_path.is_dir() {
                         self.preview.set_analysis(Some(analysis_path));
                     } else {
@@ -180,7 +329,7 @@ impl ShowcaseApp {
 
     fn current_analysis(&self) -> Option<plaque_forge::analysis::Analysis> {
         if let Some(stem) = self.state.current_video_stem() {
-            let path = PathBuf::from(format!("assets/{stem}.mp4"));
+            let path = workspace_root().join(format!("assets/{stem}.mp4"));
             if let Ok(ap) = plaque_forge::workspace::analysis_path(&path)
                 && let Ok(a) = plaque_forge::analysis::Analysis::open(&ap)
             {
@@ -226,7 +375,7 @@ impl ShowcaseApp {
                     && let Some(name) = self.state.commit_save()
                 {
                     let draft = self.style_draft.clone();
-                    let dest = PathBuf::from(format!("styles/{name}.toml"));
+                    let dest = workspace_root().join(format!("styles/{name}.toml"));
                     match draft.save_to_file(&dest) {
                         Ok(_) => {
                             self.state.styles.push(name.clone());
@@ -280,6 +429,8 @@ impl ShowcaseApp {
                 continue;
             }
             // Global keys when no modal
+            // If any widget has focus and it's a slider, don't hijack arrow keys for style
+            let has_focus = ctx.memory(|m| m.focused().is_some());
             match key {
                 egui::Key::PageDown => {
                     self.state.next_video();
@@ -292,22 +443,31 @@ impl ShowcaseApp {
                 egui::Key::Enter => {
                     self.state.open_text_edit();
                 }
-                egui::Key::ArrowUp => {
+                egui::Key::ArrowUp if !has_focus => {
                     self.state.style_up();
                     self.apply_current_style();
                 }
-                egui::Key::ArrowDown => {
+                egui::Key::ArrowDown if !has_focus => {
                     self.state.style_down();
                     self.apply_current_style();
                 }
-                egui::Key::Escape if self.state.demo_mode => {
-                    self.state.exit_demo();
-                    self.apply_current_style();
+                egui::Key::Escape => {
+                    if self.fullscreen {
+                        self.fullscreen = false;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+                    } else if self.state.demo_mode {
+                        self.state.exit_demo();
+                        self.apply_current_style();
+                    } else if self.show_help {
+                        self.show_help = false;
+                    }
                 }
-                _ => {
-                    // Check char '/' 'd' 'i'
-                    // Need to handle via text events separately; use key mapping for slash
+                egui::Key::F => {
+                    // Toggle fullscreen (also via text 'f')
+                    self.fullscreen = !self.fullscreen;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
                 }
+                _ => {}
             }
         }
         // Text events for '/' 'd' 'i' etc when no modal
@@ -355,15 +515,23 @@ impl ShowcaseApp {
                                 }
                             }
                             'i' | 'I' => {
-                                // Check shift: capital I indicates Shift held; but we also want Shift+I window
                                 if c == 'I' {
                                     self.show_inspect_window = !self.show_inspect_window;
                                 } else {
                                     self.state.cycle_overlay();
                                 }
                             }
+                            'f' | 'F' => {
+                                self.fullscreen = !self.fullscreen;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(
+                                    self.fullscreen,
+                                ));
+                            }
+                            'h' | 'H' | '?' => {
+                                self.show_help = !self.show_help;
+                            }
                             's' | 'S' => {
-                                // open save dialog with S?
+                                self.state.open_save_dialog();
                             }
                             _ => {}
                         }
@@ -377,7 +545,7 @@ impl ShowcaseApp {
 
     fn apply_current_style(&mut self) {
         if let Some(name) = self.state.current_style_name().map(|s| s.to_string()) {
-            let p = PathBuf::from(format!("styles/{name}.toml"));
+            let p = workspace_root().join(format!("styles/{name}.toml"));
             if let Ok(d) = StyleDraft::from_style_file(&p) {
                 self.style_draft = d.clone();
                 self.preview.set_style(d);
@@ -505,46 +673,156 @@ impl eframe::App for ShowcaseApp {
             // Simple time-based randomization via repaint; actual per-video randomization handled by player loop detection
         }
 
-        // Top bar
-        egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Plaque Forge Showcase");
-                ui.separator();
-                if let Some(stem) = self.state.current_video_stem() {
-                    ui.label(RichText::new(format!("Video: {stem}")).strong());
-                }
-                if let Some(p) = &self.player {
-                    ui.label(format!("{}x{} @ {:.1}fps", p.width, p.height, p.fps));
-                    if !p.has_analysis {
-                        ui.colored_label(Color32::YELLOW, "No analysis");
+        // Top bar — hidden in fullscreen
+        if !self.fullscreen {
+            egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("Plaque Forge Showcase");
+                    ui.separator();
+                    if let Some(stem) = self.state.current_video_stem() {
+                        ui.label(RichText::new(format!("Video: {stem}")).strong());
                     }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(self.state.font_style_label()).monospace().small());
-                    if self.state.demo_mode {
-                        ui.colored_label(Color32::from_rgb(255, 180, 0), "DEMO");
+                    if let Some(p) = &self.player {
+                        ui.label(format!("{}x{} @ {:.1}fps", p.width, p.height, p.fps));
+                        if !p.has_analysis {
+                            ui.colored_label(Color32::YELLOW, "No analysis");
+                        }
                     }
-                    if self.state.overlay != OverlayMode::None {
-                        ui.colored_label(Color32::YELLOW, format!("Inspect: {}", self.state.overlay.label()));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(if self.fullscreen { "Exit Fullscreen (f)" } else { "Fullscreen (f)" }).clicked() {
+                            self.fullscreen = !self.fullscreen;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+                        }
+                        if ui.button("Help (h)").clicked() {
+                            self.show_help = !self.show_help;
+                        }
+                        ui.label(RichText::new(self.state.font_style_label()).monospace().small());
+                        if self.state.demo_mode {
+                            ui.colored_label(Color32::from_rgb(255, 180, 0), "DEMO");
+                        }
+                        if self.state.overlay != OverlayMode::None {
+                            ui.colored_label(Color32::YELLOW, format!("Inspect: {}", self.state.overlay.label()));
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Style:");
+                    let current = self.state.current_style_name().unwrap_or("direct").to_string();
+                    let current_style = self.state.current_style;
+                    let styles = self.state.styles.clone();
+                    let mut new_style = current_style;
+                    egui::ComboBox::from_id_salt("style_combo")
+                        .selected_text(&current)
+                        .show_ui(ui, |ui| {
+                            for (idx, name) in styles.iter().enumerate() {
+                                let selected = Some(idx) == current_style;
+                                if ui.selectable_label(selected, name).clicked() {
+                                    new_style = Some(idx);
+                                }
+                            }
+                            if ui
+                                .selectable_label(current_style.is_none(), "direct")
+                                .clicked()
+                            {
+                                new_style = None;
+                            }
+                        });
+                    if new_style != current_style {
+                        self.state.current_style = new_style;
+                        self.apply_current_style();
+                    }
+                    ui.separator();
+                    ui.label("PgUp/PgDown video • Enter text • / fonts • Up/Down style • i inspect • d demo");
+                    if ui.button("Style Editor").clicked() {
+                        self.show_style_editor = !self.show_style_editor;
+                    }
+                    if ui.button("Save Style").clicked() {
+                        self.state.open_save_dialog();
                     }
                 });
-            });
-            ui.horizontal(|ui| {
-                ui.label("PgUp/PgDown: video • Enter: text • /: fonts • Up/Down: style • i: inspect • Shift+I: multi • d: demo • s: save");
-                if ui.button("Style Editor").clicked() {
-                    self.show_style_editor = !self.show_style_editor;
-                }
-                if ui.button("Save Style").clicked() {
-                    self.state.open_save_dialog();
+                if let Some(err) = &self.error_message {
+                    ui.colored_label(Color32::LIGHT_RED, err);
                 }
             });
-            if let Some(err) = &self.error_message {
-                ui.colored_label(Color32::LIGHT_RED, err);
-            }
-        });
 
-        // Style editor side panel (full parametric)
-        if self.show_style_editor {
+            // Bottom tri-zone HUD
+            egui::TopBottomPanel::bottom("hud_bottom").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    // Left zone: video nav
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("PgUp/PgDown: Video").small().weak());
+                        ui.separator();
+                        if let Some(stem) = self.state.current_video_stem() {
+                            ui.label(RichText::new(stem).small().strong());
+                        }
+                    });
+                    // Center zone: font/style
+                    ui.with_layout(
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        |ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Font: {}  |  Style: {}",
+                                    self.state.font,
+                                    self.state.current_style_name().unwrap_or("direct")
+                                ))
+                                .small(),
+                            );
+                        },
+                    );
+                    // Right zone: inspect/demo/fullscreen
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new("f:Fullscreen  d:Demo  i:Inspect  h:Help")
+                                .small()
+                                .weak(),
+                        );
+                        if self.state.demo_mode {
+                            ui.colored_label(
+                                Color32::YELLOW,
+                                RichText::new("DEMO").small().strong(),
+                            );
+                        }
+                    });
+                });
+            });
+        } else {
+            // In fullscreen, show minimal overlay hint at bottom
+            egui::TopBottomPanel::bottom("hud_fullscreen").show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.colored_label(Color32::LIGHT_GRAY, "Fullscreen — f or Esc to exit • PgUp/PgDown video • Enter text • / fonts • Up/Down style");
+                });
+            });
+        }
+
+        // Help overlay (h / ?)
+        if self.show_help {
+            egui::Window::new("Keyboard Shortcuts — press h or Esc to close")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    egui::Grid::new("help_grid").num_columns(2).spacing([20.0, 6.0]).show(ui, |ui| {
+                        ui.label(RichText::new("Key").strong()); ui.label(RichText::new("Action").strong()); ui.end_row();
+                        ui.label("PgUp / PgDown"); ui.label("Prev / Next video (loops)"); ui.end_row();
+                        ui.label("Enter"); ui.label("Edit title text"); ui.end_row();
+                        ui.label("/"); ui.label("Font picker (↑/↓ live preview, type to search, Enter confirm, Esc revert)"); ui.end_row();
+                        ui.label("↑ / ↓"); ui.label("Cycle styles (discarding draft)"); ui.end_row();
+                        ui.label("i"); ui.label("Cycle inspect overlays (yellow plaque, green fg, blue writable, …)"); ui.end_row();
+                        ui.label("Shift+I"); ui.label("Multi-overlay checklist"); ui.end_row();
+                        ui.label("d"); ui.label("Demo random curated fonts+styles (Esc exits)"); ui.end_row();
+                        ui.label("f / Esc"); ui.label("Toggle fullscreen (video-only)"); ui.end_row();
+                        ui.label("s"); ui.label("Save style to styles/<name>_custom.toml"); ui.end_row();
+                        ui.label("h / ?"); ui.label("Toggle this help"); ui.end_row();
+                    });
+                    if ui.button("Close (h)").clicked() {
+                        self.show_help = false;
+                    }
+                });
+        }
+
+        // Style editor side panel (full parametric) — hidden in fullscreen
+        if self.show_style_editor && !self.fullscreen {
             egui::SidePanel::right("style_editor").min_width(340.0).show(ctx, |ui| {
                 ui.heading("Style Lab");
                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -957,7 +1235,7 @@ impl eframe::App for ShowcaseApp {
                             && let Some(name) = self.state.commit_save()
                         {
                             let draft = self.style_draft.clone();
-                            let dest = PathBuf::from(format!("styles/{name}.toml"));
+                            let dest = workspace_root().join(format!("styles/{name}.toml"));
                             match draft.save_to_file(&dest) {
                                 Ok(_) => {
                                     self.state.styles.push(name.clone());
