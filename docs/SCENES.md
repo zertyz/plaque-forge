@@ -1,5 +1,8 @@
 # Scene contract
 
+> **Status: Descriptive**
+> **Normative references:** `REQ-PROD-*`, `REQ-QUAL-*`, `REQ-PIPE-001`, `REQ-PIPE-011`, `OPS-ART-004`
+
 `assets/scenes/<asset>/scene.toml` records authored artistic intent. It does not
 contain analyzer conclusions, propagated masks, dense generated trajectories, or
 quality scores.

@@ -1,0 +1,12 @@
+# Human-reviewed security exceptions. This is authority, not generated configuration.
+format = "plaque-forge.security-exceptions/1"
+
+[[rustsec]]
+id = "RUSTSEC-2026-0192"
+classification = "unmaintained"
+reviewed_on = "2026-08-12"
+review_by = "2026-11-12"
+review_triggers = ["every cosmic-text dependency update"]
+introduced_by = "cosmic-text 0.19 -> fontdb 0.23 -> ttf-parser 0.25.1"
+reason = "The advisory is an unmaintained notice, not a reported vulnerability, and lists no patched ttf-parser release."
+remove_when = "cosmic-text adopts a fontdb release that no longer depends on the unmaintained parser, or the typography stack is replaced after pixel/layout equivalence validation"

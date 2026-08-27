@@ -1,5 +1,8 @@
 # Validation
 
+> **Status: Descriptive**
+> **Normative references:** `BUS-QUAL-*`, `REQ-QUAL-*`, `REQ-HOM-*`, `OPS-ART-003`
+
 Run the code gate:
 
 ```bash
