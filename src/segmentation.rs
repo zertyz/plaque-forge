@@ -1228,6 +1228,18 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         };
         write_strategy_selection(&output, &strategy.policy_id, &selected_hash, &attempts)?;
 
+        // Prompted layers (e.g. hat, lizard) are already temporally tracked by
+        // Cutie, but box-guided SAM2 can still drop a thin limb/hat brim for a
+        // single frame when the plaque moves. Stabilize the validated sequence
+        // before it becomes the reusable cache so the blinking never reaches
+        // the renderer. Failures are non-fatal: the validated mask is kept.
+        if let Err(e) = stabilize_prompted_layer_sequence(&output) {
+            eprintln!(
+                "[ml] warning: temporal stabilization of {:?} failed, keeping validated mask: {e:#}",
+                layer_id
+            );
+        }
+
         let selected_backend = selected_plan.backend_label().to_string();
         let selected_model = selected_plan.semantic_model.clone();
         let expected_runtime = runtime_sha256_for_plan(&selected_plan)?;
@@ -1246,6 +1258,49 @@ pub fn ensure_prompted_layers(request: PromptedLayersRequest<'_>) -> Result<usiz
         )?;
     }
     Ok(pending.len())
+}
+
+fn stabilize_prompted_layer_sequence(root: &Path) -> Result<()> {
+    let artifact_path = root.join("artifact.toml");
+    let artifact = LayerArtifact::load(&artifact_path)?;
+    if artifact.kind != LayerArtifactKind::AlphaSequence {
+        return Ok(());
+    }
+    let paths = artifact.referenced_paths(&artifact_path);
+    if paths.len() < 3 {
+        return Ok(());
+    }
+    // Load first to get dimensions
+    let first = image::open(&paths[0])
+        .with_context(|| format!("failed to load prompted mask {}", paths[0].display()))?
+        .to_luma16();
+    let (w, h) = (first.width() as usize, first.height() as usize);
+    let mut masks = Vec::with_capacity(paths.len());
+    masks.push(first.into_raw());
+    for p in &paths[1..] {
+        let im = image::open(p)
+            .with_context(|| format!("failed to load prompted mask {}", p.display()))?
+            .to_luma16();
+        if im.width() as usize != w || im.height() as usize != h {
+            bail!(
+                "prompted mask {} dimensions {}x{} differ from {}x{}",
+                p.display(),
+                im.width(),
+                im.height(),
+                w,
+                h
+            );
+        }
+        masks.push(im.into_raw());
+    }
+    let stabilized = stabilize_fused_masks(&masks, w, h);
+    for (path, pixels) in paths.iter().zip(stabilized) {
+        let img = ImageBuffer::<Luma<u16>, _>::from_raw(w as u32, h as u32, pixels)
+            .context("stabilized prompted mask has invalid dimensions")?;
+        img.save(path)
+            .with_context(|| format!("failed to save stabilized prompted mask {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn store_temporary_layer_cache(
@@ -1702,6 +1757,7 @@ pub fn install_automatic_foreground_masks(
             });
         }
     }
+    temporally_stabilize_fused_sequence(&incoming, expected_frames)?;
     if destination.exists() {
         fs::rename(&destination, &previous).with_context(|| {
             format!("failed to preserve Rust masks in {}", destination.display())
@@ -1844,6 +1900,92 @@ fn fuse_automatic_foreground_alpha(
         .zip(semantic_guard)
         .map(|((&semantic, &photometric), guard)| photometric.min(semantic.max(guard)))
         .collect()
+}
+
+fn temporally_stabilize_fused_sequence(root: &Path, frames: usize) -> Result<()> {
+    if frames < 3 {
+        return Ok(());
+    }
+    let mut masks = Vec::with_capacity(frames);
+    let mut width = 0u32;
+    let mut height = 0u32;
+    for frame in 0..frames {
+        let path = root.join(format!("{frame:06}.png"));
+        let image = image::open(&path)
+            .with_context(|| format!("failed to load fused mask {}", path.display()))?
+            .to_luma16();
+        if frame == 0 {
+            width = image.width();
+            height = image.height();
+        } else if image.dimensions() != (width, height) {
+            bail!(
+                "fused mask {} dimensions {}x{} differ from {}x{}",
+                path.display(),
+                image.width(),
+                image.height(),
+                width,
+                height
+            );
+        }
+        masks.push(image.into_raw());
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let stabilized = stabilize_fused_masks(&masks, w, h);
+    for (frame, pixels) in stabilized.into_iter().enumerate() {
+        let path = root.join(format!("{frame:06}.png"));
+        let image = ImageBuffer::<Luma<u16>, _>::from_raw(width, height, pixels)
+            .context("stabilized fused mask has invalid dimensions")?;
+        image
+            .save(&path)
+            .with_context(|| format!("failed to save stabilized fused mask {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn dilate_u16(src: &[u16], width: usize, height: usize, radius: usize) -> Vec<u16> {
+    if radius == 0 || src.len() != width * height {
+        return src.to_vec();
+    }
+    let mut out = vec![0u16; src.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let mut max = 0u16;
+            for dy in y.saturating_sub(radius)..=(y + radius).min(height - 1) {
+                for dx in x.saturating_sub(radius)..=(x + radius).min(width - 1) {
+                    max = max.max(src[dy * width + dx]);
+                }
+            }
+            out[y * width + x] = max;
+        }
+    }
+    out
+}
+
+fn stabilize_fused_masks(masks: &[Vec<u16>], width: usize, height: usize) -> Vec<Vec<u16>> {
+    if masks.len() < 3 {
+        return masks.to_vec();
+    }
+    const BACKGROUND_THRESHOLD: u16 = 7_710; // 30/255*65535
+    const STRONG_THRESHOLD: u16 = 15_000;
+    let mut out = masks.to_vec();
+    for i in 1..masks.len() - 1 {
+        let prev = dilate_u16(&masks[i - 1], width, height, 2);
+        let next = dilate_u16(&masks[i + 1], width, height, 2);
+        let cur = &masks[i];
+        let dst = &mut out[i];
+        for p in 0..cur.len() {
+            if cur[p] < BACKGROUND_THRESHOLD
+                && prev[p] > STRONG_THRESHOLD
+                && next[p] > STRONG_THRESHOLD
+            {
+                let avg = ((u32::from(prev[p]) + u32::from(next[p])) / 2) as u16;
+                // Keep at least 70% of neighbor strength to preserve opacity
+                dst[p] = avg.min(65_535);
+            }
+        }
+    }
+    out
 }
 
 fn automatic_foreground_prompts(
@@ -2412,6 +2554,62 @@ mod foreground_fusion_tests {
             combined[17], 48_000,
             "authored spider detail survives fusion"
         );
+    }
+}
+
+#[cfg(test)]
+mod temporal_stabilization_tests {
+    use super::{dilate_u16, stabilize_fused_masks};
+
+    #[test]
+    fn single_frame_flicker_is_filled_from_neighbors() {
+        let w = 5;
+        let h = 3;
+        let strong = 50_000u16;
+        let mut masks = vec![vec![0u16; w * h]; 3];
+        masks[0][1 * w + 2] = strong;
+        masks[1][1 * w + 2] = 0; // flicker hole
+        masks[2][1 * w + 2] = strong;
+        let stabilized = stabilize_fused_masks(&masks, w, h);
+        assert_eq!(stabilized[1][1 * w + 2], strong, "hole in middle frame should be filled");
+        assert_eq!(stabilized[0][1 * w + 2], strong);
+        assert_eq!(stabilized[2][1 * w + 2], strong);
+    }
+
+    #[test]
+    fn persistent_background_is_not_filled() {
+        let w = 5;
+        let h = 3;
+        let masks = vec![vec![0u16; w * h]; 3];
+        let stabilized = stabilize_fused_masks(&masks, w, h);
+        assert!(stabilized.iter().all(|m| m.iter().all(|&v| v == 0)));
+    }
+
+    #[test]
+    fn motion_compensated_fill_uses_dilated_neighbors() {
+        let w = 7;
+        let h = 5;
+        let strong = 50_000u16;
+        let mut masks = vec![vec![0u16; w * h]; 3];
+        masks[0][2 * w + 2] = strong;
+        masks[2][2 * w + 4] = strong; // moved 2 pixels
+        masks[1][2 * w + 3] = 0;
+        let stabilized = stabilize_fused_masks(&masks, w, h);
+        // With 2px dilate, middle should be filled at x=3
+        assert_eq!(stabilized[1][2 * w + 3], strong);
+    }
+
+    #[test]
+    fn dilate_expands_by_radius() {
+        let w = 5;
+        let h = 5;
+        let mut src = vec![0u16; w * h];
+        src[2 * w + 2] = 100;
+        let dilated = dilate_u16(&src, w, h, 1);
+        assert_eq!(dilated[1 * w + 1], 100);
+        assert_eq!(dilated[0 * w + 0], 0);
+        let dilated2 = dilate_u16(&src, w, h, 2);
+        assert_eq!(dilated2[0 * w + 0], 100);
     }
 }
 

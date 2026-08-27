@@ -13,7 +13,8 @@
         "minimum_prompt_alpha_u16": 65535,
         "maximum_negative_alpha_u16": 0,
         "nonempty_permille": 1000,
-        "maximum_coverage_permille": 86
+        "maximum_coverage_permille": 83,
+        "maximum_prompt_box_fill_permille": 595
       },
       "reasons": []
     }

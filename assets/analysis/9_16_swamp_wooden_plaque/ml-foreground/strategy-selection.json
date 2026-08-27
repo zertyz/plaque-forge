@@ -14,7 +14,7 @@
         "maximum_negative_alpha_u16": null,
         "nonempty_permille": 1000,
         "maximum_coverage_permille": 45,
-        "maximum_prompt_box_fill_permille": 521
+        "maximum_prompt_box_fill_permille": 548
       },
       "reasons": []
     }
