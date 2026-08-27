@@ -1,4 +1,6 @@
 /target/
+plaque-forge-showcase/target/
+plaque-forge-showcase/Cargo.lock
 /.idea/
 /.agents/
 /.codex/

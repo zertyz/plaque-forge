@@ -4,8 +4,8 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 cd "$PF_ROOT"
 cargo fmt --all --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
 bash -n scripts/*.sh tools/segmentation-worker
 ./scripts/check_segmentation.sh
 

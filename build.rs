@@ -1,3 +1,5 @@
+#![allow(clippy::cmp_owned, clippy::collapsible_if)]
+
 use std::{
     collections::BTreeMap,
     fs,
@@ -38,6 +40,57 @@ fn main() {
         PathBuf::from("build.rs"),
     ];
     source_files(&root, &root.join("src"), &mut files);
+    // Only meaningful renderer inputs participate in the renderer identity.
+    // Showcase UI and its crate are independent and must not invalidate
+    // homologated renders. Keep the list explicit so future UI changes
+    // do not silently become renderer inputs.
+    files.retain(|p| {
+        let s = p.to_string_lossy();
+        // Exclude showcase UI (now a separate crate, but keep guard for legacy)
+        if s.starts_with("src/showcase") || s == "src/bin/showcase.rs" {
+            return false;
+        }
+        // Only renderer-relevant sources: render pipeline + its direct dependencies.
+        // Everything else (e.g. verify, homologation, review) is intentionally
+        // excluded from the renderer hash; they are consumers, not producers.
+        const RENDERER_ALLOWLIST_PREFIXES: &[&str] = &[
+            "src/render/",
+            "src/surface.rs",
+            "src/geometry.rs",
+            "src/color.rs",
+            "src/video.rs",
+            "src/analysis.rs",
+            "src/model.rs",
+            "src/layers.rs",
+            "src/media/",
+            "src/digest.rs",
+            "src/portable_path.rs",
+            "src/build_info.rs",
+            "src/image_io.rs",
+            "src/stats.rs",
+            "src/writable_region.rs",
+        ];
+        const RENDERER_ALLOWLIST_EXACT: &[&str] = &[
+            "Cargo.toml",
+            "Cargo.lock",
+            "build.rs",
+            "src/lib.rs",
+            "src/application.rs",
+            "src/render/mod.rs",
+        ];
+        if RENDERER_ALLOWLIST_EXACT.contains(&s.as_ref()) {
+            return true;
+        }
+        for prefix in RENDERER_ALLOWLIST_PREFIXES {
+            if s.starts_with(prefix) {
+                return true;
+            }
+        }
+        // Fallback: keep any file not explicitly excluded but under render-relevant
+        // modules. For now, also keep core modules that are transitively used by
+        // rendering (e.g. progress, infrastructure are not, so we drop them).
+        false
+    });
     files.sort();
 
     let mut digest = Sha256::new();
@@ -47,10 +100,17 @@ fn main() {
         let name = relative.to_string_lossy();
         digest.update((name.len() as u64).to_le_bytes());
         digest.update(name.as_bytes());
-        digest.update(
-            fs::read(root.join(&relative))
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", relative.display())),
-        );
+        let bytes = fs::read(root.join(&relative))
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", relative.display()));
+        // Cargo.lock contains workspace-wide resolved versions, including the
+        // showcase crate. Filter to renderer-relevant packages so UI bumps
+        // do not invalidate homologation.
+        let bytes = if relative == Path::new("Cargo.lock") {
+            filter_cargo_lock_for_renderer(&bytes)
+        } else {
+            bytes
+        };
+        digest.update(bytes);
     }
     let identity = digest
         .finalize()
@@ -477,4 +537,90 @@ fn total_embedded_bytes(root: &Path, entries: &BTreeMap<String, PathBuf>) -> u64
                 .unwrap_or(0)
         })
         .sum()
+}
+
+fn filter_cargo_lock_for_renderer(bytes: &[u8]) -> Vec<u8> {
+    // Workspace Cargo.lock contains showcase-only crates (egui/eframe/winit/wayland/...)
+    // that must not affect the renderer hash. Filter to keep only renderer-relevant
+    // package blocks. This keeps homologation stable across UI bumps.
+    let text = String::from_utf8_lossy(bytes);
+    const SHOWCASE_CRATES: &[&str] = &[
+        "plaque-forge-showcase",
+        "egui",
+        "eframe",
+        "egui_extras",
+        "epaint",
+        "emath",
+        "ecolor",
+        "egui-winit",
+        "egui_glow",
+        "winit",
+        "wayland",
+        "x11rb",
+        "x11-dl",
+        "smithay",
+        "calloop",
+        "glow",
+        "glutin",
+        "arboard",
+        "rand",
+        "polling",
+        "xcursor",
+        "xkbcommon",
+        "cursor-icon",
+        "memoffset",
+        "scopeguard",
+        "parking_lot",
+        "khronos",
+        "xml-rs",
+        "webbrowser",
+    ];
+    let mut out = String::new();
+    let mut current_block = String::new();
+    let mut current_name: Option<String> = None;
+    let mut in_package = false;
+    for line in text.lines() {
+        if line.trim_start().starts_with("[[package]]") {
+            // flush previous
+            if in_package {
+                if let Some(name) = &current_name {
+                    let is_showcase = SHOWCASE_CRATES
+                        .iter()
+                        .any(|c| name == c || name.starts_with(&format!("{c}-")));
+                    if !is_showcase {
+                        out.push_str(&current_block);
+                        out.push('\n');
+                    }
+                }
+            }
+            current_block = String::new();
+            current_name = None;
+            in_package = true;
+        }
+        if in_package {
+            current_block.push_str(line);
+            current_block.push('\n');
+            if line.trim_start().starts_with("name =") {
+                if let Some(start) = line.find('"') {
+                    if let Some(end) = line[start + 1..].find('"') {
+                        current_name = Some(line[start + 1..start + 1 + end].to_string());
+                    }
+                }
+            }
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if in_package {
+        if let Some(name) = &current_name {
+            let is_showcase = SHOWCASE_CRATES
+                .iter()
+                .any(|c| name == c || name.starts_with(&format!("{c}-")));
+            if !is_showcase {
+                out.push_str(&current_block);
+            }
+        }
+    }
+    out.into_bytes()
 }

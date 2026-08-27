@@ -29,13 +29,16 @@
 //! - **Media (`media`)**: One catalog contract listing videos, styles, plaques,
 //!   textures, and fonts either from repository directories or, under the
 //!   `bundle-media` feature, from data embedded inside the binary.
+//! - **Showcase (`showcase`)**: Interactive `egui`/`eframe` preview (`plaque-forge-showcase`)
+//!   looping videos, compositing live typography, and exposing every style
+//!   parameter through a full-widget editor; also builds to `wasm` for web preview.
 //! - **Safety & Staging (`staged_output`)**: Lease-held atomic file staging preventing
 //!   partial or corrupted destination artifacts.
 
 use anyhow::Result;
 use clap::Parser;
 
-mod analysis;
+pub mod analysis;
 pub mod analyze;
 pub mod application;
 mod build_info;
@@ -60,6 +63,7 @@ pub mod scene;
 mod scene_commands;
 mod segmentation;
 pub mod segmentation_strategy;
+pub mod showcase;
 mod staged_output;
 mod stats;
 pub mod surface;
