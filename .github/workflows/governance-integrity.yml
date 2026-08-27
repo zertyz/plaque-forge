@@ -1,0 +1,44 @@
+name: Governance integrity
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  policy-integrity:
+    runs-on: ubuntu-24.04
+    steps:
+      # pull_request_target is intentional here: the guard must come from the
+      # trusted base branch. Do not checkout or execute code from the PR head.
+      - name: Check out trusted base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch pull-request head as diff data only
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+
+      - name: Enforce protected authority surface
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          allow=0
+          if jq -e '.pull_request.labels[]?.name == "governance-change"' "$GITHUB_EVENT_PATH" >/dev/null; then
+            allow=1
+          fi
+          ALLOW_GOVERNANCE_CHANGE="$allow" \
+            ./scripts/check_governance.sh diff "$BASE_SHA" "$HEAD_SHA"

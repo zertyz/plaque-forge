@@ -172,8 +172,9 @@ assets/plaques/              reusable injected plaque images
 assets/scenes/<name>/        sparse human intent + small reviewed source masks
 assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
 assets/homologation/<name>/   reviewed regression contracts + sparse visual evidence
+governance/                  normative policies, requirements, and authority registry
 output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows (bundling: docs/BUNDLING.md)
 ```
 
-The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md) · [Bundled media](docs/BUNDLING.md).
+The project, including its bundled assets, is MIT-licensed. More detail: [Governance](governance/README.md) · [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md) · [Bundled media](docs/BUNDLING.md).

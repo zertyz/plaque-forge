@@ -1,0 +1,120 @@
+# Canonical machine-readable governance registry.
+# Policy/requirement prose is authoritative; this manifest enumerates where authority lives
+# and what ordinary implementation changes must treat as protected.
+format = "plaque-forge.governance-manifest/1"
+status = "normative"
+governance_change_label = "governance-change"
+
+[[policies]]
+id = "GOV"
+path = "governance/policies/governance.md"
+authority = "maintainer"
+agent_write = false
+
+[[policies]]
+id = "BUS"
+path = "governance/policies/business.md"
+authority = "maintainer"
+agent_write = false
+
+[[policies]]
+id = "ENG"
+path = "governance/policies/engineering.md"
+authority = "maintainer"
+agent_write = false
+
+[[policies]]
+id = "OPS"
+path = "governance/policies/operations.md"
+authority = "maintainer"
+agent_write = false
+
+[[policies]]
+id = "SEC"
+path = "governance/policies/security.md"
+authority = "maintainer"
+agent_write = false
+
+[[requirements]]
+id = "REQ-PROD"
+path = "governance/requirements/product.md"
+authority = "maintainer"
+agent_write = false
+
+[[requirements]]
+id = "REQ-QUAL"
+path = "governance/requirements/quality.md"
+authority = "maintainer"
+agent_write = false
+
+[[requirements]]
+id = "REQ-PIPE"
+path = "governance/requirements/analysis-and-rendering.md"
+authority = "maintainer"
+agent_write = false
+
+[[requirements]]
+id = "REQ-HOM"
+path = "governance/requirements/homologation.md"
+authority = "maintainer"
+agent_write = false
+
+[[requirements]]
+id = "REQ-OPS"
+path = "governance/requirements/operations.md"
+authority = "maintainer"
+agent_write = false
+
+# Human-reviewed security exceptions are authority rather than implementation config.
+[[protected]]
+path = "governance/security-exceptions.toml"
+kind = "security-exception-authority"
+authority = "maintainer"
+agent_write = false
+
+# Human-reviewed behavior / acceptance authority. Protect the homologation tree as a
+# whole so an implementation agent cannot rewrite a contract, ledger, mask, or witness
+# to make a regression pass.
+[[protected]]
+path = "assets/homologation/**"
+kind = "human-authority"
+authority = "maintainer"
+agent_write = false
+
+[[protected]]
+path = "assets/segmentation/policy.toml"
+kind = "acceptance-policy"
+authority = "maintainer"
+agent_write = false
+
+# Governance bootstrap and enforcement controls. The guard also hard-codes these core
+# paths so a PR cannot remove itself from this manifest before attempting to pass.
+[[protected]]
+path = "governance/**"
+kind = "governance"
+authority = "maintainer"
+agent_write = false
+
+[[protected]]
+path = "AGENTS.md"
+kind = "agent-bootstrap"
+authority = "maintainer"
+agent_write = false
+
+[[protected]]
+path = "scripts/check_governance.sh"
+kind = "governance-control"
+authority = "maintainer"
+agent_write = false
+
+[[protected]]
+path = ".github/workflows/governance-integrity.yml"
+kind = "governance-control"
+authority = "maintainer"
+agent_write = false
+
+[[protected]]
+path = ".github/CODEOWNERS"
+kind = "governance-control"
+authority = "maintainer"
+agent_write = false

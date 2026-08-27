@@ -1,0 +1,10 @@
+# Governance and human acceptance authority.
+# Repository rules should require appropriate code-owner/maintainer review for
+# deliberate changes to these paths.
+/governance/ @zertyz
+/AGENTS.md @zertyz
+/assets/homologation/ @zertyz
+/assets/segmentation/policy.toml @zertyz
+/scripts/check_governance.sh @zertyz
+/.github/workflows/governance-integrity.yml @zertyz
+/.github/CODEOWNERS @zertyz

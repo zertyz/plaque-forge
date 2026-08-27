@@ -1,5 +1,8 @@
 # Performance assessment
 
+> **Status: Descriptive**
+> **Normative references:** `BUS-QUAL-002`, `BUS-QUAL-008`, `REQ-QUAL-007`
+
 Performance work is intentionally split from outcome-quality work. This pass audited every expensive boundary but changed only implementations whose semantics are equivalent and easy to verify.
 
 ## Cheap improvements already applied
