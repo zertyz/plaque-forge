@@ -41,6 +41,8 @@ anyhow = "1.0"
 sha2 = "0.11"
 
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 panic = "abort"
+opt-level = 3
+strip = true
