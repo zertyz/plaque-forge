@@ -101,12 +101,33 @@ def package_version(*names):
     return "unknown"
 
 
+_FILE_SHA256_CACHE = {}
+
+
 def file_sha256(path):
+    # Seed masks are small PNGs reused across many frames (e.g., SAM2 prompts).
+    # Cache by path + mtime + size to avoid re-reading and re-hashing the same
+    # file for every frame. Invalidated automatically if the file changes.
+    try:
+        stat = Path(path).stat()
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        cached = _FILE_SHA256_CACHE.get(key)
+        if cached is not None:
+            return cached
+    except OSError:
+        key = None
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
-    return digest.hexdigest()
+    value = digest.hexdigest()
+    if key is not None:
+        # Bound the cache to avoid unbounded growth if many distinct seed masks
+        # are used across many requests (typical is <10).
+        if len(_FILE_SHA256_CACHE) > 64:
+            _FILE_SHA256_CACHE.clear()
+        _FILE_SHA256_CACHE[key] = value
+    return value
 
 
 def usable_cpu_count():
@@ -222,33 +243,70 @@ def precision_context(torch, device, precision):
     return torch.autocast(device_type=device_type, dtype=torch.bfloat16)
 
 
-def accelerator_peak_mib(device):
+_TORCH_MODULE_CACHE = None
+_ACCELERATOR_FN_CACHE = {}
+
+
+def _get_torch():
+    global _TORCH_MODULE_CACHE
+    if _TORCH_MODULE_CACHE is not None:
+        return _TORCH_MODULE_CACHE
     try:
         import torch
 
+        _TORCH_MODULE_CACHE = torch
+        return torch
+    except ImportError:
+        return None
+
+
+def accelerator_peak_mib(device):
+    try:
+        torch = _get_torch()
+        if torch is None:
+            return None
         kind = str(device).split(":", 1)[0]
+        if kind not in {"cuda", "xpu"}:
+            return None
+        cached = _ACCELERATOR_FN_CACHE.get(kind)
+        if cached is not None:
+            maximum, _ = cached
+            if maximum is None:
+                return None
+            return float(maximum()) / (1024.0 * 1024.0)
         module = getattr(torch, kind, None)
-        if kind not in {"cuda", "xpu"} or module is None:
+        if module is None:
+            _ACCELERATOR_FN_CACHE[kind] = (None, None)
             return None
         maximum = getattr(module, "max_memory_allocated", None)
+        reset = getattr(module, "reset_peak_memory_stats", None)
+        _ACCELERATOR_FN_CACHE[kind] = (maximum, reset)
         if maximum is None:
             return None
         return float(maximum()) / (1024.0 * 1024.0)
-    except (ImportError, RuntimeError, TypeError):
+    except (RuntimeError, TypeError):
         return None
 
 
 def reset_accelerator_peak(device):
     try:
-        import torch
-
+        torch = _get_torch()
+        if torch is None:
+            return
         kind = str(device).split(":", 1)[0]
-        module = getattr(torch, kind, None)
-        reset = (
-            getattr(module, "reset_peak_memory_stats", None)
-            if module is not None
-            else None
-        )
+        cached = _ACCELERATOR_FN_CACHE.get(kind)
+        if cached is not None:
+            _, reset = cached
+        else:
+            module = getattr(torch, kind, None)
+            reset = (
+                getattr(module, "reset_peak_memory_stats", None)
+                if module is not None
+                else None
+            )
+            # Cache even the None case to avoid repeated getattr on cpu
+            _ACCELERATOR_FN_CACHE.setdefault(kind, (None, reset))
+            _, reset = _ACCELERATOR_FN_CACHE[kind]
         if kind in {"cuda", "xpu"} and reset is not None:
             reset()
     except (ImportError, RuntimeError, TypeError):
@@ -762,6 +820,7 @@ def sam2_masks(request, frames, device):
     first = min(prompt["frame"] for prompt in prompts)
     last = max(prompt["frame"] for prompt in prompts)
     objects = {}
+    source_size = Image.open(frames[0]).size
     # Precision is part of the Rust-sealed plan. A device fallback must not silently
     # change arithmetic from BF16 to FP32 or vice versa.
     autocast = precision_context(torch, device, precision)
@@ -774,9 +833,7 @@ def sam2_masks(request, frames, device):
                 "frame_idx": prompt["frame"],
                 "obj_id": object_id,
             }
-            exact = exact_seed_mask(
-                request, prompt["frame"], Image.open(frames[0]).size
-            )
+            exact = exact_seed_mask(request, prompt["frame"], source_size)
             polygon = prompt.get("polygon") or prompt.get("quad")
             if exact is not None:
                 predictor.add_new_mask(
@@ -786,7 +843,7 @@ def sam2_masks(request, frames, device):
                     ),
                 )
             elif polygon:
-                mask = prompt_shape(prompt, Image.open(frames[0]).size)
+                mask = prompt_shape(prompt, source_size)
                 predictor.add_new_mask(
                     **kwargs,
                     mask=torch.from_numpy(np.asarray(mask, dtype=np.uint8) > 0).to(

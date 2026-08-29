@@ -1,8 +1,8 @@
 use crate::{
     color::Rgba,
-    geometry::{homography, Quad},
+    geometry::{Quad, homography},
 };
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::sync::LazyLock;
 
 static SRGB_TO_LINEAR_TABLE: LazyLock<[f32; 256]> = LazyLock::new(|| {

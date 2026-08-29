@@ -10,7 +10,11 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$root"
 
-PYTHONPYCACHEPREFIX="$root" python3 -m py_compile \
+PYTHON_BIN="${PLAQUE_FORGE_PYTHON_BIN:-/tmp/plaque-forge-python/venv/bin/python}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+PYTHONPYCACHEPREFIX="$root" "$PYTHON_BIN" -m py_compile \
   tools/segmentation_runtime.py \
   tools/segmentation_worker.py \
   tools/segmentation_service.py \
@@ -25,7 +29,7 @@ PYTHONPYCACHEPREFIX="$root" python3 -m py_compile \
   tools/test_segmentation_worker_cache.py \
   tools/test_segmentation_worker_quality.py \
   tools/test_segmentation_worker_parallelism.py
-PYTHONPATH=tools PYTHONPYCACHEPREFIX="$root" python3 -m unittest \
+PYTHONPATH=tools PYTHONPYCACHEPREFIX="$root" "$PYTHON_BIN" -m unittest \
   tools/test_segmentation_runtime.py \
   tools/test_compare_segmentation_outputs.py \
   tools/test_sam31_worker.py \

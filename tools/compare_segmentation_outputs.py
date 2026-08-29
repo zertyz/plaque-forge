@@ -9,8 +9,10 @@ another model is ground-truth visual quality.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -52,11 +54,15 @@ def read_u16(path: Path) -> np.ndarray:
     return values
 
 
-def percentile_from_histogram(histogram: np.ndarray, quantile: float, total: int) -> int:
+def percentile_from_histogram(
+    histogram: np.ndarray, quantile: float, total: int
+) -> int:
     if total <= 0:
         return 0
     target = max(1, math.ceil(total * quantile))
-    return int(np.searchsorted(np.cumsum(histogram, dtype=np.uint64), target, side="left"))
+    return int(
+        np.searchsorted(np.cumsum(histogram, dtype=np.uint64), target, side="left")
+    )
 
 
 def _compare_pair(
@@ -127,29 +133,74 @@ def compare(left: Path, right: Path) -> dict:
     soft_left = 0
     soft_right = 0
 
-    for pair in zip(left_paths, right_paths):
-        (
-            counts,
-            p_count,
-            abs_sum,
-            sq_sum,
-            max_val,
-            inter,
-            uni,
-            dis,
-            soft_a,
-            soft_b,
-        ) = _compare_pair(pair)
-        histogram += counts
-        pixels += p_count
-        absolute_sum += abs_sum
-        squared_sum += sq_sum
-        maximum = max(maximum, max_val)
-        intersection += inter
-        union += uni
-        disagreement += dis
-        soft_left += soft_a
-        soft_right += soft_b
+    # Bounded parallel: 2 workers regain ~3-4× for 200×4K without OOM.
+    # Each worker holds at most one 65k histogram (512 KiB) + diff buffers,
+    # so even 200 frames stay bounded. Sequential for tiny frame counts or
+    # single-CPU containers.
+    try:
+        affinity = (
+            len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 0
+        )
+    except OSError:
+        affinity = 0
+    cpus = affinity if affinity else (os.cpu_count() or 1)
+    workers = 1
+    if len(left_paths) > 1 and cpus > 1:
+        workers = min(2, len(left_paths), cpus)
+
+    if workers <= 1:
+        for pair in zip(left_paths, right_paths):
+            (
+                counts,
+                p_count,
+                abs_sum,
+                sq_sum,
+                max_val,
+                inter,
+                uni,
+                dis,
+                soft_a,
+                soft_b,
+            ) = _compare_pair(pair)
+            histogram += counts
+            pixels += p_count
+            absolute_sum += abs_sum
+            squared_sum += sq_sum
+            maximum = max(maximum, max_val)
+            intersection += inter
+            union += uni
+            disagreement += dis
+            soft_left += soft_a
+            soft_right += soft_b
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_compare_pair, pair): pair
+                for pair in zip(left_paths, right_paths)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                (
+                    counts,
+                    p_count,
+                    abs_sum,
+                    sq_sum,
+                    max_val,
+                    inter,
+                    uni,
+                    dis,
+                    soft_a,
+                    soft_b,
+                ) = future.result()
+                histogram += counts
+                pixels += p_count
+                absolute_sum += abs_sum
+                squared_sum += sq_sum
+                maximum = max(maximum, max_val)
+                intersection += inter
+                union += uni
+                disagreement += dis
+                soft_left += soft_a
+                soft_right += soft_b
 
     mean_stored = absolute_sum / max(pixels, 1)
     rmse_stored = math.sqrt(squared_sum / max(pixels, 1))
@@ -162,8 +213,10 @@ def compare(left: Path, right: Path) -> dict:
         "alpha": {
             "mean_absolute": mean_stored / MAX_U16,
             "rmse": rmse_stored / MAX_U16,
-            "p95_absolute": percentile_from_histogram(histogram, 0.95, pixels) / MAX_U16,
-            "p99_absolute": percentile_from_histogram(histogram, 0.99, pixels) / MAX_U16,
+            "p95_absolute": percentile_from_histogram(histogram, 0.95, pixels)
+            / MAX_U16,
+            "p99_absolute": percentile_from_histogram(histogram, 0.99, pixels)
+            / MAX_U16,
             "maximum_absolute": maximum / MAX_U16,
         },
         "binary_at_0_5": {
