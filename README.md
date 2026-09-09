@@ -173,6 +173,7 @@ Everything in this section is inert unless you opt in: `plaque-forge list` works
 ## Repository map
 
 ```text
+management/                  project governance, requirements, backlogs, and supporting ledgers
 src/                         Rust implementation (`application` is the programmatic API and service boundary)
 scripts/                     high-level setup/analyze/render/review operations
 tools/                       optional external-tool adapters
@@ -185,5 +186,26 @@ assets/homologation/<name>/   reviewed regression contracts + sparse visual evid
 output/                      rendered videos and quality-report index
 docs/                        architecture and advanced workflows (bundling: docs/BUNDLING.md)
 ```
+
+## Project governance and management
+
+Plaque Forge is conducted under a formal management and governance process adapted for high-assurance video processing:
+
+1. **Start at [`management/MANAGEMENT.md`](management/MANAGEMENT.md)** for top-level management rules, sources of truth, requirement drift definitions, branch naming (`RM.HHH.rr.ss-ttt`), and lifecycle state transitions.
+2. **For AI agents and automated workflows**, read [`management/README.ai.md`](management/README.ai.md) first as the fast-path operating map and non-regression guide.
+3. **Formal requirements** (authoritative about desired behavior):
+   - [`management/PRODUCT.md`](management/PRODUCT.md): Mission, visual quality standards, typography, and visual non-regression covenants.
+   - [`management/ENGINEERING.md`](management/ENGINEERING.md): Architecture, tracking, ML worker isolation, rendering, and test policies.
+   - [`management/OPERATIONS.md`](management/OPERATIONS.md): Environments, Python ML runtime, CI/CD gates, and release packaging.
+4. **Planned work items** (epics, tasks, bug fixes, spikes across lifecycle states):
+   - [`management/PRODUCT.backlog.md`](management/PRODUCT.backlog.md)
+   - [`management/ENGINEERING.backlog.md`](management/ENGINEERING.backlog.md)
+   - [`management/OPERATIONS.backlog.md`](management/OPERATIONS.backlog.md)
+5. **Quality gates & defect ledgers**:
+   - [`management/DEFINITION_OF_READY_DONE.md`](management/DEFINITION_OF_READY_DONE.md): State transition gates and verification rules.
+   - [`management/BUGS.md`](management/BUGS.md): Defect intake (tracking cross-asset model regressions in `BUG-0001`).
+   - [`management/DECISIONS.md`](management/DECISIONS.md): Architectural decisions (`DEC-0001` through `DEC-0007`).
+   - [`management/TRACEABILITY.md`](management/TRACEABILITY.md): Canonical graph connecting requirements, work items, and verification evidence.
+   - [`management/RISKS.md`](management/RISKS.md): Project and operational risks.
 
 The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md) · [Bundled media](docs/BUNDLING.md).

@@ -146,6 +146,26 @@ class SegmentationQualityContractTests(unittest.TestCase):
         self.assertEqual(corrected[0][0, 0], 0.0)
         np.testing.assert_array_equal(corrected[1], cutie[1])
 
+    def test_sam2_prompt_correction_honors_layer_scoped_radius(self):
+        cutie = [np.zeros((11, 11), dtype=np.float32)]
+        sam2 = [np.zeros((11, 11), dtype=np.float32)]
+        cutie[0][5, 5] = 0.9
+        sam2[0][5, 8] = 0.8
+        # Distance between (5, 5) and (5, 8) is 3
+        request_custom = {
+            "layer": {"prompts": [{"frame": 0}], "prompt_correction_radius": 2}
+        }
+        corrected_custom = worker.apply_authored_sam2_prompt_corrections(
+            request_custom, sam2, cutie
+        )
+        self.assertEqual(corrected_custom[0][5, 8], 0.0)
+
+        request_default = {"layer": {"prompts": [{"frame": 0}]}}
+        corrected_default = worker.apply_authored_sam2_prompt_corrections(
+            request_default, sam2, cutie
+        )
+        self.assertEqual(corrected_default[0][5, 8], 0.8)
+
 
 if __name__ == "__main__":
     unittest.main()

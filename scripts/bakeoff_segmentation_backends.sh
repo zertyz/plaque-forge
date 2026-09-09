@@ -21,12 +21,20 @@ Options:
   --profile NAME      preview|balanced|canonical (default: canonical)
   --precision NAME    fp32|bf16 (default: fp32)
   --backends "LIST"   space-separated explicit backends (default: "sam2 sam2-cutie")
+  --min-iou VALUE     minimum acceptable IoU against canonical reference (e.g. 0.95)
+  --max-mean-absolute VALUE maximum mean absolute drift against canonical reference (e.g. 0.05)
+  --gate              abort with exit code 1 if any candidate backend violates acceptance criteria
 
 Examples:
   --backends "sam2 sam2-cutie sam2-cutie-vitmatte"
   --backends "sam2 sam3.1" --device cuda --precision bf16
+  --backends "sam2 sam2-cutie" --min-iou 0.95 --gate
 USAGE
 }
+
+min_iou=""
+max_mean_absolute=""
+gate=0
 
 while (( $# > 2 )); do
   case "$1" in
@@ -34,6 +42,9 @@ while (( $# > 2 )); do
     --profile) profile="$2"; shift 2 ;;
     --precision) precision="$2"; shift 2 ;;
     --backends) backends="$2"; shift 2 ;;
+    --min-iou) min_iou="$2"; shift 2 ;;
+    --max-mean-absolute) max_mean_absolute="$2"; shift 2 ;;
+    --gate) gate=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown option: %s\n' "$1" >&2; usage; exit 2 ;;
   esac
@@ -48,10 +59,12 @@ scene="$root/assets/scenes/$asset/scene.toml"
 cd "$root"
 pf_build_release
 run_root="/tmp/plaque-forge/segmentation-bakeoff/$asset/$layer"
+golden_ref="$root/assets/analysis/$asset/layers/$layer"
 rm -rf -- "$run_root"
 mkdir -p "$run_root"
 
 baseline=""
+regression_failed=0
 for backend in $backends; do
   output="$run_root/$backend"
   printf '\n[bakeoff] backend=%s device=%s profile=%s precision=%s\n' \
@@ -65,12 +78,47 @@ for backend in $backends; do
   if [[ -z "$baseline" ]]; then
     baseline="$backend"
   else
-    python3 tools/compare_segmentation_outputs.py \
+    PYTHONPATH=tools python3 tools/compare_segmentation_outputs.py \
       "$run_root/$baseline" "$output" \
       --json "$run_root/${baseline}-vs-${backend}.json" >/dev/null
+  fi
+
+  if [[ -d "$golden_ref" ]]; then
+    compare_cmd=(
+      env PYTHONPATH=tools python3 tools/compare_segmentation_outputs.py
+      "$golden_ref" "$output"
+      --json "$run_root/canonical-vs-${backend}.json"
+    )
+    if [[ -n "$min_iou" ]]; then
+      compare_cmd+=(--min-iou "$min_iou")
+    fi
+    if [[ -n "$max_mean_absolute" ]]; then
+      compare_cmd+=(--max-mean-absolute "$max_mean_absolute")
+    fi
+    if (( gate )); then
+      compare_cmd+=(--report-failures)
+    fi
+    if ! "${compare_cmd[@]}"; then
+      printf '[REGRESSION] backend %s failed non-regression criteria against canonical reference!\n' "$backend" >&2
+      regression_failed=1
+    fi
   fi
 done
 
 printf '\n[bakeoff] outputs: %s\n' "$run_root" >&2
-python3 tools/summarize_segmentation_bakeoff.py "$run_root" \
+summarize_cmd=(
+  env PYTHONPATH=tools python3 tools/summarize_segmentation_bakeoff.py "$run_root"
   --json "$run_root/summary.json" --markdown "$run_root/summary.md"
+)
+if [[ -n "$min_iou" ]]; then
+  summarize_cmd+=(--min-iou "$min_iou")
+fi
+if [[ -n "$max_mean_absolute" ]]; then
+  summarize_cmd+=(--max-mean-absolute "$max_mean_absolute")
+fi
+"${summarize_cmd[@]}"
+
+if (( gate && regression_failed )); then
+  printf '\n[ERROR] Bake-off gate failed due to segmentation regressions on %s / %s\n' "$asset" "$layer" >&2
+  exit 1
+fi

@@ -988,6 +988,7 @@ mod tests {
                 matte: LayerMatte::default(),
                 subject: crate::scene::LayerSubject::Unspecified,
                 prompts: Vec::new(),
+                ..Default::default()
             },
             artifact_path: input_root.join("artifact.toml"),
             artifact: LayerArtifact {
@@ -1065,6 +1066,7 @@ mod tests {
                 matte: LayerMatte::default(),
                 subject: crate::scene::LayerSubject::Unspecified,
                 prompts: Vec::new(),
+                ..Default::default()
             },
             artifact_path: input_root.join("artifact.toml"),
             artifact: LayerArtifact {
@@ -1159,6 +1161,7 @@ mod tests {
                     polygon: Vec::new(),
                     quad: None,
                 }],
+                ..Default::default()
             },
             artifact_path: input_root.join("artifact.toml"),
             artifact: LayerArtifact {
@@ -1238,6 +1241,7 @@ mod tests {
                 matte: LayerMatte::default(),
                 subject: crate::scene::LayerSubject::Unspecified,
                 prompts: Vec::new(),
+                ..Default::default()
             },
             artifact_path: PathBuf::from("artifact.toml"),
             artifact: LayerArtifact {

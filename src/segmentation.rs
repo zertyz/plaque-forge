@@ -117,6 +117,8 @@ struct WorkerLayer {
     prompts: Vec<crate::scene::SegmentationPrompt>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     seed_masks: Vec<WorkerSeedMask>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prompt_correction_radius: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -208,11 +210,31 @@ fn resolve_plan(
     profile: &str,
     precision: &str,
 ) -> Result<SegmentationPlan> {
+    let effective_backend = if backend != "auto" {
+        backend
+    } else {
+        layer.backend.as_deref().unwrap_or("auto")
+    };
+    let effective_model = if model != "auto" {
+        model
+    } else {
+        layer.model.as_deref().unwrap_or("auto")
+    };
+    let effective_profile = if profile != "canonical" {
+        profile
+    } else {
+        layer.profile.as_deref().unwrap_or(profile)
+    };
+    let effective_precision = if precision != "auto" {
+        precision
+    } else {
+        layer.precision.as_deref().unwrap_or(precision)
+    };
     segmentation_strategy::plan(PlanningInput {
-        profile: SegmentationProfile::parse(profile)?,
-        precision_override: SegmentationPrecision::parse(precision)?,
-        backend_override: backend,
-        model_override: model,
+        profile: SegmentationProfile::parse(effective_profile)?,
+        precision_override: SegmentationPrecision::parse(effective_precision)?,
+        backend_override: effective_backend,
+        model_override: effective_model,
         role: layer.role,
         matte_mode: layer.matte.mode,
         subject: layer.subject,
@@ -227,11 +249,31 @@ fn resolve_strategy(
     profile: &str,
     precision: &str,
 ) -> Result<SegmentationStrategy> {
+    let effective_backend = if backend != "auto" {
+        backend
+    } else {
+        layer.backend.as_deref().unwrap_or("auto")
+    };
+    let effective_model = if model != "auto" {
+        model
+    } else {
+        layer.model.as_deref().unwrap_or("auto")
+    };
+    let effective_profile = if profile != "canonical" {
+        profile
+    } else {
+        layer.profile.as_deref().unwrap_or(profile)
+    };
+    let effective_precision = if precision != "auto" {
+        precision
+    } else {
+        layer.precision.as_deref().unwrap_or(precision)
+    };
     segmentation_strategy::strategy(PlanningInput {
-        profile: SegmentationProfile::parse(profile)?,
-        precision_override: SegmentationPrecision::parse(precision)?,
-        backend_override: backend,
-        model_override: model,
+        profile: SegmentationProfile::parse(effective_profile)?,
+        precision_override: SegmentationPrecision::parse(effective_precision)?,
+        backend_override: effective_backend,
+        model_override: effective_model,
         role: layer.role,
         matte_mode: layer.matte.mode,
         subject: layer.subject,
@@ -350,6 +392,7 @@ fn worker_layer(layer: &crate::scene::SceneLayer, info: &VideoInfo) -> Result<Wo
             .map(|prompt| prompt.source_pixels(info.width, info.height))
             .collect::<Result<Vec<_>>>()?,
         seed_masks: Vec::new(),
+        prompt_correction_radius: layer.prompt_correction_radius,
     })
 }
 
@@ -1383,6 +1426,7 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             })
             .collect::<Result<Vec<_>>>()?,
         prompts,
+        prompt_correction_radius: None,
     };
     let strategy = segmentation_strategy::strategy(PlanningInput {
         profile: SegmentationProfile::parse(request.profile)?,
@@ -2470,8 +2514,11 @@ mod worker_process_contract_tests {
 mod adaptive_evidence_tests {
     use super::{
         AcceptancePolicy, SegmentationEvidence, evidence_acceptance, persistent_temporal_evidence,
+        resolve_plan, resolve_strategy, worker_layer,
     };
-    use crate::scene::{LayerRole, SegmentationPrompt, SpatialCoordinates};
+    use crate::scene::{LayerRole, SceneLayer, SegmentationPrompt, SpatialCoordinates};
+    use crate::segmentation_strategy::SegmentationPrecision;
+    use crate::video::VideoInfo;
 
     const POLICY: AcceptancePolicy = AcceptancePolicy {
         min_prompt_alpha_u16: 32_768,
@@ -2591,5 +2638,60 @@ mod adaptive_evidence_tests {
         assert_eq!(collapsed.minimum_area_ratio_permille, 0);
         assert_eq!(collapsed.area_ratio_p05_permille, 0);
         assert_eq!(collapsed.adjacent_iou_p05_permille, 0);
+    }
+
+    #[test]
+    fn resolve_plan_and_strategy_honor_scene_layer_model_and_backend() {
+        let mut layer = SceneLayer::default();
+        layer.backend = Some("sam2".into());
+        layer.model = Some("facebook/sam2.1-hiera-small".into());
+        layer.precision = Some("fp32".into());
+
+        let plan = resolve_plan(&layer, "auto", "auto", "canonical", "auto").unwrap();
+        assert_eq!(plan.backend_label(), "sam2");
+        assert_eq!(plan.semantic_model, "facebook/sam2.1-hiera-small");
+        assert_eq!(plan.precision, SegmentationPrecision::Fp32);
+
+        let strategy = resolve_strategy(&layer, "auto", "auto", "canonical", "auto").unwrap();
+        assert_eq!(strategy.candidates.len(), 1);
+        assert_eq!(strategy.candidates[0].backend_label(), "sam2");
+        assert_eq!(
+            strategy.candidates[0].semantic_model,
+            "facebook/sam2.1-hiera-small"
+        );
+    }
+
+    #[test]
+    fn explicit_cli_override_takes_precedence_over_scene_layer_configuration() {
+        let mut layer = SceneLayer::default();
+        layer.backend = Some("sam2".into());
+        layer.model = Some("facebook/sam2.1-hiera-small".into());
+
+        let plan = resolve_plan(&layer, "cutie", "auto", "canonical", "auto").unwrap();
+        assert_eq!(plan.backend_label(), "cutie");
+        assert_eq!(plan.semantic_model, "facebook/sam2.1-hiera-small");
+    }
+
+    #[test]
+    fn worker_layer_carries_scene_scoped_prompt_correction_radius() {
+        let mut layer = SceneLayer::default();
+        layer.prompt_correction_radius = Some(7);
+        let info = VideoInfo {
+            width: 100,
+            height: 100,
+            fps: 30.0,
+            fps_expression: "30/1".to_string(),
+            frames: 10,
+            duration_seconds: 10.0 / 30.0,
+            start_time_seconds: 0.0,
+            constant_frame_rate: true,
+            color_range: None,
+            color_space: None,
+            color_transfer: None,
+            color_primaries: None,
+            rotation_degrees: 0,
+        };
+        let worker_layer = worker_layer(&layer, &info).unwrap();
+        assert_eq!(worker_layer.prompt_correction_radius, Some(7));
     }
 }

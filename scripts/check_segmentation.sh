@@ -44,6 +44,7 @@ bash -n \
   scripts/compare_segmentation_devices.sh \
   scripts/bakeoff_segmentation_backends.sh \
   scripts/bakeoff_segmentation_matrix.sh \
+  scripts/verify_segmentation_non_regression.sh \
   scripts/check_segmentation_capabilities.sh \
   tools/segmentation-worker
 python3 tools/check_segmentation_capabilities.py >/dev/null

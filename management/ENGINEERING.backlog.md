@@ -2,33 +2,20 @@
 
 ## EN.Hom.02-001 -- Close contract debt for the 11 uncontracted video assets
 1. Audit the 11 video assets currently lacking `contract.toml` in `assets/homologation/`:
-   - `16_9_ancient_ruins_stone_plaque`
-   - `16_9_abandoned_subway_moss_bronze_plaque`
-   - `16_9_coastal_cliff_brass_plaque`
-   - `16_9_desert_monolith_gold_plaque`
-   - `16_9_forest_shrine_stone_plaque`
-   - `16_9_industrial_pipe_steel_plaque`
-   - `16_9_mountain_pass_granite_plaque`
-   - `16_9_neon_cyberpunk_glass_plaque`
-   - `16_9_space_station_titanium_plaque`
-   - `9_16_lonely_ogre_holographic_static_plaque`
+   - `16_9_holographic_datacenter_static_plaque`
+   - `16_9_plaqueless_mountain_top_night`
+   - `16_9_plaqueless_swamp`
+   - `16_9_swamp_iron_plaque`
    - `16_9_swamp_wooden_plaque_foreground_vines_and_lizard`
+   - `9_16_background_ogre_dear`
+   - `9_16_lonely_ogre_holographic_static_plaque`
+   - `9_16_plaqueless_datacenter_lab`
+   - `9_16_plaqueless_neon_datacenter_ground_hole`
+   - `9_16_scrappy_datacenter_holographic_plaque`
+   - `9_16_swamp_wooden_plaque`
 2. Run baseline renders with standard text and policy styles.
 3. Review rendered outputs, confirm visual quality, and generate formal `contract.toml` files with empirical tolerances for `source_preservation` and `title_visibility`.
 4. Add all newly contracted assets to the automated full regression suite, preventing future silent degradation.
-   ==> Team. Planned: 2026-09-09;
-
-## EF.Seg.03-001 -- Isolate model versions, checkpoints, and hyperparameters per scene
-1. Investigate cross-scene regressions caused by shared segmentation defaults when tuning models for difficult assets.
-2. Extend `scene.toml` schema to allow scene-specific model selection (e.g. `sam2.1-hiera-small` vs `sam2.1-hiera-large`), prompt definitions, and post-processing kernels.
-3. Update `src/segmentation_strategy.rs` and `tools/segmentation_worker.py` to strictly scope parameters to the active scene request.
-4. Verify that tuning hyperparameters for `16_9_dungeon_spider_iron_plaque` causes zero mask or byte divergence on `16_9_swamp_wooden_plaque_foreground_vines_and_lizard`.
-   ==> Team. Planned: 2026-09-09;
-
-## EN.Seg.04-001 -- Automated multi-asset regression diffing and model bake-off harness
-1. Enhance `scripts/bakeoff_segmentation_matrix.sh` and `tools/compare_segmentation_outputs.py` to evaluate candidate models across all representative scenes before promotion.
-2. Implement automated computation of Intersection-over-Union (mIoU) and boundary drift against frozen golden mask references.
-3. Establish a pre-promotion gate script that blocks model upgrades if any existing homologated asset suffers mask degradation.
    ==> Team. Planned: 2026-09-09;
 
 ## EF.Seg.05-001 -- Implement temporal boundary smoothing to eliminate occluder edge chatter
@@ -42,7 +29,6 @@
 2. Highlight violating pixels in bright magenta with bounding coordinates and frame timestamps in `output/regressions/`.
 3. Provide immediate visual feedback for engineers diagnosing regression causes.
    ==> Team. Planned: 2026-09-09;
-
 
 # Started
 
@@ -66,6 +52,19 @@
 
 
 # Rolled Out
+
+## EN.Seg.04-001 -- Automated multi-asset regression diffing and model bake-off harness
+1. Enhance `scripts/bakeoff_segmentation_matrix.sh` and `tools/compare_segmentation_outputs.py` to evaluate candidate models across all representative scenes before promotion.
+2. Implement automated computation of Intersection-over-Union (mIoU) and boundary drift against frozen golden mask references.
+3. Establish a pre-promotion gate script that blocks model upgrades if any existing homologated asset suffers mask degradation.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-09; Merged: 2026-09-09; Rolled Out: 2026-09-09;
+
+## EF.Seg.03-001 -- Isolate model versions, checkpoints, and hyperparameters per scene
+1. Investigate cross-scene regressions caused by shared segmentation defaults when tuning models for difficult assets.
+2. Extend `scene.toml` schema to allow scene-specific model selection (e.g. `sam2.1-hiera-small` vs `sam2.1-hiera-large`), prompt definitions, and post-processing kernels.
+3. Update `src/segmentation_strategy.rs` and `tools/segmentation_worker.py` to strictly scope parameters to the active scene request.
+4. Verify that tuning hyperparameters for `16_9_dungeon_spider_iron_plaque` causes zero mask or byte divergence on `16_9_swamp_wooden_plaque_foreground_vines_and_lizard`.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-09; Merged: 2026-09-09; Rolled Out: 2026-09-09;
 
 ## EN.Arch.01-001 -- Modular pipeline architecture separation
 1. Restructure codebase into clean domain pipelines: `analyze`, `render`, `segmentation`, `homologation`, `media`, and `verify`.

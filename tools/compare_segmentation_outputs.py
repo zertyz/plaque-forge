@@ -117,9 +117,16 @@ def _compare_pair(
 def compare(left: Path, right: Path) -> dict:
     left_paths = mask_paths(left)
     right_paths = mask_paths(right)
-    if len(left_paths) != len(right_paths):
+    left_by_name = {p.name: p for p in left_paths}
+    right_by_name = {p.name: p for p in right_paths}
+    common_names = sorted(set(left_by_name.keys()) & set(right_by_name.keys()))
+    if common_names:
+        pairs = [(left_by_name[name], right_by_name[name]) for name in common_names]
+    elif len(left_paths) == len(right_paths):
+        pairs = list(zip(left_paths, right_paths))
+    else:
         raise ValueError(
-            f"frame-count mismatch: {left} has {len(left_paths)}, {right} has {len(right_paths)}"
+            f"frame-count mismatch and no common filenames: {left} has {len(left_paths)}, {right} has {len(right_paths)}"
         )
 
     histogram = np.zeros(MAX_U16 + 1, dtype=np.uint64)
@@ -145,11 +152,11 @@ def compare(left: Path, right: Path) -> dict:
         affinity = 0
     cpus = affinity if affinity else (os.cpu_count() or 1)
     workers = 1
-    if len(left_paths) > 1 and cpus > 1:
-        workers = min(2, len(left_paths), cpus)
+    if len(pairs) > 1 and cpus > 1:
+        workers = min(2, len(pairs), cpus)
 
     if workers <= 1:
-        for pair in zip(left_paths, right_paths):
+        for pair in pairs:
             (
                 counts,
                 p_count,
@@ -176,7 +183,7 @@ def compare(left: Path, right: Path) -> dict:
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
                 pool.submit(_compare_pair, pair): pair
-                for pair in zip(left_paths, right_paths)
+                for pair in pairs
             }
             for future in concurrent.futures.as_completed(futures):
                 (
@@ -208,7 +215,7 @@ def compare(left: Path, right: Path) -> dict:
         "format": "plaque-forge.segmentation-drift/1",
         "left": str(left),
         "right": str(right),
-        "frames": len(left_paths),
+        "frames": len(pairs),
         "pixels": pixels,
         "alpha": {
             "mean_absolute": mean_stored / MAX_U16,
@@ -230,6 +237,33 @@ def compare(left: Path, right: Path) -> dict:
     }
 
 
+def check_acceptance(
+    report: dict,
+    min_iou: float | None = None,
+    max_mean_absolute: float | None = None,
+    max_disagreement_fraction: float | None = None,
+    max_p95_absolute: float | None = None,
+) -> list[str]:
+    failures = []
+    if min_iou is not None:
+        iou = float(report.get("binary_at_0_5", {}).get("iou", 0.0))
+        if iou < min_iou:
+            failures.append(f"binary_at_0_5.iou {iou:.4f} < threshold {min_iou:.4f}")
+    if max_mean_absolute is not None:
+        mae = float(report.get("alpha", {}).get("mean_absolute", 0.0))
+        if mae > max_mean_absolute:
+            failures.append(f"alpha.mean_absolute {mae:.4f} > threshold {max_mean_absolute:.4f}")
+    if max_disagreement_fraction is not None:
+        dis = float(report.get("binary_at_0_5", {}).get("disagreement_fraction", 0.0))
+        if dis > max_disagreement_fraction:
+            failures.append(f"binary_at_0_5.disagreement_fraction {dis:.4f} > threshold {max_disagreement_fraction:.4f}")
+    if max_p95_absolute is not None:
+        p95 = float(report.get("alpha", {}).get("p95_absolute", 0.0))
+        if p95 > max_p95_absolute:
+            failures.append(f"alpha.p95_absolute {p95:.4f} > threshold {max_p95_absolute:.4f}")
+    return failures
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("left", type=Path)
@@ -237,6 +271,9 @@ def main() -> None:
     parser.add_argument("--json", type=Path)
     parser.add_argument("--max-mean-absolute", type=float)
     parser.add_argument("--min-iou", type=float)
+    parser.add_argument("--max-disagreement-fraction", type=float)
+    parser.add_argument("--max-p95-absolute", type=float)
+    parser.add_argument("--report-failures", action="store_true")
     args = parser.parse_args()
 
     report = compare(args.left, args.right)
@@ -246,15 +283,18 @@ def main() -> None:
         args.json.write_text(text, encoding="utf-8")
     print(text, end="")
 
-    failed = False
-    if (
-        args.max_mean_absolute is not None
-        and report["alpha"]["mean_absolute"] > args.max_mean_absolute
-    ):
-        failed = True
-    if args.min_iou is not None and report["binary_at_0_5"]["iou"] < args.min_iou:
-        failed = True
-    raise SystemExit(1 if failed else 0)
+    failures = check_acceptance(
+        report,
+        min_iou=args.min_iou,
+        max_mean_absolute=args.max_mean_absolute,
+        max_disagreement_fraction=args.max_disagreement_fraction,
+        max_p95_absolute=args.max_p95_absolute,
+    )
+    if failures and args.report_failures:
+        import sys
+        for failure in failures:
+            print(f"[REGRESSION] {failure}", file=sys.stderr)
+    raise SystemExit(1 if failures else 0)
 
 
 if __name__ == "__main__":

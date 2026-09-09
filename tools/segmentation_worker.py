@@ -943,6 +943,9 @@ def apply_authored_sam2_prompt_corrections(request, guides, tracked, radius=4):
     Limiting its confidence to a small neighborhood of Cutie's current support keeps
     unrelated SAM2 objects and inter-prompt propagation failures out of the result.
     """
+    configured_radius = request.get("layer", {}).get("prompt_correction_radius")
+    if configured_radius is not None:
+        radius = int(configured_radius)
     prompt_frames = {prompt["frame"] for prompt in request["layer"]["prompts"]}
     corrected = []
     for frame, probability in enumerate(tracked):

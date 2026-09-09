@@ -298,6 +298,44 @@ pub struct SceneLayer {
     pub subject: LayerSubject,
     #[serde(default)]
     pub prompts: Vec<SegmentationPrompt>,
+    /// Optional per-scene segmentation backend override (e.g. `sam2`, `cutie`, `sam2-cutie`, `matanyone2`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    /// Optional per-scene foundation model override (e.g. `facebook/sam2.1-hiera-large`, `facebook/sam2.1-hiera-small`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Optional per-scene segmentation profile override (`preview`, `balanced`, `canonical`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// Optional per-scene numeric precision override (`fp32`, `bf16`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precision: Option<String>,
+    /// Optional per-scene radius for SAM2 prompt guidance dilation disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_correction_radius: Option<usize>,
+}
+
+impl Default for SceneLayer {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            role: LayerRole::Foreground,
+            surface: String::new(),
+            in_front_of: None,
+            artifact: None,
+            active_frames: None,
+            affects_layout: true,
+            affects_tracking: true,
+            matte: LayerMatte::default(),
+            subject: LayerSubject::default(),
+            prompts: Vec::new(),
+            backend: None,
+            model: None,
+            profile: None,
+            precision: None,
+            prompt_correction_radius: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1635,6 +1673,31 @@ mod tests {
             path,
             PathBuf::from("output/experiment/analysis/layers/foreground/artifact.toml")
         );
+    }
+
+    #[test]
+    fn scene_layer_deserializes_explicit_model_and_segmentation_tuning() {
+        let layer: SceneLayer = toml::from_str(
+            r#"
+                id = "spider"
+                role = "foreground"
+                surface = "iron-plaque"
+                backend = "sam2-cutie"
+                model = "facebook/sam2.1-hiera-large"
+                profile = "canonical"
+                precision = "fp32"
+                prompt_correction_radius = 6
+                [[prompts]]
+                frame = 0
+                object = "spider"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(layer.backend.as_deref(), Some("sam2-cutie"));
+        assert_eq!(layer.model.as_deref(), Some("facebook/sam2.1-hiera-large"));
+        assert_eq!(layer.profile.as_deref(), Some("canonical"));
+        assert_eq!(layer.precision.as_deref(), Some("fp32"));
+        assert_eq!(layer.prompt_correction_radius, Some(6));
     }
 
     #[test]
