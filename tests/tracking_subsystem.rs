@@ -255,3 +255,88 @@ fn trajectory_jerk_metric_sensitively_detects_single_frame_jitter() {
         "single-frame jitter must be sensitively detected by acceleration metric, got {jittery_acc}"
     );
 }
+
+#[test]
+fn trajectory_stability_under_erratic_camera_pans_maintains_temporal_continuity() {
+    let root = support::repository_root();
+    let scenes_to_verify = [
+        "16_9_mountain_top_day_hummingbird_cloudy_plaque",
+        "moving-holographic-plaque",
+    ];
+
+    let base_rect = Quad::from_rect(0.0, 0.0, 300.0, 100.0);
+
+    for scene_name in scenes_to_verify {
+        let traj_path = root.join(format!("assets/analysis/{scene_name}/trajectory.json"));
+        assert!(
+            traj_path.is_file(),
+            "trajectory.json missing for {scene_name}"
+        );
+
+        let content = std::fs::read_to_string(&traj_path).expect("read trajectory.json");
+        let samples: Vec<plaque_forge::model::MotionSample> =
+            serde_json::from_str(&content).expect("deserialize samples");
+
+        assert!(
+            samples.len() > 10,
+            "trajectory must have sufficient frame samples, got {}",
+            samples.len()
+        );
+
+        // Compute mapped quads for each frame
+        let quads: Vec<Quad> = samples
+            .iter()
+            .map(|s| {
+                let mapped_tl = s.transform.transform(PointF {
+                    x: base_rect.tl.x,
+                    y: base_rect.tl.y,
+                });
+                let mapped_tr = s.transform.transform(PointF {
+                    x: base_rect.tr.x,
+                    y: base_rect.tr.y,
+                });
+                let mapped_br = s.transform.transform(PointF {
+                    x: base_rect.br.x,
+                    y: base_rect.br.y,
+                });
+                let mapped_bl = s.transform.transform(PointF {
+                    x: base_rect.bl.x,
+                    y: base_rect.bl.y,
+                });
+                let q = Quad::new(
+                    Point::new(mapped_tl.x, mapped_tl.y),
+                    Point::new(mapped_tr.x, mapped_tr.y),
+                    Point::new(mapped_br.x, mapped_br.y),
+                    Point::new(mapped_bl.x, mapped_bl.y),
+                );
+                assert!(
+                    q.validate(scene_name).is_ok(),
+                    "quad must be geometrically valid in {scene_name}"
+                );
+                assert!(
+                    q.orientation() > 0.0,
+                    "quad must have positive orientation in {scene_name}"
+                );
+                q
+            })
+            .collect();
+
+        // Verify continuity without single-frame spatial jumps (acceleration/jerk bound)
+        let mut max_jerk = 0.0_f64;
+        for i in 1..(quads.len() - 1) {
+            let prev = quads[i - 1].tl;
+            let curr = quads[i].tl;
+            let next = quads[i + 1].tl;
+            let acc_x = (next.x - curr.x) - (curr.x - prev.x);
+            let acc_y = (next.y - curr.y) - (curr.y - prev.y);
+            let jerk = acc_x.hypot(acc_y);
+            max_jerk = max_jerk.max(jerk);
+        }
+
+        // Under smooth camera motion and regularized tracking, jerk is strictly bounded
+        assert!(
+            max_jerk < 25.0,
+            "trajectory in {scene_name} experienced excessive spatial jerk: {max_jerk}px"
+        );
+    }
+}

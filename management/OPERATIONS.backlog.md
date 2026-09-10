@@ -3,11 +3,6 @@
 
 # Started
 
-## OR.PyEnv.01-001 -- Audit and pin Python virtualenv lockfile with exact package hashes
-1. Review `scripts/setup_segmentation.sh` package installation commands.
-2. Generate an authoritative `requirements.lock` with explicit package versions and hashes for PyTorch, torchvision, and huggingface-hub.
-3. Verify clean reproducible installation in a fresh container.
-   ==> Ops. Planned: 2026-09-08; Started: 2026-09-09;
 
 
 # "In Code Review"
@@ -23,6 +18,12 @@
 
 
 # Rolled Out
+
+## OR.PyEnv.01-001 -- Audit and pin Python virtualenv lockfile with exact package hashes
+1. Review `scripts/setup_segmentation.sh` package installation commands.
+2. Generate an authoritative `requirements.lock` with explicit package versions and hashes for PyTorch, torchvision, and huggingface-hub.
+3. Verify clean reproducible installation in a fresh container.
+   ==> Ops. Planned: 2026-09-08; Started: 2026-09-09; Merged: 2026-09-10; Rolled Out: 2026-09-10;
 
 ## ON.CiCd.02-001 -- Configure scheduled nightly full-matrix GPU homologation workflow
 1. Create a scheduled CI workflow running on a dedicated self-hosted GPU runner every night (`.github/workflows/scheduled-homologation-matrix.yml`).

@@ -1,3 +1,5 @@
+mod support;
+
 use plaque_forge::{color::Rgba, surface::Surface, writable_region::WritableRegion};
 
 #[test]
@@ -192,5 +194,76 @@ fn shader_procedural_material_interpolates_smoothly_within_bounds() {
         assert_eq!(color.a, 255);
         assert!(color.r >= 80, "red channel stays within expected bounds");
         assert!(color.g >= 50, "green channel stays within expected bounds");
+    }
+}
+
+#[test]
+fn specular_highlight_dynamics_sweep_anisotropically_and_preserve_contrast() {
+    use plaque_forge::render::effects::Style;
+
+    let root = support::repository_root();
+    let gold_style_path = root.join("styles/gold-shine.toml");
+    let chrome_style_path = root.join("styles/chrome-shine.toml");
+
+    for style_path in [&gold_style_path, &chrome_style_path] {
+        assert!(
+            style_path.is_file(),
+            "style file missing: {}",
+            style_path.display()
+        );
+        let style = Style::from_file(style_path).expect("load style");
+
+        let width = 200u32;
+        let height = 50u32;
+        let mut glyph_mask = vec![0u8; (width * height) as usize];
+        // Inscribe a central text box glyph mask
+        for y in 10..40 {
+            for x in 20..180 {
+                glyph_mask[(y * width + x) as usize] = 255;
+            }
+        }
+
+        // Evaluate sweep progression across shine cycle
+        let mut sweep_centers = Vec::new();
+        for t in [0.7, 1.4, 2.1] {
+            let overlay = style
+                .frame_overlay(&glyph_mask, width, height, t)
+                .expect("render frame overlay")
+                .expect("shine animation should produce surface");
+
+            // Calculate x center of mass for shine intensity
+            let mut weighted_x = 0.0f64;
+            let mut total_alpha = 0.0f64;
+            for y in 0..height {
+                for x in 0..width {
+                    let pixel = overlay.pixel(x, y);
+                    if pixel.a > 0 {
+                        weighted_x += x as f64 * pixel.a as f64;
+                        total_alpha += pixel.a as f64;
+                    }
+                }
+            }
+
+            assert!(
+                total_alpha > 0.0,
+                "specular flash must produce visible highlight at t={t}"
+            );
+            let center_x = weighted_x / total_alpha;
+            sweep_centers.push(center_x);
+        }
+
+        // Verify monotonic progression of the shine band across the title geometry
+        assert!(
+            sweep_centers[1] > sweep_centers[0],
+            "specular highlight must advance monotonically: {} <= {}",
+            sweep_centers[1],
+            sweep_centers[0]
+        );
+        assert!(
+            sweep_centers[2] > sweep_centers[1],
+            "specular highlight must advance monotonically: {} <= {}",
+            sweep_centers[2],
+            sweep_centers[1]
+        );
     }
 }

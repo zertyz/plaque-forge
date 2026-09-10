@@ -2,7 +2,12 @@ mod support;
 
 use std::fs;
 
-use plaque_forge::scene::{LayerRole, Scene, SurfaceSpace};
+use plaque_forge::{
+    scene::{LayerMatte, LayerMatteMode, LayerRole, LayerSubject, Scene, SurfaceSpace},
+    segmentation_strategy::{
+        PlanningInput, SegmentationPrecision, SegmentationProfile, SemanticBackend, strategy,
+    },
+};
 
 use support::repository_root;
 
@@ -190,4 +195,139 @@ fn every_scene_has_valid_surfaces_and_sources() {
     }
 
     assert!(scenes > 0, "no scene fixtures were exercised");
+}
+
+#[test]
+fn scene_specific_parameter_profiles_are_strictly_isolated_from_defaults() {
+    let root = repository_root();
+    let scenes_dir = root.join("assets/scenes");
+    assert!(scenes_dir.is_dir(), "assets/scenes must exist");
+
+    // 1. Verify scene-specific overrides are isolated to the configured scene
+    let spider_scene_path = scenes_dir.join("16_9_dungeon_spider_iron_plaque/scene.toml");
+    let spider_scene = Scene::load(&spider_scene_path).expect("failed to load spider scene");
+    let spider_layer = spider_scene
+        .layers
+        .iter()
+        .find(|l| l.id == "spider")
+        .expect("spider layer must exist");
+
+    assert_eq!(
+        spider_layer.temporal_smoothing,
+        Some(true),
+        "spider layer must isolate temporal smoothing override"
+    );
+    assert_eq!(
+        spider_layer.matte.mode,
+        LayerMatteMode::Opaque,
+        "spider layer must isolate opaque matte override"
+    );
+
+    // Baseline scene must NOT have temporal smoothing or opaque matte overrides
+    let swamp_scene_path = scenes_dir.join("16_9_swamp_wooden_plaque/scene.toml");
+    let swamp_scene = Scene::load(&swamp_scene_path).expect("failed to load swamp scene");
+    for layer in &swamp_scene.layers {
+        assert_eq!(
+            layer.temporal_smoothing,
+            None,
+            "swamp scene layers must preserve default temporal smoothing (None)"
+        );
+        assert_eq!(
+            layer.prompt_correction_radius,
+            None,
+            "swamp scene layers must preserve default prompt_correction_radius (None)"
+        );
+        assert_eq!(
+            layer.backend,
+            None,
+            "swamp scene layers must preserve default backend (None)"
+        );
+        assert_eq!(
+            layer.model,
+            None,
+            "swamp scene layers must preserve default model (None)"
+        );
+        assert_eq!(
+            layer.matte,
+            LayerMatte::default(),
+            "swamp scene layers must preserve default matte policy"
+        );
+    }
+
+    // 2. Verify segmentation strategy planning is pure and maintains complete cross-scene isolation
+    let baseline_input = PlanningInput {
+        profile: SegmentationProfile::Canonical,
+        precision_override: None,
+        backend_override: "auto",
+        model_override: "auto",
+        role: LayerRole::Foreground,
+        matte_mode: LayerMatteMode::Optical,
+        subject: LayerSubject::Unspecified,
+        prompts: &[],
+    };
+
+    let initial_plan = strategy(baseline_input).expect("failed to plan baseline");
+    assert_eq!(
+        initial_plan.candidates[0].semantic_backend,
+        SemanticBackend::Sam2Cutie
+    );
+    assert_eq!(
+        initial_plan.candidates[0].precision,
+        SegmentationPrecision::Fp32
+    );
+
+    // Plan for a tuned scene with explicit backend override
+    let tuned_input = PlanningInput {
+        profile: SegmentationProfile::Preview,
+        precision_override: Some(SegmentationPrecision::Bf16),
+        backend_override: "sam2",
+        model_override: "facebook/sam2.1-hiera-small",
+        role: LayerRole::Foreground,
+        matte_mode: LayerMatteMode::Optical,
+        subject: LayerSubject::Unspecified,
+        prompts: &[],
+    };
+    let tuned_plan = strategy(tuned_input).expect("failed to plan tuned input");
+    assert_eq!(
+        tuned_plan.candidates[0].semantic_backend,
+        SemanticBackend::Sam2
+    );
+    assert_eq!(
+        tuned_plan.candidates[0].precision,
+        SegmentationPrecision::Bf16
+    );
+    assert_eq!(
+        tuned_plan.candidates[0].semantic_model,
+        "facebook/sam2.1-hiera-small"
+    );
+
+    // Plan baseline input again to confirm zero leakage or persistent global state mutation
+    let repeat_input = PlanningInput {
+        profile: SegmentationProfile::Canonical,
+        precision_override: None,
+        backend_override: "auto",
+        model_override: "auto",
+        role: LayerRole::Foreground,
+        matte_mode: LayerMatteMode::Optical,
+        subject: LayerSubject::Unspecified,
+        prompts: &[],
+    };
+    let repeat_plan = strategy(repeat_input).expect("failed to re-plan baseline");
+    assert_eq!(
+        repeat_plan.candidates[0],
+        initial_plan.candidates[0],
+        "re-planning baseline must yield identical plan without leakage from tuned inputs"
+    );
+
+    // 3. Verify multi-asset regression gate scripts are present and executable
+    let bakeoff_script = root.join("scripts/bakeoff_segmentation_matrix.sh");
+    let matrix_script = root.join("scripts/run_homologation_matrix.sh");
+    assert!(
+        bakeoff_script.is_file(),
+        "scripts/bakeoff_segmentation_matrix.sh must be present"
+    );
+    assert!(
+        matrix_script.is_file(),
+        "scripts/run_homologation_matrix.sh must be present"
+    );
 }

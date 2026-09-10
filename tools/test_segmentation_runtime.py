@@ -139,6 +139,19 @@ class SegmentationRuntimeContractTests(unittest.TestCase):
                 int(revision, 16)
                 self.assertEqual(model_revision(model), {"revision": revision})
 
+    def test_requirements_lock_pins_core_dependencies_with_hashes(self):
+        from pathlib import Path
+        lock_path = Path(__file__).resolve().parent / "requirements.lock"
+        self.assertTrue(lock_path.is_file(), "tools/requirements.lock must exist")
+        content = lock_path.read_text(encoding="utf-8")
+
+        # Must contain pinned versions and hashes for core dependencies
+        for package in ("torch==", "torchvision==", "huggingface-hub==", "transformers==", "numpy=="):
+            self.assertIn(package, content, f"{package} must be pinned in requirements.lock")
+
+        # Verify hashes are present
+        self.assertIn("--hash=sha256:", content, "requirements.lock must contain sha256 hashes")
+
 
 if __name__ == "__main__":
     unittest.main()

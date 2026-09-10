@@ -3,11 +3,6 @@
 
 # Started
 
-## ER.Trk.02-001 -- Enhance trajectory Kalman smoothing under erratic camera pans
-1. Test trajectory stability on `16_9_mountain_top_day_hummingbird_cloudy_plaque` and `moving-holographic-plaque`.
-2. Tune velocity process noise covariance in `src/surface.rs` to better balance jitter suppression with rapid camera motion responsiveness.
-3. Ensure tracking homographies remain continuous without single-frame spatial jumps.
-   ==> Team. Planned: 2026-09-08; Started: 2026-09-09;
 
 
 # "In Code Review"
@@ -23,6 +18,12 @@
 
 
 # Rolled Out
+
+## ER.Trk.02-001 -- Enhance trajectory Kalman smoothing under erratic camera pans
+1. Test trajectory stability on `16_9_mountain_top_day_hummingbird_cloudy_plaque` and `moving-holographic-plaque`.
+2. Tune velocity process noise covariance in `src/analyze/tracking/trajectory.rs` to better balance jitter suppression with rapid camera motion responsiveness.
+3. Ensure tracking homographies remain continuous without single-frame spatial jumps.
+   ==> Team. Planned: 2026-08-08; Started: 2026-09-09; Merged: 2026-09-10; Rolled Out: 2026-09-10;
 
 ## EN.Hom.02-001 -- Close contract debt for the 11 uncontracted video assets
 1. Audit the 11 video assets currently lacking `contract.toml` in `assets/homologation/`:

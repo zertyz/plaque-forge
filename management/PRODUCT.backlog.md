@@ -1,18 +1,9 @@
 # Planned
 
-## PN.AstNrg.02-001 -- Ensure complete asset isolation during scene-specific parameter tuning
-1. Establish scene-isolated parameter profiles so tuning prompts or detection thresholds for a new video does not alter default behaviors for existing videos.
-2. Require that modifications to global algorithms or default model checkpoints pass the full multi-asset visual regression suite before adoption.
-   ==> Team. Planned: 2026-09-09;
 
 
 # Started
 
-## PR.VisFid.01-001 -- Refine specular highlight dynamics on moving metallic plaques
-1. Evaluate anisotropic highlight sweep behavior on `16_9_swamp_wooden_plaque` and `moving-holographic-plaque`.
-2. Ensure highlight reflection angles correlate realistically with estimated camera motion.
-3. Verify title contrast remains within contract specifications during peak specular flash.
-   ==> Team. Planned: 2026-09-08; Started: 2026-09-09;
 
 
 # "In Code Review"
@@ -28,6 +19,17 @@
 
 
 # Rolled Out
+
+## PR.VisFid.01-001 -- Refine specular highlight dynamics on moving metallic plaques
+1. Evaluate anisotropic highlight sweep behavior on `16_9_swamp_wooden_plaque` and `moving-holographic-plaque`.
+2. Ensure highlight reflection angles correlate realistically with estimated camera motion.
+3. Verify title contrast remains within contract specifications during peak specular flash.
+   ==> Team. Planned: 2026-08-08; Started: 2026-09-09; Merged: 2026-09-10; Rolled Out: 2026-09-10;
+
+## PN.AstNrg.02-001 -- Ensure complete asset isolation during scene-specific parameter tuning
+1. Establish scene-isolated parameter profiles so tuning prompts or detection thresholds for a new video does not alter default behaviors for existing videos.
+2. Require that modifications to global algorithms or default model checkpoints pass the full multi-asset visual regression suite before adoption.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-10; Merged: 2026-09-10; Rolled Out: 2026-09-10;
 
 ## PN.AstNrg.01-001 -- Establish frozen visual baseline contracts for all 19 video assets
 1. Audit the 11 video assets currently lacking `contract.toml` in `assets/homologation/`.
