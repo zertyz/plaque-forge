@@ -119,6 +119,10 @@ struct WorkerLayer {
     seed_masks: Vec<WorkerSeedMask>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     prompt_correction_radius: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    temporal_smoothing: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    temporal_smoothing_strength: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -393,6 +397,8 @@ fn worker_layer(layer: &crate::scene::SceneLayer, info: &VideoInfo) -> Result<Wo
             .collect::<Result<Vec<_>>>()?,
         seed_masks: Vec::new(),
         prompt_correction_radius: layer.prompt_correction_radius,
+        temporal_smoothing: layer.temporal_smoothing,
+        temporal_smoothing_strength: layer.temporal_smoothing_strength,
     })
 }
 
@@ -1427,6 +1433,8 @@ pub fn refine_automatic_foreground(request: AutomaticForegroundRequest<'_>) -> R
             .collect::<Result<Vec<_>>>()?,
         prompts,
         prompt_correction_radius: None,
+        temporal_smoothing: None,
+        temporal_smoothing_strength: None,
     };
     let strategy = segmentation_strategy::strategy(PlanningInput {
         profile: SegmentationProfile::parse(request.profile)?,
@@ -2676,6 +2684,8 @@ mod adaptive_evidence_tests {
     fn worker_layer_carries_scene_scoped_prompt_correction_radius() {
         let mut layer = SceneLayer::default();
         layer.prompt_correction_radius = Some(7);
+        layer.temporal_smoothing = Some(true);
+        layer.temporal_smoothing_strength = Some(0.25);
         let info = VideoInfo {
             width: 100,
             height: 100,
@@ -2693,5 +2703,7 @@ mod adaptive_evidence_tests {
         };
         let worker_layer = worker_layer(&layer, &info).unwrap();
         assert_eq!(worker_layer.prompt_correction_radius, Some(7));
+        assert_eq!(worker_layer.temporal_smoothing, Some(true));
+        assert_eq!(worker_layer.temporal_smoothing_strength, Some(0.25));
     }
 }

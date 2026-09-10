@@ -21,9 +21,11 @@ Traceability connects requirements, work items, implementation, and verification
 | `E.Seg.02` | `EN.Seg.02-001` | Rolled Out | [tools/segmentation_runtime.py](file:///root/opencode/plaque-forge/tools/segmentation_runtime.py); [tools/test_segmentation_runtime.py](file:///root/opencode/plaque-forge/tools/test_segmentation_runtime.py) |
 | `E.Seg.03` | `EF.Seg.03-001` | Rolled Out | [src/scene.rs](file:///root/opencode/plaque-forge/src/scene.rs), [src/segmentation.rs](file:///root/opencode/plaque-forge/src/segmentation.rs), [tools/segmentation_worker.py](file:///root/opencode/plaque-forge/tools/segmentation_worker.py); [scripts/check_homologated_assets.sh](file:///root/opencode/plaque-forge/scripts/check_homologated_assets.sh) |
 | `E.Seg.04` | `EN.Seg.04-001` | Rolled Out | [tools/compare_segmentation_outputs.py](file:///root/opencode/plaque-forge/tools/compare_segmentation_outputs.py), [scripts/bakeoff_segmentation_matrix.sh](file:///root/opencode/plaque-forge/scripts/bakeoff_segmentation_matrix.sh), [scripts/verify_segmentation_non_regression.sh](file:///root/opencode/plaque-forge/scripts/verify_segmentation_non_regression.sh); [tools/test_compare_segmentation_outputs.py](file:///root/opencode/plaque-forge/tools/test_compare_segmentation_outputs.py) |
+| `E.Seg.05` | `EF.Seg.05-001` | Rolled Out | [src/scene.rs](file:///root/opencode/plaque-forge/src/scene.rs), [src/segmentation.rs](file:///root/opencode/plaque-forge/src/segmentation.rs), [tools/segmentation_worker.py](file:///root/opencode/plaque-forge/tools/segmentation_worker.py); [tools/test_segmentation_worker_quality.py](file:///root/opencode/plaque-forge/tools/test_segmentation_worker_quality.py) |
 | `E.Hom.01` | `EN.Hom.01-001` | Rolled Out | [src/homologation.rs](file:///root/opencode/plaque-forge/src/homologation.rs); [tests/homologation_contracts.rs](file:///root/opencode/plaque-forge/tests/homologation_contracts.rs) |
 | `E.Hom.02` | `EN.Hom.02-001` | Planned | [assets/homologation/](file:///root/opencode/plaque-forge/assets/homologation); inventory audit in [ASSET_VIDEOS_HUMAN_DEFINITIONS.md](file:///root/opencode/plaque-forge/ASSET_VIDEOS_HUMAN_DEFINITIONS.md) |
 | `E.Hom.03` | `EN.Hom.03-001` | Rolled Out | [scripts/check_homologated_assets.sh](file:///root/opencode/plaque-forge/scripts/check_homologated_assets.sh); CI sentinel suite |
+| `E.Tst.03` | `EN.Tst.03-001` | Rolled Out | [src/homologation.rs](file:///root/opencode/plaque-forge/src/homologation.rs); [src/homologation.rs](file:///root/opencode/plaque-forge/src/homologation.rs) (unit tests `failed_witness_diagnostics_are_self_contained`, `failed_title_visibility_diagnostics_highlight_unmodified_pixels`) |
 | `E.Rnd.01` | `EN.Rnd.01-001` | Rolled Out | [src/color.rs](file:///root/opencode/plaque-forge/src/color.rs), [src/render/typography.rs](file:///root/opencode/plaque-forge/src/render/typography.rs); [tests/rendering_subsystem.rs](file:///root/opencode/plaque-forge/tests/rendering_subsystem.rs) |
 | `O.CiCd.01` | `ON.CiCd.01-001` | Rolled Out | [scripts/check_homologated_assets.sh](file:///root/opencode/plaque-forge/scripts/check_homologated_assets.sh); passing 5 sentinels |
 | `O.CiCd.02` | `ON.CiCd.02-001` | Planned | [scripts/run_homologation_matrix.sh](file:///root/opencode/plaque-forge/scripts/run_homologation_matrix.sh); scheduled nightly GPU workflow proposal |
@@ -39,8 +41,7 @@ The following requirement areas represent acknowledged forward capabilities whos
 1. `P.VisFid.03` -- Dynamic scene illumination adaptation.
 2. `P.OccPrs.03` -- Multi-layer shadow casting and complex depth layering.
 3. `E.Trk.01` -- Extreme motion blur homography recovery.
-4. `E.Seg.05` -- Temporal boundary smoothing for delicate occluders.
-5. `O.HwEnv.02` -- Strict cross-device FP32 determinism enforcement.
+4. `O.HwEnv.02` -- Strict cross-device FP32 determinism enforcement.
 
 
 ## Evidence Rules

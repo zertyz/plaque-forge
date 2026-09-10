@@ -1246,10 +1246,13 @@ def refine_vitmatte(request, probabilities, frames, model_name, device):
 def dense_flow(source, target):
     # Half-resolution variational flow preserves narrow vines/webs far better than
     # the former quarter-resolution FAST preset while keeping this post-pass bounded.
+    h, w = source.shape[:2]
+    if min(h, w) < 24:
+        return np.zeros((h, w, 2), dtype=np.float32)
     scale = 0.5
     size = (
-        max(1, round(source.shape[1] * scale)),
-        max(1, round(source.shape[0] * scale)),
+        max(1, round(w * scale)),
+        max(1, round(h * scale)),
     )
     source_small = cv2.resize(source, size, interpolation=cv2.INTER_AREA)
     target_small = cv2.resize(target, size, interpolation=cv2.INTER_AREA)
@@ -1259,7 +1262,7 @@ def dense_flow(source, target):
         _DIS_FLOW_LOCAL.estimator = estimator
     flow = estimator.calc(source_small, target_small, None)
     flow = cv2.resize(
-        flow, (source.shape[1], source.shape[0]), interpolation=cv2.INTER_LINEAR
+        flow, (w, h), interpolation=cv2.INTER_LINEAR
     )
     flow[..., 0] /= scale
     flow[..., 1] /= scale
@@ -1297,11 +1300,25 @@ def warp_alpha(alpha, source_gray, target_gray, forward, backward):
     return warped, weight.astype(np.float32)
 
 
-def stabilize_alpha(
-    probabilities, frames, blend_strength=0.32, propagation_headroom=None
+def smooth_temporal_boundaries(
+    probabilities,
+    frames=None,
+    blend_strength=0.25,
+    propagation_headroom=0.08,
+    method="auto",
+    boundary_radius=2,
 ):
+    """Smooth temporal boundaries on thin occluders to eliminate edge chatter.
+
+    Supports motion-compensated optical-flow stabilization when video frames are
+    supplied, and zero-phase bidirectional exponential moving average (EMA)
+    filtering with spatial support gating. In both modes, smoothing is concentrated
+    on the perimeter transition band, protecting solid interiors and preventing
+    ghosting into empty background.
+    """
     if len(probabilities) < 2:
         return probabilities
+
     original = [
         np.asarray(value, dtype=np.float32).clip(0, 1) for value in probabilities
     ]
@@ -1311,75 +1328,175 @@ def stabilize_alpha(
     start = max(0, active[0] - 1)
     end = min(len(original) - 1, active[-1] + 1)
     segment = original[start : end + 1]
-    active_frame_paths = frames[start : end + 1]
 
-    decode_workers = parallel_worker_count(len(active_frame_paths))
-    if decode_workers > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=decode_workers) as pool:
-            gray = list(
-                pool.map(
-                    lambda path: require_cv2_image(path, cv2.IMREAD_GRAYSCALE),
-                    active_frame_paths,
+    h, w = original[0].shape[:2]
+    use_optical_flow = False
+    if method == "optical-flow":
+        use_optical_flow = frames is not None and len(frames) >= len(original) and min(h, w) >= 24
+    elif method == "auto":
+        use_optical_flow = frames is not None and len(frames) >= len(original) and min(h, w) >= 24
+
+    k_support = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    k_boundary = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (boundary_radius * 2 + 1, boundary_radius * 2 + 1)
+    )
+
+    if use_optical_flow:
+        active_frame_paths = frames[start : end + 1]
+        decode_workers = parallel_worker_count(len(active_frame_paths))
+        if decode_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=decode_workers) as pool:
+                gray = list(
+                    pool.map(
+                        lambda path: require_cv2_image(path, cv2.IMREAD_GRAYSCALE),
+                        active_frame_paths,
+                    )
                 )
-            )
-    else:
-        gray = [
-            require_cv2_image(path, cv2.IMREAD_GRAYSCALE) for path in active_frame_paths
-        ]
-
-    def _calc_flow_pair(frame_idx):
-        g0 = gray[frame_idx]
-        g1 = gray[frame_idx + 1]
-        return frame_idx, (dense_flow(g0, g1), dense_flow(g1, g0))
-
-    num_pairs = len(gray) - 1
-    flow_workers = opencv_parallel_worker_count(num_pairs)
-    if flow_workers > 1 and num_pairs > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=flow_workers) as pool:
-            flows = [
-                pair[1]
-                for pair in sorted(
-                    pool.map(_calc_flow_pair, range(num_pairs)),
-                    key=lambda item: item[0],
-                )
+        else:
+            gray = [
+                require_cv2_image(path, cv2.IMREAD_GRAYSCALE) for path in active_frame_paths
             ]
-    else:
-        flows = [
-            (
-                dense_flow(gray[frame], gray[frame + 1]),
-                dense_flow(gray[frame + 1], gray[frame]),
+
+        def _calc_flow_pair(frame_idx):
+            g0 = gray[frame_idx]
+            g1 = gray[frame_idx + 1]
+            return frame_idx, (dense_flow(g0, g1), dense_flow(g1, g0))
+
+        num_pairs = len(gray) - 1
+        flow_workers = opencv_parallel_worker_count(num_pairs)
+        if flow_workers > 1 and num_pairs > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=flow_workers) as pool:
+                flows = [
+                    pair[1]
+                    for pair in sorted(
+                        pool.map(_calc_flow_pair, range(num_pairs)),
+                        key=lambda item: item[0],
+                    )
+                ]
+        else:
+            flows = [
+                (
+                    dense_flow(gray[frame], gray[frame + 1]),
+                    dense_flow(gray[frame + 1], gray[frame]),
+                )
+                for frame in range(num_pairs)
+            ]
+
+        fwd_warped = [segment[0]]
+        fwd_weights = [np.ones_like(segment[0])]
+        forward = [segment[0]]
+        for frame in range(1, len(segment)):
+            flow, backward_flow = flows[frame - 1]
+            warped, weight = warp_alpha(
+                forward[-1], gray[frame - 1], gray[frame], flow, backward_flow
             )
-            for frame in range(num_pairs)
-        ]
-    forward = [segment[0]]
-    for frame in range(1, len(segment)):
-        flow, backward_flow = flows[frame - 1]
-        warped, weight = warp_alpha(
-            forward[-1], gray[frame - 1], gray[frame], flow, backward_flow
-        )
-        blend = blend_strength * weight
-        forward.append(segment[frame] * (1 - blend) + warped * blend)
-    backward = [None] * len(segment)
-    backward[-1] = segment[-1]
-    for frame in range(len(segment) - 2, -1, -1):
-        forward_flow, flow = flows[frame]
-        warped, weight = warp_alpha(
-            backward[frame + 1], gray[frame + 1], gray[frame], flow, forward_flow
-        )
-        blend = blend_strength * weight
-        backward[frame] = segment[frame] * (1 - blend) + warped * blend
+            blend = blend_strength * weight
+            fwd_warped.append(warped)
+            fwd_weights.append(weight)
+            forward.append(segment[frame] * (1.0 - blend) + warped * blend)
+
+        bwd_warped = [None] * len(segment)
+        bwd_weights = [None] * len(segment)
+        backward = [None] * len(segment)
+        bwd_warped[-1] = segment[-1]
+        bwd_weights[-1] = np.ones_like(segment[-1])
+        backward[-1] = segment[-1]
+        for frame in range(len(segment) - 2, -1, -1):
+            forward_flow, flow = flows[frame]
+            warped, weight = warp_alpha(
+                backward[frame + 1], gray[frame + 1], gray[frame], flow, forward_flow
+            )
+            blend = blend_strength * weight
+            bwd_warped[frame] = warped
+            bwd_weights[frame] = weight
+            backward[frame] = segment[frame] * (1.0 - blend) + warped * blend
+
+        candidates = []
+        for frame in range(len(segment)):
+            cur = segment[frame]
+            w_prior = 0.5 * blend_strength * fwd_weights[frame]
+            w_nxt = 0.5 * blend_strength * bwd_weights[frame]
+            w_cur = 1.0 - (w_prior + w_nxt)
+            cand = (w_cur * cur + w_prior * fwd_warped[frame] + w_nxt * bwd_warped[frame]).clip(0, 1)
+            candidates.append(cand)
+    else:
+        # EMA bidirectional filter with spatial envelope gating
+        forward = [segment[0]]
+        for frame in range(1, len(segment)):
+            cur = segment[frame]
+            prev = forward[-1]
+            cur_presence = cv2.dilate((cur >= 0.05).astype(np.uint8), k_support) > 0
+            prev_presence = cv2.dilate((prev >= 0.05).astype(np.uint8), k_support) > 0
+            common = cur_presence & prev_presence
+            blend = np.where(common, blend_strength, 0.0).astype(np.float32)
+            fwd_pred = cur * (1.0 - blend) + prev * blend
+            forward.append(fwd_pred)
+
+        backward = [None] * len(segment)
+        backward[-1] = segment[-1]
+        for frame in range(len(segment) - 2, -1, -1):
+            cur = segment[frame]
+            nxt = backward[frame + 1]
+            cur_presence = cv2.dilate((cur >= 0.05).astype(np.uint8), k_support) > 0
+            nxt_presence = cv2.dilate((nxt >= 0.05).astype(np.uint8), k_support) > 0
+            common = cur_presence & nxt_presence
+            blend = np.where(common, blend_strength, 0.0).astype(np.float32)
+            bwd_pred = cur * (1.0 - blend) + nxt * blend
+            backward[frame] = bwd_pred
+
+        candidates = []
+        for frame in range(len(segment)):
+            cur = segment[frame]
+            prior = forward[frame - 1] if frame > 0 else cur
+            nxt = backward[frame + 1] if frame < len(segment) - 1 else cur
+
+            cur_presence = cv2.dilate((cur >= 0.05).astype(np.uint8), k_support) > 0
+            prior_presence = cv2.dilate((prior >= 0.05).astype(np.uint8), k_support) > 0
+            nxt_presence = cv2.dilate((nxt >= 0.05).astype(np.uint8), k_support) > 0
+
+            w_prior = np.where(cur_presence & prior_presence, 0.5 * blend_strength, 0.0).astype(np.float32)
+            w_nxt = np.where(cur_presence & nxt_presence, 0.5 * blend_strength, 0.0).astype(np.float32)
+            w_cur = 1.0 - (w_prior + w_nxt)
+
+            cand = (w_cur * cur + w_prior * prior + w_nxt * nxt).clip(0, 1)
+            candidates.append(cand)
+
     smoothed = []
-    for current, before, after in zip(segment, forward, backward):
-        value = (0.50 * current + 0.25 * before + 0.25 * after).clip(0, 1)
+    for current, candidate in zip(segment, candidates):
+        has_foreground = (current >= 0.05).astype(np.uint8)
+        local_envelope = cv2.dilate(has_foreground, k_support) > 0
+
+        bin_mask = (current >= 0.20).astype(np.uint8)
+        dilated = cv2.dilate(bin_mask, k_boundary)
+        eroded = cv2.erode(bin_mask, k_boundary)
+
+        val = candidate
         if propagation_headroom is not None:
-            # Temporal propagation may reinforce real thin strands but must not keep
-            # a strong invisible occluder alive when the current-frame matte no longer
-            # supports it.
-            value = np.minimum(value, np.clip(current + propagation_headroom, 0, 1))
-        smoothed.append(value.astype(np.float32))
+            headroom_cap = np.clip(current + propagation_headroom, 0, 1)
+            val = np.where(~local_envelope, np.minimum(val, headroom_cap), val)
+
+        val = np.where(local_envelope, val, 0.0)
+
+        solid_interior = (eroded > 0) & (current >= 0.98)
+        out_val = np.where(solid_interior, current, val)
+        out_val = np.clip(out_val, 0, 1).astype(np.float32)
+        smoothed.append(out_val)
+
     output = original.copy()
     output[start : end + 1] = smoothed
     return output
+
+
+def stabilize_alpha(
+    probabilities, frames, blend_strength=0.32, propagation_headroom=None
+):
+    return smooth_temporal_boundaries(
+        probabilities,
+        frames=frames,
+        blend_strength=blend_strength,
+        propagation_headroom=propagation_headroom,
+        method="optical-flow",
+    )
 
 
 def matanyone2_masks(request, output, size, frames, device):
@@ -1816,12 +1933,26 @@ def model_masks(request, frames, requested_device, output):
     probabilities = constrain_to_authored_motion_envelope(request, probabilities)
     probabilities = preserve_authored_prompt_evidence(request, probabilities)
     started = time.monotonic()
-    if role == "foreground" and matte_mode == "optical" and matte_refiner != "none":
-        probabilities = stabilize_alpha(
+    layer_cfg = request.get("layer", {})
+    temporal_smoothing = layer_cfg.get("temporal_smoothing")
+    temporal_method = layer_cfg.get("temporal_smoothing_method", "auto")
+    temporal_strength = float(layer_cfg.get("temporal_smoothing_strength", 0.20))
+
+    should_smooth = False
+    if temporal_smoothing is True:
+        should_smooth = True
+    elif temporal_smoothing is False:
+        should_smooth = False
+    elif role == "foreground" and matte_mode == "optical" and matte_refiner != "none":
+        should_smooth = True
+
+    if should_smooth:
+        probabilities = smooth_temporal_boundaries(
             probabilities,
-            frames,
-            blend_strength=0.20,
+            frames=frames,
+            blend_strength=temporal_strength,
             propagation_headroom=0.08,
+            method=temporal_method,
         )
     elapsed = time.monotonic() - started
     record_stage("Temporal stabilization", "cpu", "fp32", elapsed)

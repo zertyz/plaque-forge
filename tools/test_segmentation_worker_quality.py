@@ -166,6 +166,122 @@ class SegmentationQualityContractTests(unittest.TestCase):
         )
         self.assertEqual(corrected_default[0][5, 8], 0.8)
 
+    def test_smooth_temporal_boundaries_suppresses_high_frequency_boundary_chatter(self):
+        # Thin feature (width 2) with a sudden single-frame dip on a boundary pixel
+        f0 = np.zeros((10, 10), dtype=np.float32)
+        f1 = np.zeros((10, 10), dtype=np.float32)
+        f2 = np.zeros((10, 10), dtype=np.float32)
+        f0[4:6, 4] = 0.9
+        f1[4:6, 4] = 0.9
+        f2[4:6, 4] = 0.9
+        # Boundary pixel (4, 5) chatters: high at frame 0 and 2, dips at frame 1
+        f0[4, 5] = 0.85
+        f1[4, 5] = 0.15
+        f2[4, 5] = 0.85
+
+        smoothed = worker.smooth_temporal_boundaries(
+            [f0, f1, f2], method="ema", blend_strength=0.40
+        )
+
+        # The chatter at (4, 5) in frame 1 should be significantly smoothed/raised
+        self.assertGreater(smoothed[1][4, 5], 0.40)
+        # Adjacent solid feature should remain high
+        self.assertGreaterEqual(smoothed[1][4, 4], 0.80)
+
+    def test_smooth_temporal_boundaries_prevents_motion_ghosting_in_empty_background(self):
+        # Fast moving object: in frame 0 at [1, 1], in frame 1 at [8, 8]
+        f0 = np.zeros((10, 10), dtype=np.float32)
+        f1 = np.zeros((10, 10), dtype=np.float32)
+        f0[1:3, 1:3] = 1.0
+        f1[8:10, 8:10] = 1.0
+
+        smoothed = worker.smooth_temporal_boundaries(
+            [f0, f1], method="ema", blend_strength=0.25
+        )
+
+        # Frame 1 at [1, 1] (where object was in frame 0) must NOT have ghosting
+        self.assertEqual(smoothed[1][1, 1], 0.0)
+        # Frame 0 at [8, 8] (where object will be in frame 1) must NOT have ghosting
+        self.assertEqual(smoothed[0][8, 8], 0.0)
+
+    def test_smooth_temporal_boundaries_preserves_solid_interior(self):
+        # Large solid object
+        f0 = np.ones((10, 10), dtype=np.float32)
+        f1 = np.ones((10, 10), dtype=np.float32)
+        f2 = np.ones((10, 10), dtype=np.float32)
+
+        smoothed = worker.smooth_temporal_boundaries(
+            [f0, f1, f2], method="ema", blend_strength=0.25
+        )
+
+        # Solid interior remains 1.0
+        np.testing.assert_allclose(smoothed[1], 1.0, rtol=0, atol=1.0e-5)
+
+    def test_model_masks_applies_temporal_smoothing_for_opaque_layer_when_requested(self):
+        cutie = [
+            np.asarray([[0.9, 0.85], [0.0, 0.0]], dtype=np.float32),
+            np.asarray([[0.9, 0.15], [0.0, 0.0]], dtype=np.float32),
+            np.asarray([[0.9, 0.85], [0.0, 0.0]], dtype=np.float32),
+        ]
+        request = {
+            "plan": {
+                "semantic_backend": "cutie",
+                "matte_refiner": "none",
+                "precision": "fp32",
+            },
+            "source": {"frames": 3, "width": 2, "height": 2},
+            "layer": {
+                "role": "foreground",
+                "matte_mode": "opaque",
+                "temporal_smoothing": True,
+                "temporal_smoothing_strength": 0.35,
+                "prompts": [],
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            frames = []
+            for frame in range(3):
+                path = root / f"{frame:06}.png"
+                Image.new("RGB", (2, 2), (32, 48, 64)).save(path)
+                frames.append(path)
+            with patch.object(worker, "cached_cutie", return_value=(cutie, "cutie-test", "cpu")):
+                probabilities, version = worker.model_masks(request, frames, "cpu", root)
+
+        # Boundary pixel at (0, 1) in frame 1 should be smoothed
+        self.assertGreater(probabilities[1][0, 1], 0.35)
+
+    def test_smooth_temporal_boundaries_optical_flow_stabilization(self):
+        f0 = np.zeros((32, 32), dtype=np.float32)
+        f1 = np.zeros((32, 32), dtype=np.float32)
+        f2 = np.zeros((32, 32), dtype=np.float32)
+        f0[14:18, 14:18] = 0.9
+        f1[14:18, 14:18] = 0.9
+        f2[14:18, 14:18] = 0.9
+        # Chatter pixel on perimeter
+        f0[14, 18] = 0.85
+        f1[14, 18] = 0.15
+        f2[14, 18] = 0.85
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame_paths = []
+            for frame in range(3):
+                path = root / f"{frame:06}.png"
+                Image.new("RGB", (32, 32), (64, 64, 64)).save(path)
+                frame_paths.append(path)
+
+            smoothed = worker.smooth_temporal_boundaries(
+                [f0, f1, f2],
+                frames=frame_paths,
+                method="optical-flow",
+                blend_strength=0.30,
+            )
+
+        self.assertGreater(smoothed[1][14, 18], 0.30)
+        self.assertEqual(smoothed[1][0, 0], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

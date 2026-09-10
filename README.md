@@ -121,7 +121,7 @@ The gate checks scene geometry, typography limits, exact render provenance, and 
 reviewed foreground/source-preservation witnesses. `assets/homologation/capabilities.toml` records
 coverage by behavioral capability rather than by filename; run `plaque-forge homologation-coverage`
 to see which representative behaviors are still awaiting explicit human acceptance. Failed semantic
-witnesses emit source/render/diff/overlay images under `output/regressions/`. See
+witnesses emit side-by-side visual diffs, magenta violation overlays, and violation metadata under `output/regressions/`. See
 [Homologation](docs/HOMOLOGATION.md). CI also protects the non-Rust setup and pure-Rust analysis paths. A trusted generated-analysis producer can refresh stale ML analysis on a bot branch and explicitly dispatch validation on that generated commit; see [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md).
 
 ## 5. Review quality

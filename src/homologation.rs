@@ -659,6 +659,7 @@ fn check_visual_witnesses(
                 &rendered_frame,
                 source_info.width,
                 source_info.height,
+                source_info.fps,
                 failures,
             )?);
         }
@@ -672,6 +673,7 @@ fn check_visual_witnesses(
                 &rendered_frame,
                 source_info.width,
                 source_info.height,
+                source_info.fps,
                 failures,
             )?);
         }
@@ -707,6 +709,7 @@ fn evaluate_source_preservation(
     rendered_frame: &crate::surface::Surface,
     width: u32,
     height: u32,
+    fps: f64,
     failures: &mut Vec<String>,
 ) -> Result<SourcePreservationResult> {
     let (mask_path, mask) = load_witness_mask(args, &witness.mask, width, height)?;
@@ -733,16 +736,27 @@ fn evaluate_source_preservation(
             metrics.p95_absolute_error,
             witness.maximum_p95_absolute_error
         ));
+        let threshold = if metrics.mean_absolute_error > witness.maximum_mean_absolute_error + f64::EPSILON {
+            witness.maximum_mean_absolute_error
+        } else {
+            witness.maximum_p95_absolute_error
+        };
         witness_diagnostics(
             args,
             WitnessDiagnostic {
                 asset: &contract.asset,
                 kind: "source-preservation",
                 frame: frame_index,
+                fps: Some(fps),
                 source: source_frame,
                 rendered: rendered_frame,
                 mask: &mask,
                 mask_path: &mask_path,
+                threshold,
+                mean_error: metrics.mean_absolute_error,
+                p95_error: Some(metrics.p95_absolute_error),
+                p50_error: None,
+                total_masked_pixels: metrics.selected_pixels,
             },
         )?
     } else {
@@ -772,6 +786,7 @@ fn evaluate_title_visibility(
     rendered_frame: &crate::surface::Surface,
     width: u32,
     height: u32,
+    fps: f64,
     failures: &mut Vec<String>,
 ) -> Result<TitleVisibilityResult> {
     let (mask_path, mask) = load_witness_mask(args, &witness.mask, width, height)?;
@@ -801,16 +816,27 @@ fn evaluate_title_visibility(
             metrics.p50_absolute_error,
             witness.minimum_p50_absolute_error
         ));
+        let threshold = if metrics.mean_absolute_error + f64::EPSILON < witness.minimum_mean_absolute_error {
+            witness.minimum_mean_absolute_error
+        } else {
+            witness.minimum_p50_absolute_error
+        };
         witness_diagnostics(
             args,
             WitnessDiagnostic {
                 asset: &contract.asset,
                 kind: "title-visibility",
                 frame: frame_index,
+                fps: Some(fps),
                 source: source_frame,
                 rendered: rendered_frame,
                 mask: &mask,
                 mask_path: &mask_path,
+                threshold,
+                mean_error: metrics.mean_absolute_error,
+                p95_error: Some(metrics.p95_absolute_error),
+                p50_error: Some(metrics.p50_absolute_error),
+                total_masked_pixels: metrics.selected_pixels,
             },
         )?
     } else {
@@ -853,14 +879,39 @@ fn load_witness_mask(
     Ok((path, mask))
 }
 
-struct WitnessDiagnostic<'a> {
-    asset: &'a str,
-    kind: &'a str,
-    frame: usize,
-    source: &'a crate::surface::Surface,
-    rendered: &'a crate::surface::Surface,
-    mask: &'a image::GrayImage,
-    mask_path: &'a Path,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WitnessViolationReport {
+    pub asset: String,
+    pub kind: String,
+    pub frame: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_seconds: Option<f64>,
+    pub violating_pixels: usize,
+    pub total_masked_pixels: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounding_box: Option<[u32; 4]>,
+    pub mean_error: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p95_error: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p50_error: Option<f64>,
+    pub threshold: f64,
+}
+
+pub struct WitnessDiagnostic<'a> {
+    pub asset: &'a str,
+    pub kind: &'a str,
+    pub frame: usize,
+    pub fps: Option<f64>,
+    pub source: &'a crate::surface::Surface,
+    pub rendered: &'a crate::surface::Surface,
+    pub mask: &'a image::GrayImage,
+    pub mask_path: &'a Path,
+    pub threshold: f64,
+    pub mean_error: f64,
+    pub p95_error: Option<f64>,
+    pub p50_error: Option<f64>,
+    pub total_masked_pixels: usize,
 }
 
 fn witness_diagnostics(
@@ -943,29 +994,84 @@ fn write_witness_diagnostics(root: &Path, diagnostic: &WitnessDiagnostic<'_>) ->
 
     let mut diff = image::RgbaImage::new(width, height);
     let mut witness = rendered_image.clone();
+    let mut magenta_overlay = rendered_image.clone();
+
+    let mut min_x = u32::MAX;
+    let mut min_y = u32::MAX;
+    let mut max_x = 0;
+    let mut max_y = 0;
+    let mut violating_pixels = 0;
+
     for (index, pixel) in diff.pixels_mut().enumerate() {
+        let x = (index as u32) % width;
+        let y = (index as u32) / width;
         let offset = index * 4;
+        let r_diff = source_bytes[offset].abs_diff(rendered_bytes[offset]);
+        let g_diff = source_bytes[offset + 1].abs_diff(rendered_bytes[offset + 1]);
+        let b_diff = source_bytes[offset + 2].abs_diff(rendered_bytes[offset + 2]);
         *pixel = image::Rgba([
-            source_bytes[offset]
-                .abs_diff(rendered_bytes[offset])
-                .saturating_mul(3),
-            source_bytes[offset + 1]
-                .abs_diff(rendered_bytes[offset + 1])
-                .saturating_mul(3),
-            source_bytes[offset + 2]
-                .abs_diff(rendered_bytes[offset + 2])
-                .saturating_mul(3),
+            r_diff.saturating_mul(3),
+            g_diff.saturating_mul(3),
+            b_diff.saturating_mul(3),
             255,
         ]);
         if diagnostic.mask.as_raw()[index] != 0 {
-            let target = witness.get_pixel_mut(index as u32 % width, index as u32 / width);
+            let target = witness.get_pixel_mut(x, y);
             target.0[0] = (target.0[0] / 2).saturating_add(127);
             target.0[1] /= 2;
             target.0[2] /= 2;
+
+            let mean_diff = (r_diff as f64 + g_diff as f64 + b_diff as f64) / 3.0;
+            let is_violating = match diagnostic.kind {
+                "source-preservation" => {
+                    mean_diff > diagnostic.threshold
+                        || (mean_diff > 0.0 && diagnostic.threshold <= f64::EPSILON)
+                }
+                "title-visibility" => mean_diff < diagnostic.threshold,
+                _ => mean_diff > diagnostic.threshold,
+            };
+
+            if is_violating {
+                violating_pixels += 1;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+                magenta_overlay.put_pixel(x, y, image::Rgba([255, 0, 255, 255]));
+            }
         }
     }
     diff.save(directory.join("diff-3x.png"))?;
     witness.save(directory.join("witness-overlay.png"))?;
+    magenta_overlay.save(directory.join("violation-overlay.png"))?;
+
+    let mut side_by_side = image::RgbaImage::new(width * 3, height);
+    image::imageops::replace(&mut side_by_side, &source_image, 0, 0);
+    image::imageops::replace(&mut side_by_side, &rendered_image, i64::from(width), 0);
+    image::imageops::replace(&mut side_by_side, &magenta_overlay, i64::from(width * 2), 0);
+    side_by_side.save(directory.join("side-by-side.png"))?;
+
+    let bounding_box = if violating_pixels > 0 {
+        Some([min_x, min_y, max_x - min_x + 1, max_y - min_y + 1])
+    } else {
+        None
+    };
+    let violation_report = WitnessViolationReport {
+        asset: diagnostic.asset.to_string(),
+        kind: diagnostic.kind.to_string(),
+        frame: diagnostic.frame,
+        timestamp_seconds: diagnostic.fps.map(|fps| diagnostic.frame as f64 / fps),
+        violating_pixels,
+        total_masked_pixels: diagnostic.total_masked_pixels,
+        bounding_box,
+        mean_error: diagnostic.mean_error,
+        p95_error: diagnostic.p95_error,
+        p50_error: diagnostic.p50_error,
+        threshold: diagnostic.threshold,
+    };
+    let json = serde_json::to_string_pretty(&violation_report)?;
+    fs::write(directory.join("violation.json"), json)?;
+
     fs::copy(diagnostic.mask_path, directory.join("witness-mask.png")).with_context(|| {
         format!(
             "failed to copy witness mask {}",
@@ -1107,10 +1213,16 @@ mod tests {
                 asset: "asset",
                 kind: "source-preservation",
                 frame: 7,
+                fps: Some(24.0),
                 source: &source,
                 rendered: &rendered,
                 mask: &mask,
                 mask_path: &mask_path,
+                threshold: 5.0,
+                mean_error: 6.67,
+                p95_error: Some(6.67),
+                p50_error: None,
+                total_masked_pixels: 1,
             },
         )
         .unwrap();
@@ -1120,9 +1232,113 @@ mod tests {
             "diff-3x.png",
             "witness-overlay.png",
             "witness-mask.png",
+            "side-by-side.png",
+            "violation-overlay.png",
+            "violation.json",
         ] {
             assert!(directory.join(name).is_file(), "missing diagnostic {name}");
         }
+
+        let side_by_side = image::open(directory.join("side-by-side.png"))
+            .unwrap()
+            .to_rgba8();
+        assert_eq!(side_by_side.width(), 6);
+        assert_eq!(side_by_side.height(), 1);
+        // Panel 3 (x=4..5): x=4 is the masked pixel which violated (error ~6.67 > threshold 5.0) -> magenta
+        assert_eq!(
+            side_by_side.get_pixel(4, 0),
+            &image::Rgba([255, 0, 255, 255])
+        );
+
+        let violation_raw = fs::read_to_string(directory.join("violation.json")).unwrap();
+        let report: WitnessViolationReport = serde_json::from_str(&violation_raw).unwrap();
+        assert_eq!(report.asset, "asset");
+        assert_eq!(report.kind, "source-preservation");
+        assert_eq!(report.frame, 7);
+        assert_eq!(report.timestamp_seconds, Some(7.0 / 24.0));
+        assert_eq!(report.violating_pixels, 1);
+        assert_eq!(report.total_masked_pixels, 1);
+        assert_eq!(report.bounding_box, Some([0, 0, 1, 1]));
+        assert_eq!(report.threshold, 5.0);
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn failed_title_visibility_diagnostics_highlight_unmodified_pixels() {
+        let root = std::env::temp_dir().join(format!(
+            "plaque-forge-homologation-title-diag-{}",
+            std::process::id()
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+
+        // 3x2 frame: pixel (1, 1) is in the mask but rendered == source (unmodified, title failed to render)
+        let source = crate::surface::Surface::from_rgba(
+            3,
+            2,
+            vec![
+                10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255,
+                40, 40, 40, 255, 50, 50, 50, 255, 60, 60, 60, 255,
+            ],
+        )
+        .unwrap();
+        let rendered = crate::surface::Surface::from_rgba(
+            3,
+            2,
+            vec![
+                10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255,
+                40, 40, 40, 255, 50, 50, 50, 255, 60, 60, 60, 255,
+            ],
+        )
+        .unwrap();
+        let mask = image::GrayImage::from_raw(3, 2, vec![0, 0, 0, 0, 255, 0]).unwrap();
+        let mask_path = root.join("title-mask.png");
+        mask.save(&mask_path).unwrap();
+
+        let directory = write_witness_diagnostics(
+            &root,
+            &WitnessDiagnostic {
+                asset: "asset-title",
+                kind: "title-visibility",
+                frame: 12,
+                fps: Some(30.0),
+                source: &source,
+                rendered: &rendered,
+                mask: &mask,
+                mask_path: &mask_path,
+                threshold: 15.0,
+                mean_error: 0.0,
+                p95_error: Some(0.0),
+                p50_error: Some(0.0),
+                total_masked_pixels: 1,
+            },
+        )
+        .unwrap();
+
+        let side_by_side = image::open(directory.join("side-by-side.png"))
+            .unwrap()
+            .to_rgba8();
+        assert_eq!(side_by_side.width(), 9);
+        assert_eq!(side_by_side.height(), 2);
+        // Panel 3 (x=6..8, y=0..1): pixel (1, 1) in local is (7, 1) in side_by_side
+        assert_eq!(
+            side_by_side.get_pixel(7, 1),
+            &image::Rgba([255, 0, 255, 255])
+        );
+
+        let report: WitnessViolationReport =
+            serde_json::from_str(&fs::read_to_string(directory.join("violation.json")).unwrap())
+                .unwrap();
+        assert_eq!(report.asset, "asset-title");
+        assert_eq!(report.kind, "title-visibility");
+        assert_eq!(report.frame, 12);
+        assert_eq!(report.timestamp_seconds, Some(12.0 / 30.0));
+        assert_eq!(report.violating_pixels, 1);
+        assert_eq!(report.bounding_box, Some([1, 1, 1, 1]));
+
         fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -119,10 +119,13 @@ representatives merely to make the percentage green.
 ## Failure diagnostics
 
 Pass `--diagnostics output/regressions` to `homologate`. A failed visual witness emits
-a directory containing `source.png`, `rendered.png`, `diff-3x.png`, `witness-overlay.png`, and the
-reviewed `witness-mask.png`. The homologation JSON points to that directory. This makes a failed
-depth/foreground contract visually diagnosable without weakening it or replaying the comparison by
-hand.
+a directory containing `source.png`, `rendered.png`, `diff-3x.png`, `witness-overlay.png`,
+`violation-overlay.png` (highlighting violating pixels in bright magenta `#FF00FF`), `side-by-side.png`
+(a 3-panel strip showing Source, Rendered, and Magenta Overlay side-by-side), `violation.json`
+(structured metadata with coordinate bounding boxes, frame timestamps, and threshold metrics), and
+the reviewed `witness-mask.png`. The homologation JSON points to that directory. This makes a failed
+depth/foreground contract immediately visually diagnosable without weakening it or replaying the
+comparison by hand.
 
 The CI homologation job uploads these compact reports/images when the gate fails, so the visual
 evidence survives the ephemeral runner. It intentionally does not upload the full rendered video.

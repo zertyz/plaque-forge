@@ -40,6 +40,12 @@ approx = "0.5"
 anyhow = "1.0"
 sha2 = "0.11"
 
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

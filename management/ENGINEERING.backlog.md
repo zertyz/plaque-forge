@@ -18,17 +18,6 @@
 4. Add all newly contracted assets to the automated full regression suite, preventing future silent degradation.
    ==> Team. Planned: 2026-09-09;
 
-## EF.Seg.05-001 -- Implement temporal boundary smoothing to eliminate occluder edge chatter
-1. Resolve edge flickering on thin occluder boundaries (spider legs, vines, chains) across consecutive video frames.
-2. In `tools/segmentation_worker.py`, implement an optical-flow or exponential moving average temporal smoothing filter for alpha boundary transitions.
-3. Verify that boundary chatter is eliminated on `16_9_dungeon_spider_iron_plaque` without causing motion lag or ghosting.
-   ==> Team. Planned: 2026-09-09;
-
-## EN.Tst.03-001 -- Generate visual diff diagnostic artifacts on contract failure
-1. When `plaque-forge homologate` reports a violation of `source_preservation` or `title_visibility`, output side-by-side visual diff images.
-2. Highlight violating pixels in bright magenta with bounding coordinates and frame timestamps in `output/regressions/`.
-3. Provide immediate visual feedback for engineers diagnosing regression causes.
-   ==> Team. Planned: 2026-09-09;
 
 # Started
 
@@ -52,6 +41,18 @@
 
 
 # Rolled Out
+
+## EF.Seg.05-001 -- Implement temporal boundary smoothing to eliminate occluder edge chatter
+1. Resolve edge flickering on thin occluder boundaries (spider legs, vines, chains) across consecutive video frames.
+2. In `tools/segmentation_worker.py`, implement an optical-flow or exponential moving average temporal smoothing filter for alpha boundary transitions.
+3. Verify that boundary chatter is eliminated on `16_9_dungeon_spider_iron_plaque` without causing motion lag or ghosting.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-09; Merged: 2026-09-10; Rolled Out: 2026-09-10;
+
+## EN.Tst.03-001 -- Generate visual diff diagnostic artifacts on contract failure
+1. When `plaque-forge homologate` reports a violation of `source_preservation` or `title_visibility`, output side-by-side visual diff images.
+2. Highlight violating pixels in bright magenta with bounding coordinates and frame timestamps in `output/regressions/`.
+3. Provide immediate visual feedback for engineers diagnosing regression causes.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-09; Merged: 2026-09-09; Rolled Out: 2026-09-09;
 
 ## EN.Seg.04-001 -- Automated multi-asset regression diffing and model bake-off harness
 1. Enhance `scripts/bakeoff_segmentation_matrix.sh` and `tools/compare_segmentation_outputs.py` to evaluate candidate models across all representative scenes before promotion.

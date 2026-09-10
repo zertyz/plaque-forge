@@ -24,6 +24,7 @@ in_front_of = "main"
 affects_layout = false
 affects_tracking = false
 matte = { mode = "opaque", support_threshold = 0.03, solid_threshold = 0.20 }
+temporal_smoothing = true
 
 [[layers.prompts]]
 frame = 0

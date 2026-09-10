@@ -313,6 +313,12 @@ pub struct SceneLayer {
     /// Optional per-scene radius for SAM2 prompt guidance dilation disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_correction_radius: Option<usize>,
+    /// Optional per-scene temporal boundary smoothing toggle (`true`/`false`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_smoothing: Option<bool>,
+    /// Optional per-scene temporal smoothing strength override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_smoothing_strength: Option<f32>,
 }
 
 impl Default for SceneLayer {
@@ -334,6 +340,8 @@ impl Default for SceneLayer {
             profile: None,
             precision: None,
             prompt_correction_radius: None,
+            temporal_smoothing: None,
+            temporal_smoothing_strength: None,
         }
     }
 }
@@ -1687,6 +1695,8 @@ mod tests {
                 profile = "canonical"
                 precision = "fp32"
                 prompt_correction_radius = 6
+                temporal_smoothing = true
+                temporal_smoothing_strength = 0.25
                 [[prompts]]
                 frame = 0
                 object = "spider"
@@ -1698,6 +1708,8 @@ mod tests {
         assert_eq!(layer.profile.as_deref(), Some("canonical"));
         assert_eq!(layer.precision.as_deref(), Some("fp32"));
         assert_eq!(layer.prompt_correction_radius, Some(6));
+        assert_eq!(layer.temporal_smoothing, Some(true));
+        assert_eq!(layer.temporal_smoothing_strength, Some(0.25));
     }
 
     #[test]
