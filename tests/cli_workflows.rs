@@ -292,7 +292,10 @@ fn cleanup_work_prunes_renders_and_preserves_test_summaries() {
         .arg(&test_output)
         .output()
         .expect("failed to execute cleanup_work.sh applied");
-    assert!(applied.status.success(), "applied cleanup failed: {applied:?}");
+    assert!(
+        applied.status.success(),
+        "applied cleanup failed: {applied:?}"
+    );
     let applied_stdout = String::from_utf8_lossy(&applied.stdout);
     assert!(
         applied_stdout.contains("pruned 1 ephemeral render"),
@@ -304,9 +307,18 @@ fn cleanup_work_prunes_renders_and_preserves_test_summaries() {
 
     // Assert that all structured JSON reports, manifests, masks, and regression diffs remain intact
     assert!(report_path.is_file(), "homologation.json must be preserved");
-    assert!(trace_path.is_file(), "decision-trace.json must be preserved");
-    assert!(manifest_path.is_file(), "render-manifest.json must be preserved");
-    assert!(coverage_path.is_file(), "homologation-coverage.json must be preserved");
+    assert!(
+        trace_path.is_file(),
+        "decision-trace.json must be preserved"
+    );
+    assert!(
+        manifest_path.is_file(),
+        "render-manifest.json must be preserved"
+    );
+    assert!(
+        coverage_path.is_file(),
+        "homologation-coverage.json must be preserved"
+    );
     assert!(mask_path.is_file(), "text-mask.png must be preserved");
     assert!(diff_path.is_file(), "regression diff.png must be preserved");
 }
@@ -315,7 +327,10 @@ fn cleanup_work_prunes_renders_and_preserves_test_summaries() {
 fn homologation_matrix_plan_covers_all_contracted_assets() {
     let root = repository_root();
     let matrix_script = root.join("scripts/run_homologation_matrix.sh");
-    assert!(matrix_script.is_file(), "run_homologation_matrix.sh missing");
+    assert!(
+        matrix_script.is_file(),
+        "run_homologation_matrix.sh missing"
+    );
 
     let output = Command::new("bash")
         .arg(&matrix_script)

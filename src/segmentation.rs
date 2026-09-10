@@ -2650,10 +2650,12 @@ mod adaptive_evidence_tests {
 
     #[test]
     fn resolve_plan_and_strategy_honor_scene_layer_model_and_backend() {
-        let mut layer = SceneLayer::default();
-        layer.backend = Some("sam2".into());
-        layer.model = Some("facebook/sam2.1-hiera-small".into());
-        layer.precision = Some("fp32".into());
+        let layer = SceneLayer {
+            backend: Some("sam2".into()),
+            model: Some("facebook/sam2.1-hiera-small".into()),
+            precision: Some("fp32".into()),
+            ..Default::default()
+        };
 
         let plan = resolve_plan(&layer, "auto", "auto", "canonical", "auto").unwrap();
         assert_eq!(plan.backend_label(), "sam2");
@@ -2671,9 +2673,11 @@ mod adaptive_evidence_tests {
 
     #[test]
     fn explicit_cli_override_takes_precedence_over_scene_layer_configuration() {
-        let mut layer = SceneLayer::default();
-        layer.backend = Some("sam2".into());
-        layer.model = Some("facebook/sam2.1-hiera-small".into());
+        let layer = SceneLayer {
+            backend: Some("sam2".into()),
+            model: Some("facebook/sam2.1-hiera-small".into()),
+            ..Default::default()
+        };
 
         let plan = resolve_plan(&layer, "cutie", "auto", "canonical", "auto").unwrap();
         assert_eq!(plan.backend_label(), "cutie");
@@ -2682,10 +2686,12 @@ mod adaptive_evidence_tests {
 
     #[test]
     fn worker_layer_carries_scene_scoped_prompt_correction_radius() {
-        let mut layer = SceneLayer::default();
-        layer.prompt_correction_radius = Some(7);
-        layer.temporal_smoothing = Some(true);
-        layer.temporal_smoothing_strength = Some(0.25);
+        let layer = SceneLayer {
+            prompt_correction_radius: Some(7),
+            temporal_smoothing: Some(true),
+            temporal_smoothing_strength: Some(0.25),
+            ..Default::default()
+        };
         let info = VideoInfo {
             width: 100,
             height: 100,

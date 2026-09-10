@@ -736,11 +736,12 @@ fn evaluate_source_preservation(
             metrics.p95_absolute_error,
             witness.maximum_p95_absolute_error
         ));
-        let threshold = if metrics.mean_absolute_error > witness.maximum_mean_absolute_error + f64::EPSILON {
-            witness.maximum_mean_absolute_error
-        } else {
-            witness.maximum_p95_absolute_error
-        };
+        let threshold =
+            if metrics.mean_absolute_error > witness.maximum_mean_absolute_error + f64::EPSILON {
+                witness.maximum_mean_absolute_error
+            } else {
+                witness.maximum_p95_absolute_error
+            };
         witness_diagnostics(
             args,
             WitnessDiagnostic {
@@ -816,11 +817,12 @@ fn evaluate_title_visibility(
             metrics.p50_absolute_error,
             witness.minimum_p50_absolute_error
         ));
-        let threshold = if metrics.mean_absolute_error + f64::EPSILON < witness.minimum_mean_absolute_error {
-            witness.minimum_mean_absolute_error
-        } else {
-            witness.minimum_p50_absolute_error
-        };
+        let threshold =
+            if metrics.mean_absolute_error + f64::EPSILON < witness.minimum_mean_absolute_error {
+                witness.minimum_mean_absolute_error
+            } else {
+                witness.minimum_p50_absolute_error
+            };
         witness_diagnostics(
             args,
             WitnessDiagnostic {
@@ -1280,8 +1282,8 @@ mod tests {
             3,
             2,
             vec![
-                10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255,
-                40, 40, 40, 255, 50, 50, 50, 255, 60, 60, 60, 255,
+                10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255, 50, 50, 50,
+                255, 60, 60, 60, 255,
             ],
         )
         .unwrap();
@@ -1289,8 +1291,8 @@ mod tests {
             3,
             2,
             vec![
-                10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255,
-                40, 40, 40, 255, 50, 50, 50, 255, 60, 60, 60, 255,
+                10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255, 50, 50, 50,
+                255, 60, 60, 60, 255,
             ],
         )
         .unwrap();

@@ -228,23 +228,19 @@ fn scene_specific_parameter_profiles_are_strictly_isolated_from_defaults() {
     let swamp_scene = Scene::load(&swamp_scene_path).expect("failed to load swamp scene");
     for layer in &swamp_scene.layers {
         assert_eq!(
-            layer.temporal_smoothing,
-            None,
+            layer.temporal_smoothing, None,
             "swamp scene layers must preserve default temporal smoothing (None)"
         );
         assert_eq!(
-            layer.prompt_correction_radius,
-            None,
+            layer.prompt_correction_radius, None,
             "swamp scene layers must preserve default prompt_correction_radius (None)"
         );
         assert_eq!(
-            layer.backend,
-            None,
+            layer.backend, None,
             "swamp scene layers must preserve default backend (None)"
         );
         assert_eq!(
-            layer.model,
-            None,
+            layer.model, None,
             "swamp scene layers must preserve default model (None)"
         );
         assert_eq!(
@@ -314,8 +310,7 @@ fn scene_specific_parameter_profiles_are_strictly_isolated_from_defaults() {
     };
     let repeat_plan = strategy(repeat_input).expect("failed to re-plan baseline");
     assert_eq!(
-        repeat_plan.candidates[0],
-        initial_plan.candidates[0],
+        repeat_plan.candidates[0], initial_plan.candidates[0],
         "re-planning baseline must yield identical plan without leakage from tuned inputs"
     );
 

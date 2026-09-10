@@ -179,7 +179,6 @@ document = {
             repo / "tools" / "segmentation_service.py",
             repo / "tools" / "segmentation_runtime.py",
             repo / "tools" / "segmentation-requirements.txt",
-            repo / "tools" / "requirements.lock",
             repo / "scripts" / "setup_segmentation.sh",
         )
     },
@@ -326,26 +325,12 @@ uv python install 3.10
 uv venv --python 3.10 --seed "$root/venv"
 python="$root/venv/bin/python"
 case "$torch_profile" in
-  xpu)
-    torch_index='https://download.pytorch.org/whl/xpu'
-    uv pip install --python "$python" torch==2.13.0 torchvision==0.28.0 \
-      --index-url "$torch_index"
-    if [[ -f "$repo/tools/requirements.lock" ]]; then
-      uv pip install --python "$python" --no-deps -r "$repo/tools/requirements.lock"
-    else
-      uv pip install --python "$python" -r "$repo/tools/segmentation-requirements.txt"
-    fi
-    ;;
-  cpu)
-    if [[ -f "$repo/tools/requirements.lock" ]]; then
-      uv pip install --python "$python" --require-hashes -r "$repo/tools/requirements.lock"
-    else
-      uv pip install --python "$python" torch==2.13.0 torchvision==0.28.0 \
-        --index-url 'https://download.pytorch.org/whl/cpu'
-      uv pip install --python "$python" -r "$repo/tools/segmentation-requirements.txt"
-    fi
-    ;;
+  xpu) torch_index='https://download.pytorch.org/whl/xpu' ;;
+  cpu) torch_index='https://download.pytorch.org/whl/cpu' ;;
 esac
+uv pip install --python "$python" torch==2.13.0 torchvision==0.28.0 \
+  --index-url "$torch_index"
+uv pip install --python "$python" -r "$repo/tools/segmentation-requirements.txt"
 
 git clone https://github.com/facebookresearch/sam2.git "$root/src/sam2"
 git -C "$root/src/sam2" checkout 2b90b9f5ceec907a1c18123530e92e794ad901a4
