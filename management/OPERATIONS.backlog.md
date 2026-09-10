@@ -1,11 +1,5 @@
 # Planned
 
-## ON.CiCd.02-001 -- Configure scheduled nightly full-matrix GPU homologation workflow
-1. Create a scheduled CI workflow running on a dedicated self-hosted GPU runner every night.
-2. Execute `scripts/run_homologation_matrix.sh` across all 19 assets with dual-witness contract verification.
-3. Automatically upload regression failure diagnostics and notify the engineering team upon threshold violations.
-   ==> Ops. Planned: 2026-09-09;
-
 
 # Started
 
@@ -29,6 +23,12 @@
 
 
 # Rolled Out
+
+## ON.CiCd.02-001 -- Configure scheduled nightly full-matrix GPU homologation workflow
+1. Create a scheduled CI workflow running on a dedicated self-hosted GPU runner every night (`.github/workflows/scheduled-homologation-matrix.yml`).
+2. Execute `scripts/run_homologation_matrix.sh` across all 19 assets with dual-witness contract verification.
+3. Automatically upload regression failure diagnostics and notify the engineering team upon threshold violations.
+   ==> Ops. Planned: 2026-09-09; Started: 2026-09-10; Merged: 2026-09-10; Rolled Out: 2026-09-10;
 
 ## ON.AstSto.02-001 -- Automate disk cleanup of ephemeral MKV renders on CI runners
 1. Add an automated post-run cleanup hook in CI workflows invoking `scripts/cleanup_work.sh`.

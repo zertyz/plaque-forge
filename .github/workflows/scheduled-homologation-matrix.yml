@@ -1,0 +1,83 @@
+name: Scheduled Nightly Full-Matrix Homologation
+
+on:
+  schedule:
+    # Run nightly at 03:00 UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      runs_on:
+        description: Runner labels, e.g. ["self-hosted", "linux", "x64", "gpu"] or ["ubuntu-24.04"]
+        required: true
+        default: '["self-hosted", "linux", "x64", "gpu"]'
+        type: string
+      prune_renders:
+        description: Prune intermediate MKV renders to bound disk consumption
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-homologation-matrix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  homologation-matrix:
+    runs-on: ${{ fromJSON(github.event.inputs.runs_on || '["self-hosted", "linux", "x64", "gpu"]') }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Bootstrap native dependencies
+        run: |
+          if command -v pacman >/dev/null 2>&1; then
+            pacman -Syu --noconfirm --needed clang ffmpeg fontconfig opencv pkgconf python git rust
+          elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends \
+              clang ffmpeg fontconfig libclang-dev libopencv-dev pkg-config python3 curl
+            if ! command -v cargo >/dev/null 2>&1; then
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+              echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            fi
+          fi
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Execute 19-scene full homologation matrix
+        env:
+          PRUNE_RENDERS: ${{ github.event.inputs.prune_renders != 'false' }}
+        run: |
+          PRUNE_ARG=""
+          if [[ "$PRUNE_RENDERS" == "true" ]]; then
+            PRUNE_ARG="--prune-renders"
+          fi
+          ./scripts/run_homologation_matrix.sh \
+            $PRUNE_ARG \
+            --diagnostics output/regressions \
+            --summary output/homologation-matrix-summary.json
+
+      - name: Upload homologation test reports and coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: homologation-matrix-reports-${{ github.run_id }}
+          path: |
+            output/*.homologation.json
+            output/homologation-coverage.json
+            output/homologation-matrix-summary.json
+          if-no-files-found: warn
+
+      - name: Upload visual regression diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: homologation-matrix-diagnostics-${{ github.run_id }}
+          path: output/regressions/
+          if-no-files-found: warn

@@ -310,3 +310,32 @@ fn cleanup_work_prunes_renders_and_preserves_test_summaries() {
     assert!(mask_path.is_file(), "text-mask.png must be preserved");
     assert!(diff_path.is_file(), "regression diff.png must be preserved");
 }
+
+#[test]
+fn homologation_matrix_plan_covers_all_contracted_assets() {
+    let root = repository_root();
+    let matrix_script = root.join("scripts/run_homologation_matrix.sh");
+    assert!(matrix_script.is_file(), "run_homologation_matrix.sh missing");
+
+    let output = Command::new("bash")
+        .arg(&matrix_script)
+        .arg("--print-plan")
+        .output()
+        .expect("failed to execute run_homologation_matrix.sh --print-plan");
+    assert!(output.status.success(), "print-plan failed: {output:?}");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        lines.len(),
+        19,
+        "expected exactly 19 contracted asset plans, got {}",
+        lines.len()
+    );
+
+    // Verify key assets are present in the plan
+    assert!(stdout.contains("16_9_swamp_wooden_plaque"));
+    assert!(stdout.contains("16_9_dungeon_spider_iron_plaque"));
+    assert!(stdout.contains("moving-holographic-plaque"));
+    assert!(stdout.contains("9_16_dungeon_spider_iron_plaque"));
+}

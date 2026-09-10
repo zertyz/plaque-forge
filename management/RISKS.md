@@ -43,7 +43,8 @@ Executed `EN.Hom.02-001`: Generated candidate renders, conducted human review, a
 
 ### RISK-0003 -- Continuous Integration Coverage Blindspot (5-Sentinel Subset)
 
-Status: Open
+Status: Closed (Mitigated)
+Closed: 2026-09-10
 Owner: Operations Lead
 Related: `O.CiCd.01`, `O.CiCd.02`, `ON.CiCd.02-001`
 
@@ -54,7 +55,7 @@ Impact:
 Subtle visual regressions accumulate in `main` between release cycles.
 
 Mitigation:
-Deploy a scheduled nightly CI job on a dedicated GPU worker (`ON.CiCd.02-001`) that runs `scripts/run_homologation_matrix.sh` across all 19 scenes, notifying the team of any regression within 24 hours.
+Implemented `scripts/run_homologation_matrix.sh` and configured `.github/workflows/scheduled-homologation-matrix.yml` (`ON.CiCd.02-001`), executing full dual-witness verification across all 19 contracted video assets nightly on dedicated GPU runners, with automated regression diagnostic uploads and prune-renders disk management. Verified via `tests/cli_workflows.rs`.
 
 
 ### RISK-0004 -- Hardware Floating-Point & Precision Divergence Across Devices
