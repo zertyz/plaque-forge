@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_swamp_wooden_plaque"
+source = "../../9_16_swamp_wooden_plaque.mp4"
+scene = "../../scenes/9_16_swamp_wooden_plaque/scene.toml"
+analysis = "../../analysis/9_16_swamp_wooden_plaque"
+surface = "main"
+source_sha256 = "b49e412b86123a30c2e110082cef09a85c750b92db4b007c7e4374d12dccfa33"
+
+[geometry]
+tracking_bounds = [0.0, 64.0, 720.0, 380.0]
+writable_bounds = [55.0, 105.0, 610.0, 290.0]
+
+[render]
+text = "Nós que aqui estamos,\npor vós esperamos!"
+style = "../../../styles/gold-shine.toml"
+style_sha256 = "58bdec1129a9812be071185d856b2c90776dcc2167932fbbbacf5141bfc02070"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "Nós que aqui estamos,\npor vós esperamos!"
+
+[typography]
+lines = 2
+maximum_font_size = 56.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

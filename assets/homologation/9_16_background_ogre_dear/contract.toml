@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_background_ogre_dear"
+source = "../../9_16_background_ogre_dear.mp4"
+scene = "../../scenes/9_16_background_ogre_dear/scene.toml"
+analysis = "../../analysis/9_16_background_ogre_dear"
+surface = "main"
+source_sha256 = "3928bf5ea14c4ce1e9aaaa36c179251dae629fd3ab9b9a52ea43fd3c099c826f"
+
+[geometry]
+tracking_bounds = [20.0, 104.0, 494.0, 423.0]
+writable_bounds = [49.0, 137.5, 436.0, 356.0]
+
+[render]
+text = "OGRE DEAR\nBACKGROUND"
+style = "../../../styles/gold-shine.toml"
+style_sha256 = "58bdec1129a9812be071185d856b2c90776dcc2167932fbbbacf5141bfc02070"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "OGRE DEAR\nBACKGROUND"
+
+[typography]
+lines = 2
+maximum_font_size = 64.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

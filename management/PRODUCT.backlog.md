@@ -1,18 +1,5 @@
 # Planned
 
-## PN.AstNrg.01-001 -- Establish frozen visual baseline contracts for all 19 video assets
-1. Audit the 11 video assets currently lacking `contract.toml` in `assets/homologation/`.
-2. Generate candidate renders and conduct human visual reviews for each uncontracted asset.
-3. Author formal `contract.toml` specifications capturing source preservation bounds, title visibility thresholds, and keyframe bounds.
-4. Add all accepted contracts into the project regression suite so future model updates cannot regress them.
-   ==> Team. Planned: 2026-09-09;
-
-## PN.OccPrs.02-001 -- Eliminate edge chatter and boundary flicker on thin foreground occluders
-1. Address user-reported edge noise on delicate occluders (e.g. spider legs, swinging chain links, vine tendrils).
-2. Incorporate temporal alpha boundary smoothing that suppresses single-frame pixel chatter while maintaining sharp silhouette definition.
-3. Verify that the fix improves the target scene without altering or regressing any previously approved occluder masks.
-   ==> Team. Planned: 2026-09-09;
-
 ## PN.AstNrg.02-001 -- Ensure complete asset isolation during scene-specific parameter tuning
 1. Establish scene-isolated parameter profiles so tuning prompts or detection thresholds for a new video does not alter default behaviors for existing videos.
 2. Require that modifications to global algorithms or default model checkpoints pass the full multi-asset visual regression suite before adoption.
@@ -41,6 +28,19 @@
 
 
 # Rolled Out
+
+## PN.AstNrg.01-001 -- Establish frozen visual baseline contracts for all 19 video assets
+1. Audit the 11 video assets currently lacking `contract.toml` in `assets/homologation/`.
+2. Generate candidate renders and conduct human visual reviews for each uncontracted asset.
+3. Author formal `contract.toml` specifications capturing source preservation bounds, title visibility thresholds, and keyframe bounds.
+4. Add all accepted contracts into the project regression suite so future model updates cannot regress them.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-09; Merged: 2026-09-10; Rolled Out: 2026-09-10;
+
+## PN.OccPrs.02-001 -- Eliminate edge chatter and boundary flicker on thin foreground occluders
+1. Address user-reported edge noise on delicate occluders (e.g. spider legs, swinging chain links, vine tendrils).
+2. Incorporate temporal alpha boundary smoothing that suppresses single-frame pixel chatter while maintaining sharp silhouette definition.
+3. Verify that the fix improves the target scene without altering or regressing any previously approved occluder masks.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-09; Merged: 2026-09-10; Rolled Out: 2026-09-10;
 
 ## PN.AugMsn.01-001 -- Core video plaque insertion pipeline
 1. Provide command-line workflows for scene creation, surface placement, trajectory export, rendering, and verification.

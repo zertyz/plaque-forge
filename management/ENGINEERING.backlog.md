@@ -1,23 +1,5 @@
 # Planned
 
-## EN.Hom.02-001 -- Close contract debt for the 11 uncontracted video assets
-1. Audit the 11 video assets currently lacking `contract.toml` in `assets/homologation/`:
-   - `16_9_holographic_datacenter_static_plaque`
-   - `16_9_plaqueless_mountain_top_night`
-   - `16_9_plaqueless_swamp`
-   - `16_9_swamp_iron_plaque`
-   - `16_9_swamp_wooden_plaque_foreground_vines_and_lizard`
-   - `9_16_background_ogre_dear`
-   - `9_16_lonely_ogre_holographic_static_plaque`
-   - `9_16_plaqueless_datacenter_lab`
-   - `9_16_plaqueless_neon_datacenter_ground_hole`
-   - `9_16_scrappy_datacenter_holographic_plaque`
-   - `9_16_swamp_wooden_plaque`
-2. Run baseline renders with standard text and policy styles.
-3. Review rendered outputs, confirm visual quality, and generate formal `contract.toml` files with empirical tolerances for `source_preservation` and `title_visibility`.
-4. Add all newly contracted assets to the automated full regression suite, preventing future silent degradation.
-   ==> Team. Planned: 2026-09-09;
-
 
 # Started
 
@@ -41,6 +23,24 @@
 
 
 # Rolled Out
+
+## EN.Hom.02-001 -- Close contract debt for the 11 uncontracted video assets
+1. Audit the 11 video assets currently lacking `contract.toml` in `assets/homologation/`:
+   - `16_9_holographic_datacenter_static_plaque`
+   - `16_9_plaqueless_mountain_top_night`
+   - `16_9_plaqueless_swamp`
+   - `16_9_swamp_iron_plaque`
+   - `16_9_swamp_wooden_plaque_foreground_vines_and_lizard`
+   - `9_16_background_ogre_dear`
+   - `9_16_lonely_ogre_holographic_static_plaque`
+   - `9_16_plaqueless_datacenter_lab`
+   - `9_16_plaqueless_neon_datacenter_ground_hole`
+   - `9_16_scrappy_datacenter_holographic_plaque`
+   - `9_16_swamp_wooden_plaque`
+2. Run baseline renders with standard text and policy styles.
+3. Review rendered outputs, confirm visual quality, and generate formal `contract.toml` files with empirical tolerances for `source_preservation` and `title_visibility`.
+4. Add all newly contracted assets to the automated full regression suite, preventing future silent degradation.
+   ==> Team. Planned: 2026-09-09; Started: 2026-09-09; Merged: 2026-09-10; Rolled Out: 2026-09-10;
 
 ## EF.Seg.05-001 -- Implement temporal boundary smoothing to eliminate occluder edge chatter
 1. Resolve edge flickering on thin occluder boundaries (spider legs, vines, chains) across consecutive video frames.

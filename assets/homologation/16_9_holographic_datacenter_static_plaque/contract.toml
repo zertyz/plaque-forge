@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "16_9_holographic_datacenter_static_plaque"
+source = "../../16_9_holographic_datacenter_static_plaque.mp4"
+scene = "../../scenes/16_9_holographic_datacenter_static_plaque/scene.toml"
+analysis = "../../analysis/16_9_holographic_datacenter_static_plaque"
+surface = "main"
+source_sha256 = "f1c90370f2259f40f2229d4f4078fed6ef4d5d9cccb382ffd1b47f0b4e97bac2"
+
+[geometry]
+tracking_bounds = [335.0, 36.0, 611.0, 132.0]
+writable_bounds = [335.0, 36.0, 611.0, 132.0]
+
+[render]
+text = "FUTURISTIC DATACENTER\nTERMINAL"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "1a17290c6b5dc222d75356340ccf4a736977e67f61a69356b925f54701dc4795"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "FUTURISTIC DATACENTER\nTERMINAL"
+
+[typography]
+lines = 2
+maximum_font_size = 40.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

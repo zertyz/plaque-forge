@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_plaqueless_datacenter_lab"
+source = "../../9_16_plaqueless_datacenter_lab.mp4"
+scene = "../../scenes/9_16_plaqueless_datacenter_lab/scene.toml"
+analysis = "../../analysis/9_16_plaqueless_datacenter_lab"
+surface = "main"
+source_sha256 = "4711184ca9a4db75a979b3907161449a249b159ed3279f4c9b28b627effb64cc"
+
+[geometry]
+tracking_bounds = [70.0, 85.0, 580.0, 162.0]
+writable_bounds = [70.0, 85.0, 580.0, 162.0]
+
+[render]
+text = "DATACENTER LAB\nPORTRAIT PLAQUE"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "1a17290c6b5dc222d75356340ccf4a736977e67f61a69356b925f54701dc4795"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "DATACENTER LAB\nPORTRAIT PLAQUE"
+
+[typography]
+lines = 2
+maximum_font_size = 52.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

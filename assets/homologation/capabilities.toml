@@ -54,12 +54,14 @@ id = "background-motion-independent-of-plaque"
 description = "Background animation must not pull an otherwise stable writing surface off lock."
 representative_asset = "9_16_lonely_ogre_holographic_static_plaque"
 scene = "../scenes/9_16_lonely_ogre_holographic_static_plaque/scene.toml"
+contract = "9_16_lonely_ogre_holographic_static_plaque/contract.toml"
 
 [[capabilities]]
 id = "multi-layer-foreground-and-shadow"
 description = "Multiple foreground/shadow layers compose independently around the writing surface."
 representative_asset = "16_9_swamp_wooden_plaque_foreground_vines_and_lizard"
 scene = "../scenes/16_9_swamp_wooden_plaque_foreground_vines_and_lizard/scene.toml"
+contract = "16_9_swamp_wooden_plaque_foreground_vines_and_lizard/contract.toml"
 
 [[capabilities]]
 id = "portrait-scene-plane-geometry"
@@ -76,3 +78,72 @@ representative_asset = "9_16_dungeon_spider_iron_temporary_plaque"
 scene = "../scenes/9_16_dungeon_spider_iron_temporary_plaque/scene.toml"
 contract = "9_16_dungeon_spider_iron_temporary_plaque/contract.toml"
 ci = true
+
+[[capabilities]]
+id = "static-high-frequency-illumination-plaque"
+description = "Static planar tracking against high-frequency blinking lights and reflections without occluders."
+representative_asset = "16_9_holographic_datacenter_static_plaque"
+scene = "../scenes/16_9_holographic_datacenter_static_plaque/scene.toml"
+contract = "16_9_holographic_datacenter_static_plaque/contract.toml"
+
+[[capabilities]]
+id = "screen-canvas-injected-plaque-widescreen"
+description = "Widescreen screen-canvas typography with injected transparent plaque overlay."
+representative_asset = "16_9_plaqueless_mountain_top_night"
+scene = "../scenes/16_9_plaqueless_mountain_top_night/scene.toml"
+contract = "16_9_plaqueless_mountain_top_night/contract.toml"
+
+[[capabilities]]
+id = "screen-canvas-water-reflection-quiet-zone"
+description = "Screen-canvas placement over complex natural water reflections in widescreen."
+representative_asset = "16_9_plaqueless_swamp"
+scene = "../scenes/16_9_plaqueless_swamp/scene.toml"
+contract = "16_9_plaqueless_swamp/contract.toml"
+
+[[capabilities]]
+id = "static-canonical-texture-layering"
+description = "Canonical plaque-space static layering with rigid projective warping."
+representative_asset = "16_9_swamp_iron_plaque"
+scene = "../scenes/16_9_swamp_iron_plaque/scene.toml"
+contract = "16_9_swamp_iron_plaque/contract.toml"
+
+[[capabilities]]
+id = "portrait-non-rectangular-writable-region"
+description = "Elliptical writing region constraining typography in vertical portrait background."
+representative_asset = "9_16_background_ogre_dear"
+scene = "../scenes/9_16_background_ogre_dear/scene.toml"
+contract = "9_16_background_ogre_dear/contract.toml"
+
+[[capabilities]]
+id = "portrait-screen-canvas-injected-plaque"
+description = "Vertical portrait injected plaque typography on screen canvas."
+representative_asset = "9_16_plaqueless_datacenter_lab"
+scene = "../scenes/9_16_plaqueless_datacenter_lab/scene.toml"
+contract = "9_16_plaqueless_datacenter_lab/contract.toml"
+
+[[capabilities]]
+id = "portrait-screen-canvas-aperture-alignment"
+description = "Vertical portrait injected plaque quiet placement near glowing neon apertures."
+representative_asset = "9_16_plaqueless_neon_datacenter_ground_hole"
+scene = "../scenes/9_16_plaqueless_neon_datacenter_ground_hole/scene.toml"
+contract = "9_16_plaqueless_neon_datacenter_ground_hole/contract.toml"
+
+[[capabilities]]
+id = "portrait-static-scene-plane-cluttered"
+description = "Static planar holographic plaque baseline in vertical orientation amidst visual clutter."
+representative_asset = "9_16_scrappy_datacenter_holographic_plaque"
+scene = "../scenes/9_16_scrappy_datacenter_holographic_plaque/scene.toml"
+contract = "9_16_scrappy_datacenter_holographic_plaque/contract.toml"
+
+[[capabilities]]
+id = "portrait-full-bleed-scene-plane-plaque"
+description = "Full-bleed horizontal portrait plaque touching canvas boundaries."
+representative_asset = "9_16_swamp_wooden_plaque"
+scene = "../scenes/9_16_swamp_wooden_plaque/scene.toml"
+contract = "9_16_swamp_wooden_plaque/contract.toml"
+
+[[capabilities]]
+id = "dynamic-scene-illumination"
+description = "Forward capability: dynamic scene illumination and shadow adaptation."
+representative_asset = "16_9_holographic_datacenter_static_plaque"
+scene = "../scenes/16_9_holographic_datacenter_static_plaque/scene.toml"

@@ -7,7 +7,8 @@ Risks remain active until closed. Each risk links to related requirements, work 
 
 ### RISK-0001 -- Cross-Asset Regression When Updating ML Models or Segmentation Heuristics
 
-Status: Open
+Status: Closed (Mitigated)
+Closed: 2026-09-10
 Owner: Engineering Lead
 Related: `P.AstNrg.01`, `E.Seg.03`, `EF.Seg.03-001`, `BUG-0001`, `DEC-0007`
 
@@ -18,14 +19,15 @@ Impact:
 Loss of engineering velocity, erosion of visual quality on delivered assets, and frustration from whack-a-mole regression cycles.
 
 Mitigation:
-1. Isolate model selection and hyperparameters per scene in `scene.toml` (`EF.Seg.03-001`).
-2. Establish frozen golden masks and require an automated multi-scene bake-off (`scripts/bakeoff_segmentation_matrix.sh`) before any global model change is merged (`EN.Seg.04-001`).
-3. Expand automated dual-witness contracts to cover all 19 video assets (`EN.Hom.02-001`).
+1. Isolate model selection and hyperparameters per scene in `scene.toml` (`EF.Seg.03-001`, Rolled Out).
+2. Establish frozen golden masks and require an automated multi-scene bake-off (`scripts/bakeoff_segmentation_matrix.sh`) before any global model change is merged (`EN.Seg.04-001`, Rolled Out).
+3. Expand automated dual-witness contracts to cover all 19 video assets (`EN.Hom.02-001`, Rolled Out).
 
 
 ### RISK-0002 -- Homologation Contract Debt (11 Uncontracted Video Scenes)
 
-Status: Open
+Status: Closed (Mitigated)
+Closed: 2026-09-10
 Owner: Homologation Lead
 Related: `E.Hom.02`, `EN.Hom.02-001`
 
@@ -36,7 +38,7 @@ Impact:
 Refactorings or dependency updates can break 58% of the project's video catalog without triggering a single automated failure.
 
 Mitigation:
-Execute `EN.Hom.02-001` to generate candidate renders, conduct human review, and author authoritative `contract.toml` files for all 11 uncontracted scenes.
+Executed `EN.Hom.02-001`: Generated candidate renders, conducted human review, and authored authoritative `contract.toml` files for all 11 uncontracted scenes. All 19 assets are now verified in `tests/homologation_contracts.rs`.
 
 
 ### RISK-0003 -- Continuous Integration Coverage Blindspot (5-Sentinel Subset)

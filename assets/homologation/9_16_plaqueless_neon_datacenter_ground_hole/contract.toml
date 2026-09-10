@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_plaqueless_neon_datacenter_ground_hole"
+source = "../../9_16_plaqueless_neon_datacenter_ground_hole.mp4"
+scene = "../../scenes/9_16_plaqueless_neon_datacenter_ground_hole/scene.toml"
+analysis = "../../analysis/9_16_plaqueless_neon_datacenter_ground_hole"
+surface = "main"
+source_sha256 = "f7952c4c23cb07e1598417189437a5aa141d7f9a71628f7267f176a973f27a8c"
+
+[geometry]
+tracking_bounds = [70.0, 70.0, 580.0, 162.0]
+writable_bounds = [70.0, 70.0, 580.0, 162.0]
+
+[render]
+text = "NEON GROUND HOLE\nPORTRAIT VIEW"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "1a17290c6b5dc222d75356340ccf4a736977e67f61a69356b925f54701dc4795"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "NEON GROUND HOLE\nPORTRAIT VIEW"
+
+[typography]
+lines = 2
+maximum_font_size = 46.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

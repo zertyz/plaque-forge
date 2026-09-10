@@ -63,11 +63,13 @@ fn homologated_assets_pin_scene_geometry_and_source_identity() {
             "tracking geometry changed for homologated asset {}",
             contract.asset
         );
+        let effective_writable_bounds = surface
+            .writable_region
+            .as_ref()
+            .map(|region| region.bounds())
+            .or(surface.bounds);
         assert_eq!(
-            surface
-                .writable_region
-                .as_ref()
-                .map(|region| region.bounds()),
+            effective_writable_bounds,
             Some(contract.geometry.writable_bounds),
             "writable geometry changed for homologated asset {}",
             contract.asset

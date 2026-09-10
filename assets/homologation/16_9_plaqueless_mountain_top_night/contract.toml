@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "16_9_plaqueless_mountain_top_night"
+source = "../../16_9_plaqueless_mountain_top_night.mp4"
+scene = "../../scenes/16_9_plaqueless_mountain_top_night/scene.toml"
+analysis = "../../analysis/16_9_plaqueless_mountain_top_night"
+surface = "main"
+source_sha256 = "7fbc9e79494b03d9538a82eaea281434444b26d303c15b7a1bf501b2f5a52f68"
+
+[geometry]
+tracking_bounds = [180.0, 28.0, 920.0, 258.0]
+writable_bounds = [180.0, 28.0, 920.0, 258.0]
+
+[render]
+text = "MOUNTAIN TOP\nSTARRY NIGHT"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "1a17290c6b5dc222d75356340ccf4a736977e67f61a69356b925f54701dc4795"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "MOUNTAIN TOP\nSTARRY NIGHT"
+
+[typography]
+lines = 2
+maximum_font_size = 88.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

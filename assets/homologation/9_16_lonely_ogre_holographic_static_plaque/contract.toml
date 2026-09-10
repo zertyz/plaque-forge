@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_lonely_ogre_holographic_static_plaque"
+source = "../../9_16_lonely_ogre_holographic_static_plaque.mp4"
+scene = "../../scenes/9_16_lonely_ogre_holographic_static_plaque/scene.toml"
+analysis = "../../analysis/9_16_lonely_ogre_holographic_static_plaque"
+surface = "main"
+source_sha256 = "16d67cd9ff07bd7a8ff172d3b9cd7f4d57dcec81034ee328c7753d588cfeb2ee"
+
+[geometry]
+tracking_bounds = [87.0, 208.0, 548.0, 391.0]
+writable_bounds = [87.0, 208.0, 548.0, 391.0]
+
+[render]
+text = "LONELY OGRE\nHOLOGRAPHIC PLAQUE"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "1a17290c6b5dc222d75356340ccf4a736977e67f61a69356b925f54701dc4795"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "LONELY OGRE\nHOLOGRAPHIC PLAQUE"
+
+[typography]
+lines = 2
+maximum_font_size = 40.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

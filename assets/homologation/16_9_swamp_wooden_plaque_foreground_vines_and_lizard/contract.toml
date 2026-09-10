@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "16_9_swamp_wooden_plaque_foreground_vines_and_lizard"
+source = "../../16_9_swamp_wooden_plaque_foreground_vines_and_lizard.mp4"
+scene = "../../scenes/16_9_swamp_wooden_plaque_foreground_vines_and_lizard/scene.toml"
+analysis = "../../analysis/16_9_swamp_wooden_plaque_foreground_vines_and_lizard"
+surface = "main"
+source_sha256 = "5d575c9efcbaf5985bc5978478d4ad422ab013af9b2a972e67da3bce98bfb60f"
+
+[geometry]
+tracking_bounds = [327.0, 30.0, 641.0, 285.0]
+writable_bounds = [327.0, 30.0, 641.0, 285.0]
+
+[render]
+text = "ANCIENT WOODEN PLAQUE\nWITH VINES AND LIZARD"
+style = "../../../styles/gold-shine.toml"
+style_sha256 = "58bdec1129a9812be071185d856b2c90776dcc2167932fbbbacf5141bfc02070"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "ANCIENT WOODEN PLAQUE\nWITH VINES AND LIZARD"
+
+[typography]
+lines = 2
+maximum_font_size = 36.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

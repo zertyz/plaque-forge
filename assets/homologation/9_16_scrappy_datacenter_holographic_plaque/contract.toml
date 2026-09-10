@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "9_16_scrappy_datacenter_holographic_plaque"
+source = "../../9_16_scrappy_datacenter_holographic_plaque.mp4"
+scene = "../../scenes/9_16_scrappy_datacenter_holographic_plaque/scene.toml"
+analysis = "../../analysis/9_16_scrappy_datacenter_holographic_plaque"
+surface = "main"
+source_sha256 = "ed4f833caf9e77d60d55beb107ab25b4c9eb52468033191bf3e1776b50979cea"
+
+[geometry]
+tracking_bounds = [144.0, 176.0, 433.0, 250.0]
+writable_bounds = [144.0, 176.0, 433.0, 250.0]
+
+[render]
+text = "SCRAPPY DATACENTER\nTERMINAL"
+style = "../../../styles/classic-glow.toml"
+style_sha256 = "1a17290c6b5dc222d75356340ccf4a736977e67f61a69356b925f54701dc4795"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "SCRAPPY DATACENTER\nTERMINAL"
+
+[typography]
+lines = 2
+maximum_font_size = 36.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0

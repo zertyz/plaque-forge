@@ -1,0 +1,26 @@
+format = "plaque-forge.homologation/1"
+asset = "16_9_plaqueless_swamp"
+source = "../../16_9_plaqueless_swamp.mp4"
+scene = "../../scenes/16_9_plaqueless_swamp/scene.toml"
+analysis = "../../analysis/16_9_plaqueless_swamp"
+surface = "main"
+source_sha256 = "83a72c4e2d77cd72c7d2a68ac3711cb477c06dfd990588649c03c76fb0ffd97d"
+
+[geometry]
+tracking_bounds = [190.0, 25.0, 900.0, 252.0]
+writable_bounds = [190.0, 25.0, 900.0, 252.0]
+
+[render]
+text = "MISTY MANGROVE\nSWAMP WATERS"
+style = "../../../styles/gold-shine.toml"
+style_sha256 = "58bdec1129a9812be071185d856b2c90776dcc2167932fbbbacf5141bfc02070"
+font_file = "NotoSerif-Regular.ttf"
+fit_mode = "artistic"
+resolved_text = "MISTY MANGROVE\nSWAMP WATERS"
+
+[typography]
+lines = 2
+maximum_font_size = 80.0
+maximum_clipped_pixels = 0
+maximum_missing_glyphs = 0
+maximum_fallback_glyphs = 0
