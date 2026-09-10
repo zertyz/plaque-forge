@@ -6,11 +6,6 @@
 3. Automatically upload regression failure diagnostics and notify the engineering team upon threshold violations.
    ==> Ops. Planned: 2026-09-09;
 
-## ON.AstSto.02-001 -- Automate disk cleanup of ephemeral MKV renders on CI runners
-1. Add an automated post-run cleanup hook in CI workflows invoking `scripts/cleanup_work.sh`.
-2. Ensure intermediate HEVC renders under `output/` are pruned while preserving test summary JSONs and regression diffs.
-   ==> Ops. Planned: 2026-09-09;
-
 
 # Started
 
@@ -34,6 +29,11 @@
 
 
 # Rolled Out
+
+## ON.AstSto.02-001 -- Automate disk cleanup of ephemeral MKV renders on CI runners
+1. Add an automated post-run cleanup hook in CI workflows invoking `scripts/cleanup_work.sh`.
+2. Ensure intermediate HEVC renders under `output/` are pruned while preserving test summary JSONs and regression diffs.
+   ==> Ops. Planned: 2026-09-09; Started: 2026-09-10; Merged: 2026-09-10; Rolled Out: 2026-09-10;
 
 ## ON.HwEnv.02-001 -- Enforce strict FP32 determinism flags in Python worker CI test harness
 1. In `tools/segmentation_worker.py`, enforce `torch.use_deterministic_algorithms(True)` and `torch.backends.cuda.matmul.allow_tf32 = False` during test and contract evaluation runs.

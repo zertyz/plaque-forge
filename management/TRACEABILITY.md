@@ -35,6 +35,7 @@ Traceability connects requirements, work items, implementation, and verification
 | `O.AstSto.01` | `ON.AstSto.01-001` | Rolled Out | [scripts/check_analysis_cache.sh](file:///root/opencode/plaque-forge/scripts/check_analysis_cache.sh); verified 19 analysis caches |
 | `O.RelPkg.01` | `ON.RelPkg.01-001` | Rolled Out | [Cargo.toml](file:///root/opencode/plaque-forge/Cargo.toml), [src/media/bundled.rs](file:///root/opencode/plaque-forge/src/media/bundled.rs); [tests/embedded_media.rs](file:///root/opencode/plaque-forge/tests/embedded_media.rs) |
 | `O.HwEnv.02` | `ON.HwEnv.02-001` | Rolled Out | [tools/segmentation_worker.py](file:///root/opencode/plaque-forge/tools/segmentation_worker.py), [tools/segmentation-worker](file:///root/opencode/plaque-forge/tools/segmentation-worker); [tools/test_segmentation_worker_quality.py](file:///root/opencode/plaque-forge/tools/test_segmentation_worker_quality.py), [scripts/compare_segmentation_devices.sh](file:///root/opencode/plaque-forge/scripts/compare_segmentation_devices.sh) |
+| `O.AstSto.02` | `ON.AstSto.02-001` | Rolled Out | [scripts/cleanup_work.sh](file:///root/opencode/plaque-forge/scripts/cleanup_work.sh), [scripts/check_homologated_assets.sh](file:///root/opencode/plaque-forge/scripts/check_homologated_assets.sh); [tests/cli_workflows.rs](file:///root/opencode/plaque-forge/tests/cli_workflows.rs) |
 
 
 ## Unmapped Requirement Areas

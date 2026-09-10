@@ -4,6 +4,38 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 cd "$PF_ROOT"
 
+cleanup="${PLAQUE_FORGE_CI_CLEANUP:-false}"
+
+usage() {
+  cat <<'USAGE'
+usage: ./scripts/check_homologated_assets.sh [options]
+
+Run fast 5-case continuous homologation sentinels.
+
+Options:
+  --cleanup   Automatically prune ephemeral MKV renders on completion while
+              preserving structured JSON reports and regression diffs.
+  -h, --help  Show this help message.
+USAGE
+}
+
+while (( $# )); do
+  case "$1" in
+    --cleanup) cleanup=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+post_run_cleanup() {
+  if [[ "$cleanup" == true || "$cleanup" == "1" ]]; then
+    printf '[ci] running automated post-run render cleanup...\n' >&2
+    ./scripts/cleanup_work.sh --yes --prune-renders >&2
+  fi
+}
+trap post_run_cleanup EXIT
+
 # Audit the capability inventory first so CI retains coverage evidence even when a later
 # expensive render fails. Incomplete coverage is deliberate until a human accepts each
 # representative output.

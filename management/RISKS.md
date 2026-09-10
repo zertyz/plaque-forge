@@ -76,7 +76,8 @@ Enforced `--precision fp32` determinism flags in `tools/segmentation_worker.py` 
 
 ### RISK-0005 -- Disk Exhaustion from Video Render Artifacts and Analysis Caches
 
-Status: Open
+Status: Closed (Mitigated)
+Closed: 2026-09-10
 Owner: Operations
 Related: `O.AstSto.02`, `ON.AstSto.02-001`
 
@@ -87,4 +88,4 @@ Impact:
 Failed CI builds due to disk-full errors; degraded build cache performance.
 
 Mitigation:
-Incorporate automated cleanup via `scripts/cleanup_work.sh` into CI post-run steps, retaining only structured JSON summaries and regression diff images.
+Implemented `--prune-renders` in `scripts/cleanup_work.sh` (`ON.AstSto.02-001`), safely pruning ephemeral `.hevc.mkv` and `.mkv` files while preserving structured JSON test summaries (`*.homologation.json`, `homologation-coverage.json`), manifests, and regression diff images. Added automated post-run cleanup hooks in `scripts/check_homologated_assets.sh` (`--cleanup` / `PLAQUE_FORGE_CI_CLEANUP=1`), verified via unit and integration tests in `tests/cli_workflows.rs`.

@@ -231,3 +231,82 @@ fn scene_trajectories_round_trip_cleanly() {
         }
     }
 }
+
+#[test]
+fn cleanup_work_prunes_renders_and_preserves_test_summaries() {
+    let root = repository_root();
+    let cleanup_script = root.join("scripts/cleanup_work.sh");
+    assert!(cleanup_script.is_file(), "cleanup_work.sh missing");
+
+    let test_output = support::temp_root("cleanup-work-test");
+    let regressions = test_output.join("regressions");
+    fs::create_dir_all(&regressions).expect("failed to create output/regressions");
+
+    // Create mock intermediate render MKV
+    let mkv_path = test_output.join("16_9_test_scene.hevc.mkv");
+    fs::write(&mkv_path, b"mock hevc video data of significant size")
+        .expect("failed to write mock mkv");
+
+    // Create mock structured test reports and diffs that MUST be preserved
+    let report_path = test_output.join("16_9_test_scene.homologation.json");
+    fs::write(&report_path, b"{\"passed\": true}").expect("failed to write mock report");
+
+    let trace_path = test_output.join("16_9_test_scene.hevc.decision-trace.json");
+    fs::write(&trace_path, b"{\"trace\": []}").expect("failed to write mock trace");
+
+    let manifest_path = test_output.join("16_9_test_scene.hevc.render-manifest.json");
+    fs::write(&manifest_path, b"{\"manifest\": true}").expect("failed to write mock manifest");
+
+    let coverage_path = test_output.join("homologation-coverage.json");
+    fs::write(&coverage_path, b"{\"coverage\": 1.0}").expect("failed to write mock coverage");
+
+    let mask_path = test_output.join("16_9_test_scene.hevc.text-mask.png");
+    fs::write(&mask_path, b"\x89PNG\r\n\x1a\n").expect("failed to write mock mask");
+
+    let diff_path = regressions.join("16_9_test_scene.diff.png");
+    fs::write(&diff_path, b"\x89PNG\r\n\x1a\n").expect("failed to write mock diff");
+
+    // 1. Dry run: should report 1 render to prune without deleting anything
+    let dry_run = Command::new("bash")
+        .arg(&cleanup_script)
+        .arg("--prune-renders")
+        .arg("--output")
+        .arg(&test_output)
+        .output()
+        .expect("failed to execute cleanup_work.sh dry run");
+    assert!(dry_run.status.success(), "dry run failed: {dry_run:?}");
+    let dry_stdout = String::from_utf8_lossy(&dry_run.stdout);
+    assert!(
+        dry_stdout.contains("ephemeral video renders to prune: 1"),
+        "unexpected dry run output: {dry_stdout}"
+    );
+    assert!(mkv_path.is_file(), "dry run must not delete mkv");
+    assert!(report_path.is_file(), "report missing after dry run");
+
+    // 2. Applied cleanup: deletes mkv but preserves json reports and diffs
+    let applied = Command::new("bash")
+        .arg(&cleanup_script)
+        .arg("--yes")
+        .arg("--prune-renders")
+        .arg("--output")
+        .arg(&test_output)
+        .output()
+        .expect("failed to execute cleanup_work.sh applied");
+    assert!(applied.status.success(), "applied cleanup failed: {applied:?}");
+    let applied_stdout = String::from_utf8_lossy(&applied.stdout);
+    assert!(
+        applied_stdout.contains("pruned 1 ephemeral render"),
+        "unexpected applied output: {applied_stdout}"
+    );
+
+    // Assert that the heavy MKV was pruned
+    assert!(!mkv_path.exists(), "intermediate mkv was not pruned");
+
+    // Assert that all structured JSON reports, manifests, masks, and regression diffs remain intact
+    assert!(report_path.is_file(), "homologation.json must be preserved");
+    assert!(trace_path.is_file(), "decision-trace.json must be preserved");
+    assert!(manifest_path.is_file(), "render-manifest.json must be preserved");
+    assert!(coverage_path.is_file(), "homologation-coverage.json must be preserved");
+    assert!(mask_path.is_file(), "text-mask.png must be preserved");
+    assert!(diff_path.is_file(), "regression diff.png must be preserved");
+}
