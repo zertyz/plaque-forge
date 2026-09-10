@@ -34,6 +34,7 @@ Traceability connects requirements, work items, implementation, and verification
 | `O.PyEnv.01` | `OR.PyEnv.01-001` | Started | [scripts/setup_segmentation.sh](file:///root/opencode/plaque-forge/scripts/setup_segmentation.sh); generating pinned lockfile |
 | `O.AstSto.01` | `ON.AstSto.01-001` | Rolled Out | [scripts/check_analysis_cache.sh](file:///root/opencode/plaque-forge/scripts/check_analysis_cache.sh); verified 19 analysis caches |
 | `O.RelPkg.01` | `ON.RelPkg.01-001` | Rolled Out | [Cargo.toml](file:///root/opencode/plaque-forge/Cargo.toml), [src/media/bundled.rs](file:///root/opencode/plaque-forge/src/media/bundled.rs); [tests/embedded_media.rs](file:///root/opencode/plaque-forge/tests/embedded_media.rs) |
+| `O.HwEnv.02` | `ON.HwEnv.02-001` | Rolled Out | [tools/segmentation_worker.py](file:///root/opencode/plaque-forge/tools/segmentation_worker.py), [tools/segmentation-worker](file:///root/opencode/plaque-forge/tools/segmentation-worker); [tools/test_segmentation_worker_quality.py](file:///root/opencode/plaque-forge/tools/test_segmentation_worker_quality.py), [scripts/compare_segmentation_devices.sh](file:///root/opencode/plaque-forge/scripts/compare_segmentation_devices.sh) |
 
 
 ## Unmapped Requirement Areas
@@ -42,7 +43,6 @@ The following requirement areas represent acknowledged forward capabilities whos
 1. `P.VisFid.03` -- Dynamic scene illumination adaptation.
 2. `P.OccPrs.03` -- Multi-layer shadow casting and complex depth layering.
 3. `E.Trk.01` -- Extreme motion blur homography recovery.
-4. `O.HwEnv.02` -- Strict cross-device FP32 determinism enforcement.
 
 
 ## Evidence Rules

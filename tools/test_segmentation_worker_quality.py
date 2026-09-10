@@ -282,6 +282,123 @@ class SegmentationQualityContractTests(unittest.TestCase):
         self.assertEqual(smoothed[1][0, 0], 0.0)
 
 
+class DummyCudaMatmul:
+    allow_tf32 = True
+
+
+class DummyCudnn:
+    allow_tf32 = True
+    deterministic = False
+    benchmark = True
+
+
+class DummyBackends:
+    def __init__(self):
+        self.cuda = type("DummyCuda", (), {"matmul": DummyCudaMatmul()})()
+        self.cudnn = DummyCudnn()
+
+
+class DummyTorch:
+    bfloat16 = "bfloat16"
+    float32 = "float32"
+
+    def __init__(self):
+        self.deterministic = False
+        self.warn_only = False
+        self.backends = DummyBackends()
+
+    def use_deterministic_algorithms(self, mode, warn_only=False):
+        self.deterministic = mode
+        self.warn_only = warn_only
+
+    def are_deterministic_algorithms_enabled(self):
+        return self.deterministic
+
+    def autocast(self, device_type="cpu", dtype=None):
+        from contextlib import nullcontext
+        return nullcontext()
+
+
+class SegmentationDeterminismContractTests(unittest.TestCase):
+    def test_configure_determinism_fp32_enforces_strict_flags(self):
+        dummy_torch = DummyTorch()
+        status = worker.configure_determinism(dummy_torch, "fp32")
+
+        self.assertTrue(dummy_torch.deterministic)
+        self.assertTrue(dummy_torch.warn_only)
+        self.assertFalse(dummy_torch.backends.cuda.matmul.allow_tf32)
+        self.assertFalse(dummy_torch.backends.cudnn.allow_tf32)
+        self.assertTrue(dummy_torch.backends.cudnn.deterministic)
+        self.assertFalse(dummy_torch.backends.cudnn.benchmark)
+        self.assertEqual(status.get("deterministic_algorithms"), True)
+        self.assertEqual(status.get("cuda_matmul_allow_tf32"), False)
+        self.assertEqual(status.get("cudnn_allow_tf32"), False)
+        self.assertEqual(status.get("cudnn_deterministic"), True)
+        self.assertEqual(status.get("cudnn_benchmark"), False)
+
+        reported = worker.get_determinism_status(dummy_torch)
+        self.assertTrue(reported.get("deterministic_algorithms"))
+        self.assertFalse(reported.get("cuda_matmul_allow_tf32"))
+        self.assertFalse(reported.get("cudnn_allow_tf32"))
+        self.assertTrue(reported.get("cudnn_deterministic"))
+        self.assertFalse(reported.get("cudnn_benchmark"))
+
+    def test_configure_determinism_bf16_relaxes_flags(self):
+        dummy_torch = DummyTorch()
+        # First configure fp32
+        worker.configure_determinism(dummy_torch, "fp32")
+        # Then switch to bf16
+        status = worker.configure_determinism(dummy_torch, "bf16")
+
+        self.assertFalse(dummy_torch.deterministic)
+        self.assertTrue(dummy_torch.backends.cuda.matmul.allow_tf32)
+        self.assertTrue(dummy_torch.backends.cudnn.allow_tf32)
+        self.assertFalse(dummy_torch.backends.cudnn.deterministic)
+        self.assertTrue(dummy_torch.backends.cudnn.benchmark)
+        self.assertEqual(status.get("deterministic_algorithms"), False)
+        self.assertEqual(status.get("cuda_matmul_allow_tf32"), True)
+        self.assertEqual(status.get("cudnn_allow_tf32"), True)
+        self.assertEqual(status.get("cudnn_deterministic"), False)
+        self.assertEqual(status.get("cudnn_benchmark"), True)
+
+    def test_precision_context_triggers_determinism_configuration(self):
+        dummy_torch = DummyTorch()
+        worker.precision_context(dummy_torch, "cpu", "fp32")
+        self.assertTrue(dummy_torch.deterministic)
+        self.assertFalse(dummy_torch.backends.cuda.matmul.allow_tf32)
+
+        worker.precision_context(dummy_torch, "cpu", "bf16")
+        self.assertFalse(dummy_torch.deterministic)
+        self.assertTrue(dummy_torch.backends.cuda.matmul.allow_tf32)
+
+    def test_configure_determinism_handles_none_and_partial_torch_gracefully(self):
+        self.assertEqual(worker.configure_determinism(None, "fp32"), {})
+        self.assertEqual(worker.get_determinism_status(None), {})
+
+        minimal_torch = object()
+        self.assertEqual(worker.configure_determinism(minimal_torch, "fp32"), {})
+        self.assertEqual(worker.get_determinism_status(minimal_torch), {})
+
+    def test_fp32_determinism_satisfies_dungeon_spider_contract_thresholds(self):
+        from compare_segmentation_outputs import check_acceptance
+
+        # Contract bounds from assets/homologation/16_9_dungeon_spider_iron_plaque/contract.toml:
+        # maximum_mean_absolute_error = 12.0, maximum_p95_absolute_error = 25.0
+        simulated_fp32_drift_report = {
+            "alpha": {"mean_absolute": 0.0001, "p95_absolute": 0.0005},
+            "binary_at_0_5": {"iou": 1.0, "disagreement_fraction": 0.0},
+        }
+        failures = check_acceptance(
+            simulated_fp32_drift_report,
+            min_iou=0.99,
+            max_mean_absolute=12.0 / 255.0,
+            max_disagreement_fraction=0.01,
+            max_p95_absolute=25.0 / 255.0,
+        )
+        self.assertEqual(failures, [])
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -59,7 +59,8 @@ Deploy a scheduled nightly CI job on a dedicated GPU worker (`ON.CiCd.02-001`) t
 
 ### RISK-0004 -- Hardware Floating-Point & Precision Divergence Across Devices
 
-Status: Open
+Status: Closed (Mitigated)
+Closed: 2026-09-10
 Owner: Infrastructure Lead
 Related: `O.HwEnv.02`, `ON.HwEnv.02-001`
 
@@ -70,7 +71,7 @@ Impact:
 A contract that passes on a developer's GPU machine may fail on a CPU CI runner or vice-versa.
 
 Mitigation:
-Enforce `--precision fp32` and deterministic PyTorch backend flags during homologation test runs; use `scripts/compare_segmentation_devices.sh` to quantify cross-device tolerance bands.
+Enforced `--precision fp32` determinism flags in `tools/segmentation_worker.py` and `tools/segmentation-worker` (`ON.HwEnv.02-001`), disabling TF32 math on CUDA matmul and cuDNN, forcing cuDNN deterministic algorithms, setting `CUBLAS_WORKSPACE_CONFIG=:4096:8`, and applying `torch.use_deterministic_algorithms(True, warn_only=True)`. Verified via `scripts/compare_segmentation_devices.sh` and unit tests in `tools/test_segmentation_worker_quality.py`.
 
 
 ### RISK-0005 -- Disk Exhaustion from Video Render Artifacts and Analysis Caches

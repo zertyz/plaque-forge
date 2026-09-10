@@ -233,6 +233,7 @@ def requested_precision(request):
 
 
 def precision_context(torch, device, precision):
+    configure_determinism(torch, precision)
     if precision == "fp32":
         return nullcontext()
     if precision != "bf16":
@@ -258,6 +259,93 @@ def _get_torch():
         return torch
     except ImportError:
         return None
+
+
+def configure_determinism(torch=None, precision="fp32"):
+    """Enforce strict FP32 determinism flags on PyTorch backends.
+
+    In FP32 precision mode (the default for contracts, homologation, and CI),
+    disables TF32 math on CUDA matmul and cuDNN, forces cuDNN deterministic
+    algorithms, and enables torch.use_deterministic_algorithms.
+    In BF16 precision mode, allows accelerated non-deterministic algorithm selection.
+    """
+    if torch is None:
+        torch = _get_torch()
+    if torch is None:
+        return {}
+
+    is_fp32 = (precision == "fp32")
+
+    if is_fp32:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
+    status = {}
+
+    if hasattr(torch, "use_deterministic_algorithms"):
+        try:
+            torch.use_deterministic_algorithms(is_fp32, warn_only=True)
+            status["deterministic_algorithms"] = is_fp32
+        except TypeError:
+            try:
+                torch.use_deterministic_algorithms(is_fp32)
+                status["deterministic_algorithms"] = is_fp32
+            except Exception:
+                status["deterministic_algorithms"] = False
+        except Exception:
+            status["deterministic_algorithms"] = False
+
+    backends = getattr(torch, "backends", None)
+    if backends is not None:
+        cuda = getattr(backends, "cuda", None)
+        if cuda is not None:
+            matmul = getattr(cuda, "matmul", None)
+            if matmul is not None and hasattr(matmul, "allow_tf32"):
+                matmul.allow_tf32 = not is_fp32
+                status["cuda_matmul_allow_tf32"] = matmul.allow_tf32
+
+        cudnn = getattr(backends, "cudnn", None)
+        if cudnn is not None:
+            if hasattr(cudnn, "allow_tf32"):
+                cudnn.allow_tf32 = not is_fp32
+                status["cudnn_allow_tf32"] = cudnn.allow_tf32
+            if hasattr(cudnn, "deterministic"):
+                cudnn.deterministic = is_fp32
+                status["cudnn_deterministic"] = cudnn.deterministic
+            if hasattr(cudnn, "benchmark"):
+                cudnn.benchmark = not is_fp32
+                status["cudnn_benchmark"] = cudnn.benchmark
+
+    return status
+
+
+def get_determinism_status(torch=None):
+    """Query current PyTorch backend determinism and precision flags."""
+    if torch is None:
+        torch = _get_torch()
+    if torch is None:
+        return {}
+    status = {}
+    if hasattr(torch, "are_deterministic_algorithms_enabled"):
+        try:
+            status["deterministic_algorithms"] = torch.are_deterministic_algorithms_enabled()
+        except Exception:
+            pass
+    backends = getattr(torch, "backends", None)
+    if backends is not None:
+        cuda = getattr(backends, "cuda", None)
+        if cuda is not None:
+            matmul = getattr(cuda, "matmul", None)
+            if matmul is not None and hasattr(matmul, "allow_tf32"):
+                status["cuda_matmul_allow_tf32"] = matmul.allow_tf32
+        cudnn = getattr(backends, "cudnn", None)
+        if cudnn is not None:
+            if hasattr(cudnn, "allow_tf32"):
+                status["cudnn_allow_tf32"] = cudnn.allow_tf32
+            if hasattr(cudnn, "deterministic"):
+                status["cudnn_deterministic"] = cudnn.deterministic
+            if hasattr(cudnn, "benchmark"):
+                status["cudnn_benchmark"] = cudnn.benchmark
+    return status
 
 
 def accelerator_peak_mib(device):
@@ -337,6 +425,9 @@ def record_stage(stage, device, precision, seconds, *, cache_hit=False, note=Non
 
 def run_component(name, requested, operation, *, precision="fp32", allow_xpu=True):
     failures = []
+    torch = _get_torch()
+    if torch is not None:
+        configure_determinism(torch, precision)
     for device in device_candidates(requested, allow_xpu=allow_xpu):
         try:
             reset_accelerator_peak(device)
@@ -2153,6 +2244,7 @@ def verify_runtime():
     print(f"[verify] Python: {sys.version.split()[0]}", file=sys.stderr)
     print(f"[verify] PyTorch: {torch.__version__}", file=sys.stderr)
     print(f"[verify] Intel XPU available: {xpu_available(torch)}", file=sys.stderr)
+    print(f"[verify] FP32 determinism: {configure_determinism(torch, 'fp32')}", file=sys.stderr)
 
     # Verification runs offline: these calls prove setup cached every required snapshot.
     for repo_id, revision in MODEL_REVISIONS.items():
@@ -2303,20 +2395,24 @@ def process_request(request_path, output_path):
     request_path = Path(request_path)
     output_path = Path(output_path)
     request = json.loads(request_path.read_text(encoding="utf-8"))
+    precision = requested_precision(request)
+    torch = _get_torch()
+    det_status = configure_determinism(torch, precision) if torch is not None else {}
     runtime_log(
         "started",
         backend=request.get("backend"),
         model=request.get("model"),
         requested_device=request.get("device", "auto"),
         profile=request.get("plan", {}).get("profile"),
-        precision=request.get("plan", {}).get("precision"),
+        precision=precision,
+        determinism=det_status,
         source_sha256=request.get("source", {}).get("sha256"),
         source_name=Path(request.get("source", {}).get("path", "source")).name,
     )
     print(
         f"[ml] Python worker active: pid={os.getpid()}, backend={request.get('backend')}, "
         f"model={request.get('model')}, profile={request.get('plan', {}).get('profile')}, "
-        f"precision={request.get('plan', {}).get('precision')}, "
+        f"precision={precision}, determinism={det_status.get('deterministic_algorithms', False)}, "
         f"requested_device={request.get('device', 'auto')}",
         file=sys.stderr,
         flush=True,
@@ -2335,7 +2431,6 @@ def process_request(request_path, output_path):
     size = (request["source"]["width"], request["source"]["height"])
     semantic_backend = sealed_plan.get("semantic_backend")
     requested_device = request.get("device", "auto")
-    precision = requested_precision(request)
     if semantic_backend == "matanyone2":
         (probabilities, version), device = run_component(
             "MatAnyone2",

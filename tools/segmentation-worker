@@ -19,6 +19,7 @@ export TMPDIR="$root/tmp"
 export PYTHONUNBUFFERED=1
 export PLAQUE_FORGE_PYTHON_ROOT="$root"
 export PLAQUE_FORGE_RUNTIME_MANIFEST="$root/runtime-manifest.json"
+export CUBLAS_WORKSPACE_CONFIG="${CUBLAS_WORKSPACE_CONFIG:-:4096:8}"
 
 printf '[ml] Python exec: pid=%d, python=%s, runtime=%s\n' "$$" "$root/venv/bin/python" "$root" >&2
 
