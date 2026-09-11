@@ -1,5 +1,7 @@
 # Text effects
 
+Current styles and schema. Typography requirements: [Product](../management/PRODUCT.md#p-007-typography-and-effects).
+
 Plaque Forge keeps text effects downstream of scene analysis. Changing a font, material,
 animation, or plaque-surface treatment does **not** invalidate tracking/extraction caches.
 

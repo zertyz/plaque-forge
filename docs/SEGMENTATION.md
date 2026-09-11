@@ -1,5 +1,7 @@
 # Segmentation strategy
 
+Current model/profile implementation. Qualification and promotion requirements: [Operations](../management/OPERATIONS.md#o-004-model-and-runtime-promotion). Existing defaults are not evidence that the best available tools or settings have been selected.
+
 Plaque Forge treats **model choice**, **execution device**, and **numeric precision** as separate contracts. Rust owns the strategy; Python executes the sealed plan and records the exact plan hash in generated-layer provenance.
 
 ## Profiles

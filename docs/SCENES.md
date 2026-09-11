@@ -1,8 +1,11 @@
 # Scene contract
 
-`assets/scenes/<asset>/scene.toml` records authored artistic intent. It does not
-contain analyzer conclusions, propagated masks, dense generated trajectories, or
-quality scores.
+Current scene format and consumers. Required meaning, including conflict handling and expanded surfaces: [Product](../management/PRODUCT.md#p-003-scene-meaning).
+
+`assets/scenes/<asset>/scene.toml` records authored intent and references supplied
+masks or trajectories. Some examples contain complete reviewed motion inputs;
+these remain assistance even when originally generated. Reproducible analysis
+caches live separately under `assets/analysis/`.
 
 ```toml
 format = "plaque-forge.scene/1"

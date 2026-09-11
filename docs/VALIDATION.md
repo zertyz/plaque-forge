@@ -1,5 +1,7 @@
 # Validation
 
+Current verifier behavior. Required visual fidelity and independent evidence: [Acceptance](../management/ACCEPTANCE.md). Existing scores do not establish compliance with that complete protocol.
+
 Run the code gate:
 
 ```bash

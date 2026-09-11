@@ -1,5 +1,7 @@
 # Filesystem safety
 
+Current filesystem behavior. Ownership and recovery requirements: [Operations](../management/OPERATIONS.md#o-001-owned-data-and-transactions).
+
 Plaque Forge treats source videos, scenes, and analysis caches as different classes of data.
 
 ## Render

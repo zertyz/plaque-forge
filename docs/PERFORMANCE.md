@@ -1,5 +1,7 @@
 # Performance assessment
 
+Historical measurements and implementation notes. Quality and required coverage remain governed by [Engineering](../management/ENGINEERING.md#e-009-controlled-improvement) and [Operations](../management/OPERATIONS.md#o-005-required-validation-coverage).
+
 Performance work is intentionally split from outcome-quality work. This pass audited every expensive boundary but changed only implementations whose semantics are equivalent and easy to verify.
 
 ## Cheap improvements already applied

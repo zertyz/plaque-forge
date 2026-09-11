@@ -1,5 +1,7 @@
 # Workflows
 
+Current commands and workflows. Required behavior: [Product](../management/PRODUCT.md) and [Operations](../management/OPERATIONS.md).
+
 The README is the normal path. This document contains lower-level and exceptional operations.
 
 ## High-level analysis
