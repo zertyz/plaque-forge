@@ -1,5 +1,7 @@
 # Bundled media
 
+Current packaging behavior. Delivery requirements: [Product](../management/PRODUCT.md#p-012-usable-delivery).
+
 `bundle-media` is a Cargo feature that embeds Plaque Forge's media inside the
 binary itself. A bundled binary lists and renders from its internal data plus
 the workstation's installed fonts; a normal build reads everything from a
@@ -36,7 +38,7 @@ Curated fonts always lead their listing, one per line in
 | `assets/plaques/**` | yes | standalone plaques with catalog metadata |
 | curated fonts | yes | pinned files verbatim; family patterns resolved at build time via `fc-match`, SHA-256 recorded as provenance |
 | `assets/homologation/**` | **no** | acceptance evidence stays an on-disk, CI-gated responsibility over validated sources; `homologate` therefore requires a checkout |
-| ffmpeg/ffprobe binaries, OpenCV libraries, Python ML worker and models | **impossible** | external runtime dependencies; bundled builds still require them installed |
+| ffmpeg/ffprobe binaries, OpenCV libraries, Python ML worker and models | no | external dependencies; install the prerequisites needed by the selected workflow |
 
 ## Curated font format (`styles/curated_fonts`)
 

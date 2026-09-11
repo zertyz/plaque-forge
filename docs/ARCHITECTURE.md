@@ -1,5 +1,7 @@
 # Architecture
 
+Implementation reference. Architectural policy: [Engineering](../management/ENGINEERING.md#e-003-replaceable-components).
+
 ## Pipeline
 
 ```text

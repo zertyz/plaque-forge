@@ -2,21 +2,25 @@
 
 [![CI](https://github.com/zertyz/plaque-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/zertyz/plaque-forge/actions/workflows/ci.yml)
 
-Plaque Forge replaces or adds artistic title text on moving video surfaces while preserving camera/surface motion and objects that cross in front of the title.
+Plaque Forge is a POC for adding artistic title text to moving video surfaces while preserving surface motion and foreground objects.
+
+Its mission is to support unfamiliar videos with stable accepted quality and decreasing human correction effort. The supplied assets are examples. [Management](management/README.md) defines the requirements, engineering policy, and planned work, including broader capabilities not yet implemented.
 
 A **writing surface** may be a rectangle, rounded plaque, circle/ellipse, polygon, irregular mask, or an injected transparent PNG. Plaque Forge does as much as it can automatically before asking for small human corrections.
 
 Normal use is:
+
  - For your own set of videos: **setup once → analyze once → render many → review**.
- - For the provided videos: **render many** -- analysis and review were already made for the example videos.
+ - For the provided videos: **render many** using supplied scene inputs and cached analysis. [Acceptance coverage](docs/HOMOLOGATION.md#capability-coverage) records which behaviors have regression contracts.
 
 ## Features
+
 * [X] Multiple configurable text styles:
  * [X] In/Out Animations: fade, dissolve, ...
  * [X] Loop Animations: shine, rotate, pulse, ...
  * [X] Textures: golden, ...
  * [X] ... more
-* [X] Compile flag to bundle all the needed media, styles, analysis, and selected fonts in the binary -- creating a portable deployment without the need for any installation.
+* [X] Optional bundling of media, styles, analysis, and selected fonts; external runtime prerequisites still apply.
 
 ## Sample output
 
@@ -27,7 +31,7 @@ Rendered with one command per style — golden shine for real plaques, classic g
 | [![Classic glow over a text-free digital waterfall](docs/media/16_9_background_digifall.classic-glow.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Golden shine on a mountainside plaque under a cloudy sky](docs/media/16_9_mountain_top_day_hummingbird_cloudy_plaque.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
 | [![Foreground chains crossing the rendered title](docs/media/16_9_scrapyard_iron_plaque_foreground_chains.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) | [![Golden shine on a wooden plaque](docs/media/16_9_swamp_wooden_plaque.gold-shine.webp)](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) |
 
-The [sample videos release](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) carries the full set — every bundled asset in both aspect families, plus browser-friendly MP4 previews — regenerated automatically by CI whenever a push to `main` may change rendered output. Each video there was machine-verified against its analysis cache before publication.
+The [sample videos release](https://github.com/zertyz/plaque-forge/releases/tag/sample_videos) contains generated examples and browser-friendly previews, refreshed by output-affecting pushes to `main`. Current pre-publication verification covers selected lossless renders; it does not certify every published delivery encoding. See [CI coverage](docs/CI.md#sample-video-producer).
 
 ## 1. Install prerequisites
 
@@ -51,7 +55,7 @@ Everything Python/model-related lives under **`/tmp/plaque-forge-python`**, incl
 
 Plaque Forge requires Rust, FFmpeg/FFprobe, OpenCV, Clang, fontconfig, and the Noto fonts. Production rendering uses the font file selected by `--font` (or resolved by `--font-family` in the helper scripts); when neither is given, the helper scripts default to the repository-pinned `fonts/NotoSerif-Regular.ttf`, which deterministic text-mask tests and homologation also use. The optional worker uses a setup-managed Python 3.10 environment with exact package, source-commit, and model-revision identities.
 
-> The authoritative, continuously-validated dependency set is the `code-gate` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (its install step). That workflow is the real source of truth; the command above is a convenience summary and may lag behind it.
+> The `code-gate` install step in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) records CI's current dependencies. The command above is a convenience summary. Required dependency-check behavior is defined in [Security](management/SECURITY.md#s-003-dependency-checks-and-exceptions).
 
 ## 2. Analyze once
 
@@ -110,8 +114,9 @@ See [Text effects](docs/TEXT_EFFECTS.md) for the exact capability matrix and sty
 
 ## 4. Protect homologated outputs
 
-Human-accepted outputs can carry executable regression contracts. Run the representative
-visual integration gate with:
+The current implementation uses sparse executable regression contracts. The target
+[frozen homologation and reconstruction protocol](management/ACCEPTANCE.md) is planned work.
+Run the existing representative visual integration gate with:
 
 ```bash
 ./scripts/check_homologated_assets.sh
@@ -168,7 +173,7 @@ Generated manifests use only portable relative paths. Incompatible caches are re
 
 ## Self-contained builds
 
-Everything in this section is inert unless you opt in: `plaque-forge list` works from repository directories, and no media is compiled into the binary by default. With `--features bundle-media`, the source videos, analysis caches, scenes, styles, plaques, textures, and the curated fonts are linked into a single self-sufficient binary (system fonts stay external). See [Bundled media](docs/BUNDLING.md) for what is embedded, the curated font format, build cost, and limitations.
+Everything in this section is inert unless you opt in: `plaque-forge list` works from repository directories, and no media is compiled into the binary by default. With `--features bundle-media`, the source videos, analysis caches, scenes, styles, plaques, textures, and the curated fonts are linked into one binary; system libraries/tools and unbundled fonts remain external. See [Bundled media](docs/BUNDLING.md) for what is embedded, the curated font format, build cost, and limitations.
 
 ## Repository map
 
@@ -179,11 +184,12 @@ tools/                       optional external-tool adapters
 styles/                      reusable typography/material/effect programs + curated font list
 assets/*.mp4                 source videos
 assets/plaques/              reusable injected plaque images
-assets/scenes/<name>/        sparse human intent + small reviewed source masks
+assets/scenes/<name>/        human intent + supplied masks and reviewed motion
 assets/analysis/<name>/      generated, reproducible scene cache (never human intent)
 assets/homologation/<name>/   reviewed regression contracts + sparse visual evidence
 output/                      rendered videos and quality-report index
-docs/                        architecture and advanced workflows (bundling: docs/BUNDLING.md)
+management/                  authoritative requirements, policies, decisions, and work items
+docs/                        implementation, usage, and assessment references
 ```
 
 The project, including its bundled assets, is MIT-licensed. More detail: [Glossary](docs/GLOSSARY.md) · [Architecture](docs/ARCHITECTURE.md) · [Scenes](docs/SCENES.md) · [Workflows](docs/WORKFLOWS.md) · [Validation](docs/VALIDATION.md) · [Homologation](docs/HOMOLOGATION.md) · [Performance](docs/PERFORMANCE.md) · [Security](docs/SECURITY.md) · [Safety](docs/SAFETY.md) · [Continuous integration](docs/CI.md) · [Segmentation strategy](docs/SEGMENTATION.md) · [Bundled media](docs/BUNDLING.md).

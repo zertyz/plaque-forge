@@ -1,5 +1,7 @@
 # Homologated output regression protection
 
+Current sparse-contract implementation. The [acceptance protocol](../management/ACCEPTANCE.md) adds frozen resolved scenes, lossless references, and fresh reconstruction. Existing contracts remain binding until human-reviewed successors replace them.
+
 A **homologation contract** records behavior that a human has already accepted and that
 future internal changes are expected to preserve. It is deliberately narrower than a
 pixel-perfect golden video: the contract stores stable scene geometry, typography
@@ -68,9 +70,11 @@ and retracting portrait occlusion each have one accepted sentinel.
 
 ## Adding a new homologated case
 
+These steps describe the existing sparse format. Approval and future complete-baseline capture follow [A-007](../management/ACCEPTANCE.md#a-007-establishment-and-promotion).
+
 1. Reach an output that has been visually reviewed and explicitly accepted.
 2. Write the smallest contract that captures the behavior that must not regress.
-3. Prefer invariants and sparse reviewed witnesses over a whole-video golden comparison.
+3. Capture the invariants and sparse reviewed witnesses supported by this format; they supplement the complete references required by the new protocol.
 4. For foreground crossings, choose a few representative frames and masks covering the
    pixels whose depth ordering matters. For porous material, pair source-preservation masks
    on material with title-visibility masks in reviewed gaps.

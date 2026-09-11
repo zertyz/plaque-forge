@@ -1,5 +1,7 @@
 # Continuous integration
 
+Current workflow implementation. [Operations](../management/OPERATIONS.md#o-005-required-validation-coverage) requires every accepted contract before output-affecting merges; the smaller suite below is an open gap tracked by [WI-023](../management/OPERATIONS.backlog.md#wi-023-define-and-enforce-visual-ci-coverage).
+
 Plaque Forge separates **validation** from **generated-artifact production**. Ordinary push/PR CI must answer whether the checked-in commit is acceptable; it should not silently change the commit it is evaluating.
 
 ## Change scope
@@ -59,7 +61,7 @@ The producer is manual by default. Enable automatic invocation only after choosi
 
 - rendering runs read-only under `contents: read`; only the separate publish job holds narrow `contents: write`;
 - the render job uploads only the publishable set (delivery videos, showcase previews, sentinel verification reports); the bulky lossless validation renders stay on the runner;
-- acceptance (per-asset verification) completes before anything is published;
+- the selected lossless verification checks complete before publication; their reports identify those intermediates, not every delivery video or preview;
 - release notes record the exact source commit and producing run;
 - browser-friendly MP4 previews of representative assets accompany the full HEVC set so the README can stay lightweight.
 

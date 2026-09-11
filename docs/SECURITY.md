@@ -1,8 +1,10 @@
-# Security policy
+# Security implementation and reporting
 
-## Supported version
+Current controls and recorded exceptions. Normative requirements: [Security](../management/SECURITY.md).
 
-Security fixes target the current `main` branch and the newest Plaque Forge release. Please report a suspected vulnerability privately to the project maintainers before publishing exploit details. Do not include private media, model credentials, or workstation paths in a public issue.
+## Reporting
+
+Follow [S-004](../management/SECURITY.md#s-004-security-reporting). Report privately to the maintainer through GitHub's private vulnerability reporting when enabled, or an established private contact. Do not publish sensitive details merely because a private reporting route is unavailable.
 
 ## Automated dependency gate
 
@@ -13,13 +15,13 @@ cargo install cargo-audit --version 0.22.2 --locked
 ./scripts/audit_dependencies.sh
 ```
 
-The scan requires network access to refresh the advisory database. Pinning the scanner version makes CI behavior reviewable; the advisory database itself intentionally remains current.
+The scan refreshes the advisory database over the network. The local command specifies `cargo-audit 0.22.2`, but the current CI install omits `--version`. [WI-030](../management/SECURITY.backlog.md#wi-030-resolve-audit-policy-and-exception-drift) tracks that mismatch; the new fail-with-remediation requirement is not yet fully enforced.
 
 ## Tracked upstream exception
 
-`RUSTSEC-2026-0192` marks `ttf-parser 0.25.1` as unmaintained. This is not a reported vulnerability, and the advisory lists no patched release. Plaque Forge receives it transitively through `cosmic-text 0.19 -> fontdb 0.23`. The audit command ignores only that exact notice while continuing to deny every other warning.
+The existing record identifies `RUSTSEC-2026-0192` as an unmaintained notice for `ttf-parser 0.25.1`, received through `cosmic-text 0.19 -> fontdb 0.23`, with no patched release listed at review. The audit helper ignores that exact notice. This is the recorded exception, not a fresh advisory assessment.
 
-The exception was reviewed on 2026-08-12. Remove it as soon as `cosmic-text` adopts a `fontdb` release that no longer depends on the unmaintained parser, or replace the typography stack after pixel- and layout-equivalence tests. Review it again on every `cosmic-text` update and no later than 2026-11-12.
+The recorded review date is 2026-08-12; the next review is due on each `cosmic-text` update and no later than 2026-11-12. Its stated removal condition is an upstream migration away from the parser or a pixel/layout-equivalent typography replacement. Reassessment and any amendment follow [S-003](../management/SECURITY.md#s-003-dependency-checks-and-exceptions); this documentation consolidation does not renew or remove the exception.
 
 ## Artifact and input boundaries
 
